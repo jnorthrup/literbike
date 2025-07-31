@@ -7,7 +7,6 @@ A lightweight, high-performance proxy server written in Rust, designed specifica
 - **Dual Protocol Support**: HTTP/HTTPS proxy on port 8080, SOCKS5 on port 1080
 - **Smart Routing**: Configurable ingress/egress interfaces for mobile data optimization
 - **Minimal Dependencies**: Pure Rust implementation with tokio async runtime
-- **Termux Optimized**: Works with Knox restrictions and rmnet interfaces
 - **Auto-configuration**: Includes proxy-bridge script for easy setup
 
 ## Installation
