@@ -1,0 +1,26 @@
+[package]
+name = "litebike-proxy"
+version = "0.1.0"
+edition = "2021"
+authors = ["jnorthrup"]
+description = "Lightweight proxy server with HTTP/HTTPS and SOCKS5 support for Termux"
+repository = "https://github.com/jnorthrup/litebike"
+license = "MIT"
+readme = "README.md"
+
+[[bin]]
+name = "litebike-proxy"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# No tokio, no async, no frameworks
+# Just raw speed

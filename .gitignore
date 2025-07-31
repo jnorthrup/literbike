@@ -1,0 +1,25 @@
+# Rust
+target/
+Cargo.lock
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries
+litebike-proxy
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Logs
+*.log
