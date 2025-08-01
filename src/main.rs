@@ -1,307 +1,397 @@
-// LiteBike Proxy - Minimal form, strong function
-// No frameworks, no abstractions, pure speed
+// LiteBike Proxy - Asynchronous Reactor Model
+// Final professional-grade version for non-root Termux on Android.
+// Built on the Tokio reactor for high performance and includes DoH and UPNP.
 
-use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write};
-use std::thread;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::str;
 use std::time::Duration;
-#[cfg(target_os = "linux")]
-use std::os::unix::io::AsRawFd;
+use std::io;
 
-// Hardcoded optimal configuration
+use env_logger::Env;
+use log::{debug, error, info, warn};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::OnceCell;
+use tokio::time::timeout;
+use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
+use trust_dns_resolver::TokioAsyncResolver;
+
+// --- Configuration ---
 const HTTP_PORT: u16 = 8080;
 const SOCKS_PORT: u16 = 1080;
-const BUFFER_SIZE: usize = 65536; // 64KB for maximum throughput
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const UPNP_LEASE_DURATION: u32 = 3600; // 1 hour
 
-// Bind to specific interface on Linux
-#[cfg(target_os = "linux")]
-fn bind_to_interface(stream: &TcpStream, interface: &str) {
-    unsafe {
-        let fd = stream.as_raw_fd();
-        let iface_bytes = interface.as_bytes();
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_BINDTODEVICE,
-            iface_bytes.as_ptr() as *const libc::c_void,
-            iface_bytes.len() as libc::socklen_t,
-        );
+// --- Asynchronous DNS-over-HTTPS (DoH) Resolver ---
+static DOH_RESOLVER: OnceCell<TokioAsyncResolver> = OnceCell::const_new();
+
+async fn get_doh_resolver() -> &'static TokioAsyncResolver {
+    DOH_RESOLVER.get_or_init(|| async {
+        let config = ResolverConfig::cloudflare_https();
+        let opts = ResolverOpts::default();
+        TokioAsyncResolver::tokio(config, opts)
+    }).await
+}
+
+/// Resolves a hostname to an IP address using the DoH resolver.
+async fn resolve_host(host: &str) -> io::Result<IpAddr> {
+    let resolver = get_doh_resolver().await;
+    let response = resolver.lookup_ip(host).await.map_err(|e| {
+        error!("DoH resolution failed for {}: {}", host, e);
+        io::Error::new(io::ErrorKind::NotFound, "Host not found")
+    })?;
+
+    response.iter().next().ok_or_else(|| {
+        error!("No IP address found for {}", host);
+        io::Error::new(io::ErrorKind::NotFound, "No IP address found")
+    })
+}
+
+/// Connects to a target address, resolving the hostname via DoH if necessary.
+async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
+    let (host, port_str) = match target.rsplit_once(':') {
+        Some((host, port)) => (host, port),
+        None => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid target format, missing port")),
+    };
+    
+    let port: u16 = port_str.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid port number"))?;
+
+    let ip_addr = resolve_host(host).await?;
+    let socket_addr = SocketAddr::new(ip_addr, port);
+
+    debug!("Connecting to {} -> {}", target, socket_addr);
+    match timeout(CONNECT_TIMEOUT, TcpStream::connect(socket_addr)).await {
+        Ok(Ok(stream)) => Ok(stream),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "Connection timed out")),
     }
 }
 
-// Ultra-fast stream copy with zero-copy where possible
-fn relay_streams(mut client: TcpStream, mut remote: TcpStream) {
-    let mut client2 = client.try_clone().unwrap();
-    let mut remote2 = remote.try_clone().unwrap();
-    
-    // Spawn reverse direction
-    thread::spawn(move || {
-        let mut buffer = vec![0u8; BUFFER_SIZE];
-        loop {
-            match remote2.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if client2.write_all(&buffer[..n]).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    
-    // Forward direction
-    let mut buffer = vec![0u8; BUFFER_SIZE];
-    loop {
-        match client.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => {
-                if remote.write_all(&buffer[..n]).is_err() {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
+/// Relays data between two streams efficiently.
+async fn relay_streams<S1, S2>(mut client: S1, mut remote: S2) -> io::Result<()>
+where
+    S1: AsyncRead + AsyncWrite + Unpin,
+    S2: AsyncRead + AsyncWrite + Unpin,
+{
+    let (mut client_reader, mut client_writer) = tokio::io::split(&mut client);
+    let (mut remote_reader, mut remote_writer) = tokio::io::split(&mut remote);
+
+    let client_to_remote = tokio::io::copy(&mut client_reader, &mut remote_writer);
+    let remote_to_client = tokio::io::copy(&mut remote_reader, &mut client_writer);
+
+    tokio::select! {
+        res = client_to_remote => {
+            if let Err(e) = res { debug!("Error copying client to remote: {}", e); }
+        },
+        res = remote_to_client => {
+            if let Err(e) = res { debug!("Error copying remote to client: {}", e); }
+        },
     }
+    debug!("Relay streams finished.");
+    Ok(())
 }
 
-// Minimal HTTP CONNECT handler
-fn handle_http(mut stream: TcpStream) {
+// --- HTTP Handler ---
+async fn handle_http<S>(mut stream: S) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let mut buffer = [0u8; 4096];
-    
-    // Read request
-    let n = match stream.read(&mut buffer) {
-        Ok(n) => n,
-        Err(_) => return,
-    };
-    
-    let request = std::str::from_utf8(&buffer[..n]).unwrap_or("");
-    
-    // Extract host from CONNECT
-    if request.starts_with("CONNECT ") {
-        let parts: Vec<&str> = request.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let host = parts[1];
-            
-            // Connect to target
-            let target = if host.contains(':') {
-                host.to_string()
-            } else {
-                format!("{}:443", host)
-            };
-            
-            match TcpStream::connect_timeout(
-                &target.parse::<std::net::SocketAddr>()
-                    .or_else(|_| {
-                        // Try to resolve hostname
-                        use std::net::ToSocketAddrs;
-                        target.to_socket_addrs()?.next()
-                            .ok_or_else(|| std::io::Error::new(
-                                std::io::ErrorKind::InvalidInput, 
-                                "Failed to resolve host"
-                            ))
-                    })
-                    .unwrap_or_else(|_| std::net::SocketAddr::from(([127,0,0,1], 80))),
-                CONNECT_TIMEOUT,
-            ) {
+    let n = stream.read(&mut buffer).await?;
+    if n == 0 { return Ok(()); }
+
+    let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+    debug!("HTTP Request: {}", request_str);
+
+    if request_str.starts_with("CONNECT ") {
+        if let Some(host) = request_str.split_whitespace().nth(1) {
+            let target = if host.contains(':') { host.to_string() } else { format!("{}:443", host) };
+            match connect_to_target(&target).await {
                 Ok(remote) => {
-                    // Bind to egress interface if available
-                    #[cfg(target_os = "linux")]
-                    if let Ok(iface) = std::env::var("EGRESS_INTERFACE") {
-                        bind_to_interface(&remote, &iface);
-                    }
-                    
-                    // Send 200 OK
-                    let _ = stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n");
-                    
-                    // Relay data
-                    relay_streams(stream, remote);
+                    info!("HTTP CONNECT to {}", target);
+                    stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
+                    relay_streams(stream, remote).await?;
                 }
-                Err(_) => {
-                    let _ = stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n");
+                Err(e) => {
+                    error!("Failed to connect to {}: {}", target, e);
+                    stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await?;
                 }
             }
         }
-    } else {
-        // Regular HTTP - parse and forward
-        if let Some(host_line) = request.lines().find(|l| l.starts_with("Host: ")) {
-            let host = host_line.strip_prefix("Host: ").unwrap_or("").trim();
+    } else if let Some(host_line) = request_str.lines().find(|l| l.to_lowercase().starts_with("host:")) {
+        if let Some(host) = host_line.split(':').nth(1).map(|s| s.trim()) {
             let target = format!("{}:80", host);
-            
-            if let Ok(mut remote) = TcpStream::connect_timeout(
-                &target.parse::<std::net::SocketAddr>()
-                    .or_else(|_| {
-                        use std::net::ToSocketAddrs;
-                        target.to_socket_addrs()?.next()
-                            .ok_or_else(|| std::io::Error::new(
-                                std::io::ErrorKind::InvalidInput,
-                                "Failed to resolve host"
-                            ))
-                    })
-                    .unwrap_or_else(|_| std::net::SocketAddr::from(([127,0,0,1], 80))),
-                CONNECT_TIMEOUT
-            ) {
-                #[cfg(target_os = "linux")]
-                if let Ok(iface) = std::env::var("EGRESS_INTERFACE") {
-                    bind_to_interface(&remote, &iface);
+            match connect_to_target(&target).await {
+                Ok(mut remote) => {
+                    info!("HTTP GET to {}", target);
+                    remote.write_all(&buffer[..n]).await?;
+                    relay_streams(stream, remote).await?;
                 }
-                
-                // Forward original request
-                let _ = remote.write_all(&buffer[..n]);
-                
-                // Relay streams
-                relay_streams(stream, remote);
+                Err(e) => error!("Failed to connect to {}: {}", target, e),
             }
         }
     }
+    Ok(())
 }
 
-// Minimal SOCKS5 handler
-fn handle_socks5(mut stream: TcpStream) {
-    let mut buffer = [0u8; 512];
-    
-    // Read version and methods
-    if stream.read_exact(&mut buffer[..2]).is_err() {
-        return;
+// --- SOCKS5 Handler ---
+async fn handle_socks5<S>(mut stream: S) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // 1. Handshake
+    let mut buf = [0u8; 2];
+    stream.read_exact(&mut buf).await?;
+    if buf[0] != 5 { return Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported SOCKS version")); }
+    let nmethods = buf[1] as usize;
+    let mut methods = vec![0u8; nmethods];
+    stream.read_exact(&mut methods).await?;
+
+    if !methods.contains(&0) {
+        stream.write_all(&[5, 0xFF]).await?; // No acceptable methods
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "No supported authentication methods"));
     }
-    
-    let nmethods = buffer[1] as usize;
-    if stream.read_exact(&mut buffer[..nmethods]).is_err() {
-        return;
+    stream.write_all(&[5, 0]).await?;
+
+    // 2. Request
+    let mut buf = [0u8; 4];
+    stream.read_exact(&mut buf).await?;
+    if buf[0] != 5 || buf[1] != 1 { // VER, CONNECT
+        stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]).await?; // Command not supported
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported SOCKS command"));
     }
-    
-    // No auth
-    if stream.write_all(&[5, 0]).is_err() {
-        return;
-    }
-    
-    // Read request
-    if stream.read_exact(&mut buffer[..4]).is_err() {
-        return;
-    }
-    
-    let cmd = buffer[1];
-    let atyp = buffer[3];
-    
-    if cmd != 1 { // Only CONNECT
-        let _ = stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]);
-        return;
-    }
-    
-    // Parse address
-    let addr = match atyp {
-        1 => { // IPv4
-            if stream.read_exact(&mut buffer[..6]).is_err() {
-                return;
-            }
-            let ip = format!("{}.{}.{}.{}", buffer[0], buffer[1], buffer[2], buffer[3]);
-            let port = u16::from_be_bytes([buffer[4], buffer[5]]);
-            format!("{}:{}", ip, port)
-        }
-        3 => { // Domain
-            if stream.read_exact(&mut buffer[..1]).is_err() {
-                return;
-            }
-            let len = buffer[0] as usize;
-            if stream.read_exact(&mut buffer[..len + 2]).is_err() {
-                return;
-            }
-            let domain = String::from_utf8_lossy(&buffer[..len]);
-            let port = u16::from_be_bytes([buffer[len], buffer[len + 1]]);
-            format!("{}:{}", domain, port)
-        }
-        _ => return,
-    };
-    
-    // Connect to target
-    match TcpStream::connect_timeout(
-        &addr.parse::<std::net::SocketAddr>()
-            .or_else(|_| {
-                use std::net::ToSocketAddrs;
-                addr.to_socket_addrs()?.next()
-                    .ok_or_else(|| std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "Failed to resolve host"
-                    ))
-            })
-            .unwrap_or_else(|_| std::net::SocketAddr::from(([127,0,0,1], 80))),
-        CONNECT_TIMEOUT
-    ) {
+
+    // 3. Address Parsing
+    let atyp = buf[3];
+    let target = read_socks_address(&mut stream, atyp).await?;
+
+    // 4. Connect and Relay
+    match connect_to_target(&target).await {
         Ok(remote) => {
-            #[cfg(target_os = "linux")]
-            if let Ok(iface) = std::env::var("EGRESS_INTERFACE") {
-                bind_to_interface(&remote, &iface);
-            }
-            
-            // Success response
-            let _ = stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
-            
-            // Relay
-            relay_streams(stream, remote);
-        }
-        Err(_) => {
-            let _ = stream.write_all(&[5, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
-        }
-    }
-}
-
-// Get IP address from interface name
-fn get_interface_ip(iface_name: &str) -> Option<String> {
-    use std::process::Command;
-    
-    let output = Command::new("ip")
-        .args(&["addr", "show", iface_name])
-        .output()
-        .ok()?;
-    
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    
-    // Parse IP from output like: "inet 192.168.1.100/24 brd..."
-    for line in stdout.lines() {
-        if line.contains("inet ") && !line.contains("inet6") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                // Extract IP without CIDR notation
-                if let Some(ip) = parts[1].split('/').next() {
-                    return Some(ip.to_string());
+            info!("SOCKS5 CONNECT to {}", target);
+            let local_addr = remote.local_addr().unwrap_or(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+            let mut resp = vec![5, 0, 0]; // VER, REP(Success), RSV
+            match local_addr {
+                SocketAddr::V4(addr) => {
+                    resp.push(1); resp.extend_from_slice(&addr.ip().octets()); resp.extend_from_slice(&addr.port().to_be_bytes());
+                }
+                SocketAddr::V6(addr) => {
+                    resp.push(4); resp.extend_from_slice(&addr.ip().octets()); resp.extend_from_slice(&addr.port().to_be_bytes());
                 }
             }
+            stream.write_all(&resp).await?;
+            relay_streams(stream, remote).await?;
+        }
+        Err(e) => {
+            error!("SOCKS5: Failed to connect to {}: {}", target, e);
+            stream.write_all(&[5, 1, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+            return Err(e);
         }
     }
-    None
+    Ok(())
 }
 
-fn main() {
-    // Get bind address from env or interface name
-    let bind_ip = if let Ok(iface) = std::env::var("INGRESS_INTERFACE") {
-        // Get IP from interface name
-        get_interface_ip(&iface).unwrap_or_else(|| "127.0.0.1".to_string())
-    } else {
-        std::env::var("BIND_IP").unwrap_or_else(|_| "127.0.0.1".to_string())
+async fn read_socks_address<S>(stream: &mut S, atyp: u8) -> io::Result<String>
+where
+    S: AsyncRead + Unpin,
+{
+    match atyp {
+        1 => { // IPv4
+            let mut buf = [0u8; 6];
+            stream.read_exact(&mut buf).await?;
+            let ip = Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3]);
+            let port = u16::from_be_bytes([buf[4], buf[5]]);
+            Ok(format!("{}:{}", ip, port))
+        }
+        3 => { // Domain Name
+            let mut len_buf = [0u8; 1];
+            stream.read_exact(&mut len_buf).await?;
+            let len = len_buf[0] as usize;
+            let mut domain_buf = vec![0u8; len];
+            stream.read_exact(&mut domain_buf).await?;
+            let mut port_buf = [0u8; 2];
+            stream.read_exact(&mut port_buf).await?;
+            let domain = String::from_utf8_lossy(&domain_buf);
+            let port = u16::from_be_bytes(port_buf);
+            Ok(format!("{}:{}", domain, port))
+        }
+        4 => { // IPv6
+            let mut buf = [0u8; 18];
+            stream.read_exact(&mut buf).await?;
+            let ip = std::net::Ipv6Addr::from([
+                buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+                buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
+            ]);
+            let port = u16::from_be_bytes([buf[16], buf[17]]);
+            Ok(format!("[{}]\n:{}", ip, port))
+        }
+        _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported address type")),
+    }
+}
+
+/// Gets the IPv4 address for a given network interface name.
+fn get_interface_ip(iface_name: &str) -> Option<IpAddr> {
+    pnet::datalink::interfaces().into_iter()
+        .find(|iface| iface.name == iface_name)
+        .and_then(|iface| iface.ips.into_iter().find(|ip| ip.is_ipv4()).map(|ip| ip.ip()))
+}
+
+/// Sets up UPNP port forwarding.
+async fn setup_upnp(local_ip: Ipv4Addr) {
+    info!("Attempting to configure UPNP...");
+    let gateway = match tokio::task::spawn_blocking(move || igd_next::search_gateway(Default::default())).await {
+        Ok(Ok(gw)) => gw,
+        Ok(Err(e)) => {
+            warn!("UPNP: Could not find gateway: {}. Manual port forwarding may be required.", e);
+            return;
+        }
+        Err(e) => {
+            warn!("UPNP: Task failed: {}", e);
+            return;
+        }
     };
     
-    // HTTP proxy thread
-    let http_addr = format!("{}:{}", bind_ip, HTTP_PORT);
-    thread::spawn(move || {
-        let listener = TcpListener::bind(&http_addr).expect("Failed to bind HTTP");
-        println!("HTTP proxy on {}", http_addr);
-        
-        for stream in listener.incoming() {
-            if let Ok(stream) = stream {
-                thread::spawn(move || handle_http(stream));
+    info!("UPNP Gateway found: {}", gateway.addr);
+    let http_addr = SocketAddr::new(IpAddr::V4(local_ip), HTTP_PORT);
+    if let Err(e) = gateway.add_port(igd_next::PortMappingProtocol::TCP, HTTP_PORT, http_addr, UPNP_LEASE_DURATION, "LiteBike-HTTP") {
+        warn!("UPNP: Failed to map HTTP port: {}", e);
+    } else {
+        info!("UPNP: Successfully mapped HTTP port {}", HTTP_PORT);
+    }
+
+    let socks_addr = SocketAddr::new(IpAddr::V4(local_ip), SOCKS_PORT);
+    if let Err(e) = gateway.add_port(igd_next::PortMappingProtocol::TCP, SOCKS_PORT, socks_addr, UPNP_LEASE_DURATION, "LiteBike-SOCKS5") {
+        warn!("UPNP: Failed to map SOCKS5 port: {}", e);
+    } else {
+        info!("UPNP: Successfully mapped SOCKS5 port {}", SOCKS_PORT);
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+    let bind_ip_str = if let Ok(iface) = std::env::var("INGRESS_INTERFACE") {
+        if let Some(ip) = get_interface_ip(&iface) {
+            ip.to_string()
+        } else {
+            "0.0.0.0".to_string()
+        }
+    } else {
+        std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
+    };
+    let bind_ip: IpAddr = bind_ip_str.parse().expect("Invalid BIND_IP address");
+
+    if !bind_ip.is_loopback() {
+        if let IpAddr::V4(ipv4) = bind_ip {
+            let local_ip_clone = ipv4;
+            tokio::spawn(async move {
+                setup_upnp(local_ip_clone).await;
+            });
+        }
+    }
+
+    let http_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT)).await.expect("Failed to bind HTTP");
+    info!("HTTP proxy listening on {}", http_listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            if let Ok((stream, _)) = http_listener.accept().await {
+                tokio::spawn(async move {
+                    if let Err(e) = handle_http(stream).await {
+                        debug!("HTTP handler error: {}", e);
+                    }
+                });
             }
         }
     });
-    
-    // SOCKS5 proxy
-    let socks_addr = format!("{}:{}", bind_ip, SOCKS_PORT);
-    let listener = TcpListener::bind(&socks_addr).expect("Failed to bind SOCKS5");
-    println!("SOCKS5 proxy on {}", socks_addr);
-    
-    for stream in listener.incoming() {
-        if let Ok(stream) = stream {
-            thread::spawn(move || handle_socks5(stream));
+
+    let socks_listener = TcpListener::bind(SocketAddr::new(bind_ip, SOCKS_PORT)).await.expect("Failed to bind SOCKS5");
+    info!("SOCKS5 proxy listening on {}", socks_listener.local_addr().unwrap());
+    loop {
+        if let Ok((stream, _)) = socks_listener.accept().await {
+            tokio::spawn(async move {
+                if let Err(e) = handle_socks5(stream).await {
+                    debug!("SOCKS5 handler error: {}", e);
+                }
+            });
         }
+    }
+}
+
+// --- Tests ---
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::ReadBuf;
+
+    // A simple mock stream that can be used for testing protocol logic.
+    // It reads from a predefined buffer and writes to another buffer.
+    struct MockStream {
+        reader: io::Cursor<Vec<u8>>,
+        writer: Vec<u8>,
+    }
+
+    impl AsyncRead for MockStream {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            std::pin::Pin::new(&mut self.reader).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for MockStream {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<io::Result<usize>> {
+            self.writer.extend_from_slice(buf);
+            std::task::Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_socks5_handshake_and_request_ipv4_failure() {
+        // This test simulates the SOCKS5 flow up to the point of connecting to the
+        // remote host, which we assume fails.
+        let mut request = vec![5, 1, 0]; // Handshake
+        request.extend_from_slice(&[5, 1, 0, 1]); // Request header (IPv4)
+        request.extend_from_slice(&[192, 0, 2, 1]); // TEST-NET-1 IP, should not be routable
+        request.extend_from_slice(&53u16.to_be_bytes()); // Port
+
+        let mut stream = MockStream {
+            reader: io::Cursor::new(request),
+            writer: Vec::new(),
+        };
+        
+        // We expect an error because `connect_to_target` will fail in a test environment
+        // without a real network. The handler should gracefully write a failure response.
+        let result = handle_socks5(&mut stream).await;
+        assert!(result.is_err());
+    }
+    
+    #[tokio::test]
+    async fn test_socks5_unsupported_auth() {
+        let request = vec![5, 1, 1]; // SOCKS5, 1 method, GSSAPI
+        let mut stream = MockStream {
+            reader: io::Cursor::new(request),
+            writer: Vec::new(),
+        };
+
+        let result = handle_socks5(&mut stream).await;
+        assert!(result.is_err());
+        
+        // Check that the correct "no acceptable methods" response was sent
+        assert_eq!(stream.writer, &[5, 0xFF]);
     }
 }
