@@ -4,9 +4,16 @@ A lightweight HTTP/HTTPS and SOCKS5 proxy server optimized for Termux on Android
 
 ## Installation
 
-1. Copy the `termux-package` directory to your Termux device
-2. In Termux, navigate to the directory: `cd termux-package`
-3. Run: `bash install.sh`
+### Option 1: Use Pre-built Binary
+1. Download and extract: `tar -xzf litebike-termux-arm64.tar.gz`
+2. Run: `bash install.sh`
+
+### Option 2: Build on Termux (Recommended)
+```bash
+curl -sL https://github.com/jnorthrup/litebike/raw/master/termux-package/build-on-termux.sh | bash
+```
+
+This builds natively on your device, avoiding cross-compilation issues.
 
 ## Usage
 
