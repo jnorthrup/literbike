@@ -1,6 +1,6 @@
 # Litebike Proxy
 
-A lightweight, high-performance proxy server written in Rust, designed specifically for Termux environments. Supports both HTTP/HTTPS and SOCKS5 protocols with intelligent network interface routing.
+A lightweight, high-performance proxy server written in Rust, designed for mobile and embedded environments. Supports both HTTP/HTTPS and SOCKS5 protocols with intelligent network interface routing.
 
 ## Features
 
@@ -71,7 +71,7 @@ See [scripts/proxy-bridge](scripts/proxy-bridge) for detailed usage.
 Litebike uses Tokio for async I/O and implements both HTTP CONNECT tunneling and SOCKS5 protocol handling in a single binary. The design prioritizes:
 
 1. **Performance**: Minimal overhead, efficient buffer management
-2. **Compatibility**: Works with Knox restrictions on Termux
+2. **Compatibility**: Works with mobile platform restrictions
 3. **Flexibility**: Configurable routing for complex network setups
 4. **Simplicity**: Single binary, no external dependencies
 

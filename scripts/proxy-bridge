@@ -34,7 +34,7 @@ detect_platform() {
 get_local_ip() {
     case $(detect_platform) in
         "termux")
-            # Parse ifconfig since Knox blocks /proc access
+            # Parse ifconfig for network interfaces
             ifconfig 2>/dev/null | grep -A 1 '^swlan0:' | grep 'inet ' | awk '{print $2}' || echo "192.168.111.176"
             ;;
         "macos")
@@ -136,7 +136,7 @@ start_server() {
     local egress_interface=""
     
     if [[ "$mode" == "rmnet" ]] || [[ "$mode" == "precision" ]]; then
-        # Precision mode: Parse current network topology from ifconfig (Knox-compatible)
+        # Precision mode: Parse current network topology from ifconfig
         local rmnet_interfaces=$(get_rmnet_interfaces)
         local rmnet_ips=$(get_rmnet_ips)
         
