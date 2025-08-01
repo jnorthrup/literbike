@@ -1,5 +1,11 @@
+# Termux ARM64 cross-compilation configuration for Android
+[target.aarch64-linux-android]
+linker = "/opt/homebrew/Caskroom/android-ndk/28b/AndroidNDK13356709.app/Contents/NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android29-clang"
+ar = "/opt/homebrew/Caskroom/android-ndk/28b/AndroidNDK13356709.app/Contents/NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
 [build]
 rustflags = ["-L", "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk/usr/lib"]
 
 [env]
 CFLAGS = "-I/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk/usr/include"
+ANDROID_NDK_ROOT = "/opt/homebrew/Caskroom/android-ndk/28b/AndroidNDK13356709.app/Contents/NDK"

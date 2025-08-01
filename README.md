@@ -1,60 +1,50 @@
-# Litebike Proxy
+# LiteBike Proxy
 
-A lightweight, high-performance proxy server written in Rust, designed for mobile and embedded environments. Supports both HTTP/HTTPS and SOCKS5 protocols with intelligent network interface routing.
+A lightweight, high-performance proxy server written in Rust, designed for mobile and embedded environments. Supports both HTTP/HTTPS and SOCKS5 protocols with intelligent network interface routing and comprehensive protocol detection.
 
-## Features
+## Core Components
 
-- **Dual Protocol Support**: HTTP/HTTPS proxy on port 8080, SOCKS5 on port 1080
-- **Smart Routing**: Configurable ingress/egress interfaces for mobile data optimization
-- **Minimal Dependencies**: Pure Rust implementation with tokio async runtime
-- **Auto-configuration**: Includes proxy-bridge script for easy setup
+### PAC Server (Port 8888)
+- Serves proxy auto-configuration file
+- URL: `http://$TERMUX_HOST:8888/proxy.pac`
+ 
 
-## Installation
+### Universal HTTP Proxy (Port 8080)
+- Handles HTTP, HTTPS, and CONNECT tunneling
+- Protocol detection on single port
+- Bridges WiFi (swlan0) to mobile data (rmnet)
 
-### From Source
+### Compliance Ports
+Individual protocol ports for strict compliance requirements:
+- **1080**: SOCKS5 (RFC 1928 compliant)
+- **8443**: Direct TLS proxy
+- **3128**: Squid-compatible HTTP
+- **1900**: UPnP/SSDP discovery
 
-```bash
-# Clone the repository
-git clone https://github.com/jnorthrup/litebike.git
-cd litebike
+## Client Configuration
 
-# Build with cargo
-cargo build --release
-
-# Copy binary to home directory
-cp target/release/litebike-proxy ~/
+### Automatic (via PAC)
+```
+Proxy Auto-Config URL: http://$TERMUX_HOST:8888/proxy.pac
 ```
 
-### Quick Start
-
-```bash
-# Start with default configuration (ingress=local_ip, egress=0.0.0.0)
-./litebike-proxy
-
-# Or use the proxy-bridge script for full system configuration
-./scripts/proxy-bridge server
+### Manual
+```
+HTTP Proxy:  $TERMUX_HOST:8080
+HTTPS Proxy: $TERMUX_HOST:8080
+SOCKS Proxy: $TERMUX_HOST:1080
 ```
 
-## Usage
-
-### Environment Variables
-
-- `BIND_IP` - IP address to bind to (default: 0.0.0.0)
-- `EGRESS_IP` - Egress IP for outbound connections (default: 0.0.0.0)
-- `EGRESS_INTERFACE` - Specific network interface for egress (e.g., rmnet_data0)
-- `HTTP_PORT` - HTTP/HTTPS proxy port (default: 8080)
-- `SOCKS_PORT` - SOCKS5 proxy port (default: 1080)
-
-### Examples
-
-```bash
-# Bind to specific IP with rmnet egress
-BIND_IP=192.168.1.100 EGRESS_INTERFACE=rmnet_data0 ./litebike-proxy
-
-# Use specific IPs for ingress and egress
-BIND_IP=192.168.1.100 EGRESS_IP=10.0.0.1 ./litebike-proxy
+## Sample PAC File
+```javascript
+function FindProxyForURL(url, host) {
+  if (isInNet(host, "10.0.0.0", "255.0.0.0"))
+    return "DIRECT";
+  return "PROXY $TERMUX_HOST:8080; SOCKS $TERMUX_HOST:1080; DIRECT";
+}
 ```
 
+<<<<<<< HEAD
 ## Proxy Bridge Script
 
 The included `scripts/proxy-bridge` script provides comprehensive proxy management:
@@ -92,3 +82,10 @@ MIT License - See LICENSE file for details
 ## Contributing
 
 Contributions welcome! Please submit pull requests or issues on GitHub.
+=======
+## Termux-Specific Notes
+- $TERMUX_HOST: Auto-detected swlan0 IP address
+- Ingress: WiFi interface (swlan0)
+- Egress: Mobile data (rmnet_data*)
+- Purpose: Share mobile data via WiFi proxy bridge
+>>>>>>> 102b8e2 (feat: Add Termux ARM64 build and complete proxy implementation)

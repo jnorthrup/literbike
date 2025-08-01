@@ -1,0 +1,45 @@
+[package]
+name = "litebike-proxy"
+version = "0.1.0"
+edition = "2021"
+authors = ["jnorthrup"]
+description = "Lightweight proxy server with HTTP/HTTPS and SOCKS5 support for Termux"
+repository = "https://github.com/jnorthrup/litebike"
+license = "MIT"
+readme = "README.md"
+
+[[bin]]
+name = "litebike-proxy"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+trust-dns-resolver = { version = "0.23", features = ["dns-over-https-rustls", "tokio"] }
+igd-next = "0.14.2"
+pnet = "0.34.0"
+log = "0.4"
+env_logger = "0.10"
+libc = "0.2"
+base64 = "0.21"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+
+[dev-dependencies]
+mockall = "0.11"
+tokio-test = "0.4.3"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.termux]
+inherits = "release"
+opt-level = "s"  # Optimize for size for mobile
+lto = "thin"     # Faster linking than full LTO
+panic = "abort"  # Smaller binary
+strip = "symbols"

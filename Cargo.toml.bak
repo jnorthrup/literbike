@@ -10,21 +10,17 @@ readme = "README.md"
 
 [[bin]]
 name = "litebike-proxy"
-path = "src/main-termux.rs"
+path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1", features = ["net", "io-util", "rt", "rt-multi-thread", "macros", "time"] }
-# Simplified DNS without DoH for Termux
-log = "0.4"
-env_logger = "0.10"
 libc = "0.2"
-
-[dev-dependencies]
-tokio-test = "0.4.3"
 
 [profile.release]
 lto = true
-opt-level = "s"  # Size optimized for mobile
+opt-level = 3
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# No tokio, no async, no frameworks
+# Just raw speed

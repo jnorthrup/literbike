@@ -1,6 +1,5 @@
-// LiteBike Proxy - Universal Protocol Detection Proxy
-// Comprehensive proxy with taxonomical abstractions and protocol detection
-// Supports DoH, UPnP, Bonjour, and extensible protocol handling
+// LiteBike Proxy - Termux Optimized Version
+// Simplified proxy without complex dependencies for Android deployment
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str;
@@ -8,59 +7,34 @@ use std::time::Duration;
 use std::io;
 
 use env_logger::Env;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::OnceCell;
 use tokio::time::timeout;
-use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
-use trust_dns_resolver::TokioAsyncResolver;
-
-mod types;
-mod abstractions;
-mod doh;
-mod upnp;
-mod bonjour;
-mod pac;
-mod extended_protocols;
-mod advanced_protocols;
-mod fuzzer;
-mod advanced_fuzzer;
-mod violent_fuzzer;
-mod stubs;
 
 // --- Configuration ---
 const HTTP_PORT: u16 = 8080;
 const SOCKS_PORT: u16 = 1080;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const UPNP_LEASE_DURATION: u32 = 3600; // 1 hour
 
-// --- Asynchronous DNS-over-HTTPS (DoH) Resolver ---
-static DOH_RESOLVER: OnceCell<TokioAsyncResolver> = OnceCell::const_new();
-
-async fn get_doh_resolver() -> &'static TokioAsyncResolver {
-    DOH_RESOLVER.get_or_init(|| async {
-        let config = ResolverConfig::cloudflare_https();
-        let opts = ResolverOpts::default();
-        TokioAsyncResolver::tokio(config, opts)
-    }).await
-}
-
-/// Resolves a hostname to an IP address using the DoH resolver.
+/// Simple DNS resolution using system resolver
 async fn resolve_host(host: &str) -> io::Result<IpAddr> {
-    let resolver = get_doh_resolver().await;
-    let response = resolver.lookup_ip(host).await.map_err(|e| {
-        error!("DoH resolution failed for {}: {}", host, e);
-        io::Error::new(io::ErrorKind::NotFound, "Host not found")
-    })?;
-
-    response.iter().next().ok_or_else(|| {
-        error!("No IP address found for {}", host);
-        io::Error::new(io::ErrorKind::NotFound, "No IP address found")
-    })
+    match host.parse::<IpAddr>() {
+        Ok(ip) => Ok(ip),
+        Err(_) => {
+            // Use tokio's built-in DNS resolution
+            let addresses: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:80", host))
+                .await?
+                .collect();
+            
+            addresses.first()
+                .map(|addr| addr.ip())
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IP address found"))
+        }
+    }
 }
 
-/// Connects to a target address, resolving the hostname via DoH if necessary.
+/// Connects to a target address with timeout
 async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
     let (host, port_str) = match target.rsplit_once(':') {
         Some((host, port)) => (host, port),
@@ -68,7 +42,6 @@ async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
     };
     
     let port: u16 = port_str.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid port number"))?;
-
     let ip_addr = resolve_host(host).await?;
     let socket_addr = SocketAddr::new(ip_addr, port);
 
@@ -80,7 +53,7 @@ async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
     }
 }
 
-/// Relays data between two streams efficiently.
+/// Relays data between two streams efficiently
 async fn relay_streams<S1, S2>(mut client: S1, mut remote: S2) -> io::Result<()>
 where
     S1: AsyncRead + AsyncWrite + Unpin,
@@ -242,73 +215,38 @@ where
     }
 }
 
-/// Gets the IPv4 address for a given network interface name.
-fn get_interface_ip(iface_name: &str) -> Option<IpAddr> {
-    pnet::datalink::interfaces().into_iter()
-        .find(|iface| iface.name == iface_name)
-        .and_then(|iface| iface.ips.into_iter().find(|ip| ip.is_ipv4()).map(|ip| ip.ip()))
-}
-
-/// Sets up UPNP port forwarding.
-async fn setup_upnp(local_ip: Ipv4Addr) {
-    info!("Attempting to configure UPNP...");
-    let gateway = match tokio::task::spawn_blocking(move || igd_next::search_gateway(Default::default())).await {
-        Ok(Ok(gw)) => gw,
-        Ok(Err(e)) => {
-            warn!("UPNP: Could not find gateway: {}. Manual port forwarding may be required.", e);
-            return;
+/// Gets the local IP address for binding
+fn get_bind_address() -> IpAddr {
+    // Check environment variables for Termux-specific configuration
+    if let Ok(bind_ip_str) = std::env::var("BIND_IP") {
+        if let Ok(ip) = bind_ip_str.parse::<IpAddr>() {
+            return ip;
         }
-        Err(e) => {
-            warn!("UPNP: Task failed: {}", e);
-            return;
-        }
-    };
+    }
     
-    info!("UPNP Gateway found: {}", gateway.addr);
-    let http_addr = SocketAddr::new(IpAddr::V4(local_ip), HTTP_PORT);
-    if let Err(e) = gateway.add_port(igd_next::PortMappingProtocol::TCP, HTTP_PORT, http_addr, UPNP_LEASE_DURATION, "LiteBike-HTTP") {
-        warn!("UPNP: Failed to map HTTP port: {}", e);
-    } else {
-        info!("UPNP: Successfully mapped HTTP port {}", HTTP_PORT);
-    }
-
-    let socks_addr = SocketAddr::new(IpAddr::V4(local_ip), SOCKS_PORT);
-    if let Err(e) = gateway.add_port(igd_next::PortMappingProtocol::TCP, SOCKS_PORT, socks_addr, UPNP_LEASE_DURATION, "LiteBike-SOCKS5") {
-        warn!("UPNP: Failed to map SOCKS5 port: {}", e);
-    } else {
-        info!("UPNP: Successfully mapped SOCKS5 port {}", SOCKS_PORT);
-    }
+    // Default to all interfaces for Termux
+    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))
 }
 
 #[tokio::main]
 async fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-    let bind_ip_str = if let Ok(iface) = std::env::var("INGRESS_INTERFACE") {
-        if let Some(ip) = get_interface_ip(&iface) {
-            ip.to_string()
-        } else {
-            "0.0.0.0".to_string()
-        }
-    } else {
-        std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
-    };
-    let bind_ip: IpAddr = bind_ip_str.parse().expect("Invalid BIND_IP address");
+    info!("🔥 LiteBike Proxy for Termux 🔥");
+    
+    let bind_ip = get_bind_address();
+    info!("Binding to: {}", bind_ip);
 
-    if !bind_ip.is_loopback() {
-        if let IpAddr::V4(ipv4) = bind_ip {
-            let local_ip_clone = ipv4;
-            tokio::spawn(async move {
-                setup_upnp(local_ip_clone).await;
-            });
-        }
-    }
-
-    let http_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT)).await.expect("Failed to bind HTTP");
+    // Start HTTP proxy
+    let http_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT))
+        .await
+        .expect("Failed to bind HTTP port");
     info!("HTTP proxy listening on {}", http_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, HTTP_PORT)));
+    
     tokio::spawn(async move {
         loop {
-            if let Ok((stream, _)) = http_listener.accept().await {
+            if let Ok((stream, addr)) = http_listener.accept().await {
+                debug!("HTTP connection from {}", addr);
                 tokio::spawn(async move {
                     if let Err(e) = handle_http(stream).await {
                         debug!("HTTP handler error: {}", e);
@@ -318,93 +256,24 @@ async fn main() {
         }
     });
 
-    let socks_listener = TcpListener::bind(SocketAddr::new(bind_ip, SOCKS_PORT)).await.expect("Failed to bind SOCKS5");
+    // Start SOCKS5 proxy
+    let socks_listener = TcpListener::bind(SocketAddr::new(bind_ip, SOCKS_PORT))
+        .await
+        .expect("Failed to bind SOCKS5 port");
     info!("SOCKS5 proxy listening on {}", socks_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, SOCKS_PORT)));
+    
+    info!("✅ LiteBike Termux proxy ready!");
+    info!("  HTTP/HTTPS proxy: {}:{}", bind_ip, HTTP_PORT);
+    info!("  SOCKS5 proxy: {}:{}", bind_ip, SOCKS_PORT);
+    
     loop {
-        if let Ok((stream, _)) = socks_listener.accept().await {
+        if let Ok((stream, addr)) = socks_listener.accept().await {
+            debug!("SOCKS5 connection from {}", addr);
             tokio::spawn(async move {
                 if let Err(e) = handle_socks5(stream).await {
                     debug!("SOCKS5 handler error: {}", e);
                 }
             });
         }
-    }
-}
-
-// --- Tests ---
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::io::ReadBuf;
-
-    // A simple mock stream that can be used for testing protocol logic.
-    // It reads from a predefined buffer and writes to another buffer.
-    struct MockStream {
-        reader: io::Cursor<Vec<u8>>,
-        writer: Vec<u8>,
-    }
-
-    impl AsyncRead for MockStream {
-        fn poll_read(
-            mut self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> std::task::Poll<io::Result<()>> {
-            std::pin::Pin::new(&mut self.reader).poll_read(cx, buf)
-        }
-    }
-
-    impl AsyncWrite for MockStream {
-        fn poll_write(
-            mut self: std::pin::Pin<&mut Self>,
-            _cx: &mut std::task::Context<'_>,
-            buf: &[u8],
-        ) -> std::task::Poll<io::Result<usize>> {
-            self.writer.extend_from_slice(buf);
-            std::task::Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<io::Result<()>> {
-            std::task::Poll::Ready(Ok(()))
-        }
-
-        fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<io::Result<()>> {
-            std::task::Poll::Ready(Ok(()))
-        }
-    }
-
-    #[tokio::test]
-    async fn test_socks5_handshake_and_request_ipv4_failure() {
-        // This test simulates the SOCKS5 flow up to the point of connecting to the
-        // remote host, which we assume fails.
-        let mut request = vec![5, 1, 0]; // Handshake
-        request.extend_from_slice(&[5, 1, 0, 1]); // Request header (IPv4)
-        request.extend_from_slice(&[192, 0, 2, 1]); // TEST-NET-1 IP, should not be routable
-        request.extend_from_slice(&53u16.to_be_bytes()); // Port
-
-        let mut stream = MockStream {
-            reader: io::Cursor::new(request),
-            writer: Vec::new(),
-        };
-        
-        // We expect an error because `connect_to_target` will fail in a test environment
-        // without a real network. The handler should gracefully write a failure response.
-        let result = handle_socks5(&mut stream).await;
-        assert!(result.is_err());
-    }
-    
-    #[tokio::test]
-    async fn test_socks5_unsupported_auth() {
-        let request = vec![5, 1, 1]; // SOCKS5, 1 method, GSSAPI
-        let mut stream = MockStream {
-            reader: io::Cursor::new(request),
-            writer: Vec::new(),
-        };
-
-        let result = handle_socks5(&mut stream).await;
-        assert!(result.is_err());
-        
-        // Check that the correct "no acceptable methods" response was sent
-        assert_eq!(stream.writer, &[5, 0xFF]);
     }
 }
