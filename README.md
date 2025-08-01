@@ -65,13 +65,19 @@ Litebike uses Tokio for async I/O and implements both HTTP CONNECT tunneling and
 3. **Flexibility**: Configurable routing for complex network setups
 4. **Simplicity**: Single binary, no external dependencies
 
-## Building
+## Installation
 
-Requirements:
-- Rust 1.70+ with cargo
-- Tokio runtime dependencies
+### Termux (Android)
+```bash
+curl -sL https://github.com/jnorthrup/litebike/raw/master/termux-package/build-on-termux.sh | bash
+```
+
+### Desktop/Server
+Requirements: Rust 1.70+ with cargo
 
 ```bash
+git clone https://github.com/jnorthrup/litebike.git
+cd litebike
 cargo build --release
 ```
 
