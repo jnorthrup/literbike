@@ -2,10 +2,11 @@
 name = "litebike"
 version = "0.1.0"
 edition = "2021"
-
-[lib]
-name = "litebike"
-path = "src/lib.rs"
+authors = ["jnorthrup"]
+description = "Advanced proxy server with HTTP/HTTPS, SOCKS5, DoH, UPnP, and Bonjour support"
+repository = "https://github.com/jnorthrup/litebike"
+license = "MIT"
+readme = "README.md"
 
 [[bin]]
 name = "litebike"
@@ -15,26 +16,28 @@ path = "src/main.rs"
 name = "litebike-proxy"
 path = "src/main-termux.rs"
 
-[[bin]]
-name = "test-patricia"
-path = "src/bin/test_patricia.rs"
-
-[[bin]]
-name = "test-tls-sni"
-path = "src/bin/test_tls_sni.rs"
-
 [dependencies]
+# Async runtime
 tokio = { version = "1", features = ["full"] }
+
+# Networking
 trust-dns-resolver = { version = "0.23", features = ["dns-over-https-rustls", "tokio-runtime"] }
 pnet = "0.35"
 igd-next = "0.14"
+
+# Logging
 log = "0.4"
 env_logger = "0.11"
+
+# Serialization (for config and protocols)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# HTTP parsing
 httparse = "1.8"
+
+# System
 libc = "0.2"
-lazy_static = "1.4"
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -45,3 +48,16 @@ opt-level = 3
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[profile.termux]
+inherits = "release"
+opt-level = "s"  # Size optimized for mobile
+
+# Feature flags
+[features]
+default = ["full"]
+full = ["upnp", "bonjour", "doh"]
+minimal = []
+upnp = []
+bonjour = []
+doh = []

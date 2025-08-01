@@ -12,6 +12,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
+mod patricia_detector;
+use patricia_detector::{PatriciaDetector, Protocol, quick_detect};
+
 // --- Configuration ---
 const HTTP_PORT: u16 = 8080;
 const SOCKS_PORT: u16 = 1080;
@@ -77,8 +80,13 @@ where
     Ok(())
 }
 
-// --- HTTP Handler ---
-async fn handle_http<S>(mut stream: S) -> io::Result<()>
+// Global Patricia detector instance
+lazy_static::lazy_static! {
+    static ref PROTOCOL_DETECTOR: PatriciaDetector = PatriciaDetector::new();
+}
+
+// --- Universal Handler (HTTP + SOCKS5 + TLS) ---
+async fn handle_universal<S>(mut stream: S) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -86,7 +94,168 @@ where
     let n = stream.read(&mut buffer).await?;
     if n == 0 { return Ok(()); }
 
-    let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+    // Use Patricia trie for fast protocol detection
+    let (protocol, matched_len) = PROTOCOL_DETECTOR.detect_with_length(&buffer[..n]);
+    debug!("Patricia detector: {:?} (matched {} bytes of {})", protocol, matched_len, n);
+    
+    // Fallback to quick bitwise detection for edge cases
+    let protocol = match protocol {
+        Protocol::Unknown => {
+            if let Some(p) = quick_detect(&buffer[..n]) {
+                debug!("Quick detect fallback: {:?}", p);
+                p
+            } else {
+                Protocol::Unknown
+            }
+        }
+        p => p,
+    };
+    
+    match protocol {
+        Protocol::Socks5 => {
+            // Handle as SOCKS5 with the pre-read buffer
+            handle_socks5_with_buffer(&buffer[..n], stream).await
+        },
+        Protocol::Http => {
+            let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+            handle_http_with_buffer(request_str, &buffer[..n], stream).await
+        },
+        Protocol::Tls => {
+            // For TLS, we need to forward to a TLS-capable upstream
+            handle_tls_with_buffer(&buffer[..n], stream).await
+        },
+        Protocol::WebSocket => {
+            // WebSocket starts as HTTP and upgrades
+            let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+            handle_http_with_buffer(request_str, &buffer[..n], stream).await
+        },
+        Protocol::Unknown => {
+            debug!("Unknown protocol, treating as HTTP");
+            let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+            handle_http_with_buffer(request_str, &buffer[..n], stream).await
+        }
+    }
+}
+
+// --- TLS Handler with SNI extraction ---
+async fn handle_tls_with_buffer<S>(buffer: &[u8], stream: S) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // Extract SNI (Server Name Indication) from TLS Client Hello
+    let sni_hostname = extract_sni_hostname(buffer);
+    
+    let target = match sni_hostname {
+        Some(hostname) => {
+            debug!("TLS SNI detected: {}", hostname);
+            format!("{}:443", hostname)
+        }
+        None => {
+            debug!("No SNI found, using default HTTPS port");
+            "127.0.0.1:443".to_string()
+        }
+    };
+    
+    match connect_to_target(&target).await {
+        Ok(mut remote) => {
+            info!("TLS passthrough to {} established", target);
+            // Write the already-read buffer first
+            remote.write_all(buffer).await?;
+            // Then relay the streams
+            relay_streams(stream, remote).await?;
+        }
+        Err(e) => {
+            error!("Failed to establish TLS passthrough to {}: {}", target, e);
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+// Extract SNI hostname from TLS Client Hello
+fn extract_sni_hostname(buffer: &[u8]) -> Option<String> {
+    // Minimum size: 5 (record) + 4 (handshake) + 2 (client version) + 32 (random) = 43
+    if buffer.len() < 43 {
+        return None;
+    }
+    
+    // Verify this is a TLS handshake (0x16) and Client Hello (0x01)
+    if buffer[0] != 0x16 || buffer[5] != 0x01 {
+        return None;
+    }
+    
+    // Skip fixed-length fields to get to session ID
+    let mut pos = 43;
+    
+    // Skip session ID
+    if pos >= buffer.len() {
+        return None;
+    }
+    let session_id_len = buffer[pos] as usize;
+    pos += 1 + session_id_len;
+    
+    // Skip cipher suites
+    if pos + 2 > buffer.len() {
+        return None;
+    }
+    let cipher_suites_len = u16::from_be_bytes([buffer[pos], buffer[pos + 1]]) as usize;
+    pos += 2 + cipher_suites_len;
+    
+    // Skip compression methods
+    if pos >= buffer.len() {
+        return None;
+    }
+    let compression_len = buffer[pos] as usize;
+    pos += 1 + compression_len;
+    
+    // Extensions length
+    if pos + 2 > buffer.len() {
+        return None;
+    }
+    let extensions_len = u16::from_be_bytes([buffer[pos], buffer[pos + 1]]) as usize;
+    pos += 2;
+    
+    let extensions_end = pos + extensions_len;
+    if extensions_end > buffer.len() {
+        return None;
+    }
+    
+    // Parse extensions to find SNI (type 0x0000)
+    while pos + 4 <= extensions_end {
+        let ext_type = u16::from_be_bytes([buffer[pos], buffer[pos + 1]]);
+        let ext_len = u16::from_be_bytes([buffer[pos + 2], buffer[pos + 3]]) as usize;
+        pos += 4;
+        
+        if pos + ext_len > extensions_end {
+            break;
+        }
+        
+        if ext_type == 0x0000 {  // SNI extension
+            // SNI format: list length (2) + type (1) + hostname length (2) + hostname
+            if ext_len >= 5 && pos + 5 <= buffer.len() {
+                let name_type = buffer[pos + 2];
+                if name_type == 0x00 {  // host_name type
+                    let name_len = u16::from_be_bytes([buffer[pos + 3], buffer[pos + 4]]) as usize;
+                    let name_start = pos + 5;
+                    if name_start + name_len <= buffer.len() {
+                        return String::from_utf8(buffer[name_start..name_start + name_len].to_vec()).ok();
+                    }
+                }
+            }
+            break;
+        }
+        
+        pos += ext_len;
+    }
+    
+    None
+}
+
+// --- HTTP Handler with pre-read buffer ---
+async fn handle_http_with_buffer<S>(request_str: &str, buffer: &[u8], mut stream: S) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     debug!("HTTP Request: {}", request_str);
 
     if request_str.starts_with("CONNECT ") {
@@ -110,11 +279,84 @@ where
             match connect_to_target(&target).await {
                 Ok(mut remote) => {
                     info!("HTTP GET to {}", target);
-                    remote.write_all(&buffer[..n]).await?;
+                    remote.write_all(buffer).await?;
                     relay_streams(stream, remote).await?;
                 }
                 Err(e) => error!("Failed to connect to {}: {}", target, e),
             }
+        }
+    }
+    Ok(())
+}
+
+// --- SOCKS5 Handler with pre-read buffer ---
+async fn handle_socks5_with_buffer<S>(buffer: &[u8], mut stream: S) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // For SOCKS5, if we have a pre-read buffer, we need to handle the case where
+    // the entire handshake might be in the buffer already
+    
+    // 1. Parse handshake from buffer
+    if buffer.len() < 3 { // Need at least version + nmethods + 1 method
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Incomplete SOCKS5 handshake"));
+    }
+    
+    let version = buffer[0];
+    let nmethods = buffer[1] as usize;
+    
+    if version != 5 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported SOCKS version"));
+    }
+    
+    if buffer.len() < 2 + nmethods {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Incomplete SOCKS5 handshake"));
+    }
+    
+    let methods = &buffer[2..2 + nmethods];
+    if !methods.contains(&0) {
+        stream.write_all(&[5, 0xFF]).await?; // No acceptable methods
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "No supported authentication methods"));
+    }
+    
+    // Send handshake response
+    stream.write_all(&[5, 0]).await?;
+    
+    // 2. Now wait for the actual CONNECT request from the stream
+    // (the initial buffer only contained the handshake)
+    let mut buf = [0u8; 4];
+    stream.read_exact(&mut buf).await?;
+    
+    if buf[0] != 5 || buf[1] != 1 { // VER, CONNECT
+        stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]).await?; // Command not supported
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported SOCKS command"));
+    }
+
+    // 3. Address Parsing
+    let atyp = buf[3];
+    let target = read_socks_address(&mut stream, atyp).await?;
+
+    // 4. Connect and Relay
+    match connect_to_target(&target).await {
+        Ok(remote) => {
+            info!("SOCKS5 CONNECT to {}", target);
+            let local_addr = remote.local_addr().unwrap_or(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+            let mut resp = vec![5, 0, 0]; // VER, REP(Success), RSV
+            match local_addr {
+                SocketAddr::V4(addr) => {
+                    resp.push(1); resp.extend_from_slice(&addr.ip().octets()); resp.extend_from_slice(&addr.port().to_be_bytes());
+                }
+                SocketAddr::V6(addr) => {
+                    resp.push(4); resp.extend_from_slice(&addr.ip().octets()); resp.extend_from_slice(&addr.port().to_be_bytes());
+                }
+            }
+            stream.write_all(&resp).await?;
+            relay_streams(stream, remote).await?;
+        }
+        Err(e) => {
+            error!("SOCKS5: Failed to connect to {}: {}", target, e);
+            stream.write_all(&[5, 1, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+            return Err(e);
         }
     }
     Ok(())
@@ -237,19 +479,19 @@ async fn main() {
     let bind_ip = get_bind_address();
     info!("Binding to: {}", bind_ip);
 
-    // Start HTTP proxy
-    let http_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT))
+    // Start Universal proxy (HTTP + SOCKS5 detection on 8080)
+    let universal_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT))
         .await
-        .expect("Failed to bind HTTP port");
-    info!("HTTP proxy listening on {}", http_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, HTTP_PORT)));
+        .expect("Failed to bind universal port");
+    info!("Universal proxy (HTTP+SOCKS5) listening on {}", universal_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, HTTP_PORT)));
     
     tokio::spawn(async move {
         loop {
-            if let Ok((stream, addr)) = http_listener.accept().await {
-                debug!("HTTP connection from {}", addr);
+            if let Ok((stream, addr)) = universal_listener.accept().await {
+                debug!("Universal connection from {}", addr);
                 tokio::spawn(async move {
-                    if let Err(e) = handle_http(stream).await {
-                        debug!("HTTP handler error: {}", e);
+                    if let Err(e) = handle_universal(stream).await {
+                        debug!("Universal handler error: {}", e);
                     }
                 });
             }
@@ -263,8 +505,8 @@ async fn main() {
     info!("SOCKS5 proxy listening on {}", socks_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, SOCKS_PORT)));
     
     info!("✅ LiteBike Termux proxy ready!");
-    info!("  HTTP/HTTPS proxy: {}:{}", bind_ip, HTTP_PORT);
-    info!("  SOCKS5 proxy: {}:{}", bind_ip, SOCKS_PORT);
+    info!("  Universal proxy (HTTP/HTTPS/SOCKS5): {}:{}", bind_ip, HTTP_PORT);
+    info!("  Dedicated SOCKS5 proxy: {}:{}", bind_ip, SOCKS_PORT);
     
     loop {
         if let Ok((stream, addr)) = socks_listener.accept().await {
