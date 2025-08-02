@@ -2,6 +2,13 @@
 name = "litebike"
 version = "0.1.0"
 edition = "2021"
+authors = ["jnorthrup"]
+description = "High-performance proxy with universal protocol detection using Patricia Trie"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/jnorthrup/litebike"
+keywords = ["proxy", "socks5", "http", "protocol-detection", "networking"]
+categories = ["network-programming", "web-programming"]
+readme = "README.md"
 
 [lib]
 name = "litebike"
@@ -22,6 +29,26 @@ path = "src/bin/test_patricia.rs"
 [[bin]]
 name = "test-tls-sni"
 path = "src/bin/test_tls_sni.rs"
+
+[[bin]]
+name = "mock-protocols"
+path = "src/bin/mock_protocols.rs"
+
+[[bin]]
+name = "benchmark-simd"
+path = "src/bin/benchmark_simd.rs"
+
+[[bin]]
+name = "massive-torture-test"
+path = "src/bin/massive_torture_test.rs"
+
+[[bin]]
+name = "working-torture-test"
+path = "src/bin/working_torture_test.rs"
+
+[[bin]]
+name = "minimal-torture-test"
+path = "src/bin/minimal_torture_test.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

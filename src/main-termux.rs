@@ -129,6 +129,16 @@ where
             let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
             handle_http_with_buffer(request_str, &buffer[..n], stream).await
         },
+        Protocol::ProxyProtocol => {
+            // HAProxy PROXY protocol - handle as HTTP after stripping header
+            let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+            handle_http_with_buffer(request_str, &buffer[..n], stream).await
+        },
+        Protocol::Http2 => {
+            // HTTP/2 - handle as HTTP for now
+            let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");
+            handle_http_with_buffer(request_str, &buffer[..n], stream).await
+        },
         Protocol::Unknown => {
             debug!("Unknown protocol, treating as HTTP");
             let request_str = str::from_utf8(&buffer[..n]).unwrap_or("");

@@ -9,6 +9,8 @@ pub enum Protocol {
     Socks5,
     Tls,
     WebSocket,
+    ProxyProtocol,  // HAProxy PROXY protocol
+    Http2,          // HTTP/2 preface
     Unknown,
 }
 
@@ -64,6 +66,17 @@ impl PatriciaDetector {
         self.insert(&[0x16, 0x03, 0x03], Protocol::Tls); // TLS 1.2
         self.insert(&[0x16, 0x03, 0x04], Protocol::Tls); // TLS 1.3
 
+        // HAProxy PROXY protocol v1 - starts with "PROXY "
+        self.insert(b"PROXY ", Protocol::ProxyProtocol);
+        
+        // HAProxy PROXY protocol v2 - binary signature
+        self.insert(&[0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A], 
+                    Protocol::ProxyProtocol);
+        
+        // HTTP/2 preface - "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+        self.insert(b"PRI * HTTP/2.0\r\n", Protocol::Http2);
+        
+        // NGINX specific patterns would be in HTTP headers, not initial bytes
         // WebSocket - HTTP with Upgrade header, but starts like HTTP
         // Will be detected as HTTP first, then upgraded
     }
@@ -140,19 +153,37 @@ pub fn quick_detect(buffer: &[u8]) -> Option<Protocol> {
         // TLS handshake
         0x16 if buffer.len() >= 3 && buffer[1] == 0x03 => Some(Protocol::Tls),
         
-        // HTTP methods start with uppercase letters
-        b'G' | b'P' | b'H' | b'D' | b'O' | b'C' | b'T' => {
-            // Quick check for space after method
-            if buffer.len() >= 4 {
-                match &buffer[0..4] {
-                    b"GET " | b"PUT " => Some(Protocol::Http),
-                    b"POST" | b"HEAD" if buffer.len() > 4 && buffer[4] == b' ' => Some(Protocol::Http),
+        // HAProxy PROXY protocol v2 signature
+        0x0D if buffer.len() >= 12 
+            && buffer[1] == 0x0A 
+            && buffer[2] == 0x0D 
+            && buffer[3] == 0x0A => Some(Protocol::ProxyProtocol),
+        
+        // HTTP methods or PROXY v1
+        b'P' => {
+            if buffer.len() >= 6 {
+                match &buffer[0..6] {
+                    b"PROXY " => Some(Protocol::ProxyProtocol),
+                    b"POST " => Some(Protocol::Http),
+                    b"PUT " => Some(Protocol::Http),
+                    b"PATCH " => Some(Protocol::Http),
+                    _ if buffer.len() >= 14 && &buffer[0..14] == b"PRI * HTTP/2.0" => Some(Protocol::Http2),
                     _ => None,
                 }
+            } else if buffer.len() >= 4 && &buffer[0..4] == b"PUT " {
+                Some(Protocol::Http)
             } else {
                 None
             }
         }
+        
+        // Other HTTP methods
+        b'G' if buffer.len() >= 4 && &buffer[0..4] == b"GET " => Some(Protocol::Http),
+        b'H' if buffer.len() >= 5 && &buffer[0..5] == b"HEAD " => Some(Protocol::Http),
+        b'D' if buffer.len() >= 7 && &buffer[0..7] == b"DELETE " => Some(Protocol::Http),
+        b'O' if buffer.len() >= 8 && &buffer[0..8] == b"OPTIONS " => Some(Protocol::Http),
+        b'C' if buffer.len() >= 8 && &buffer[0..8] == b"CONNECT " => Some(Protocol::Http),
+        b'T' if buffer.len() >= 6 && &buffer[0..6] == b"TRACE " => Some(Protocol::Http),
         
         _ => None,
     }

@@ -1,0 +1,36 @@
+# GNU Affero General Public License v3.0
+
+This file contains information about the AGPL-3.0 license that applies to LiteBike Proxy.
+
+For the complete AGPL-3.0 license text, see:
+https://www.gnu.org/licenses/agpl-3.0.html
+
+## AGPL-3.0 Requirements
+
+The AGPL-3.0 license requires that:
+
+1. **Source Code Availability**: If you run this software as a network service, you must provide source code to users
+2. **License Compatibility**: Your entire application must be AGPL-3.0 compatible
+3. **Modifications**: Any modifications must also be AGPL-3.0 licensed
+4. **Network Services**: Even SaaS/hosting requires source code disclosure
+5. **Distribution**: All distributions must include AGPL-3.0 license notices
+
+## Key Difference from GPL-3.0
+
+**AGPL-3.0 closes the "SaaS loophole"**:
+- GPL-3.0: Only requires source code when you distribute software
+- AGPL-3.0: **Also** requires source code when you provide network services
+
+This means hosting LiteBike as a service requires making your entire application open source.
+
+## Alternative: Commercial License
+
+To avoid AGPL-3.0 requirements and use LiteBike Proxy in proprietary applications:
+- Purchase a commercial license from the copyright holder
+- Contact via GitHub issues with "Commercial License" tag
+- Maintain full proprietary rights to your own code
+- No requirement to open source your application
+
+---
+
+**Note**: Personal, educational, and research use is free under AGPL-3.0.

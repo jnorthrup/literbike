@@ -86,13 +86,13 @@ graph TD
 | TLS 1.1  | 3            | O(3)          | `0x16 0x03 0x02` |
 | TLS 1.2  | 3            | O(3)          | `0x16 0x03 0x03` |
 | TLS 1.3  | 3            | O(3)          | `0x16 0x03 0x04` |
-| HTTP GET | 4            | O(4)          | `GET ` |
-| HTTP PUT | 4            | O(4)          | `PUT ` |
-| HTTP POST| 5            | O(5)          | `POST ` |
-| HTTP HEAD| 5            | O(5)          | `HEAD ` |
-| HTTP DELETE | 7         | O(7)          | `DELETE ` |
-| HTTP CONNECT | 8        | O(8)          | `CONNECT ` |
-| HTTP OPTIONS | 8        | O(8)          | `OPTIONS ` |
+| HTTP GET | 4            | O(4)          | `GET` |
+| HTTP PUT | 4            | O(4)          | `PUT` |
+| HTTP POST| 5            | O(5)          | `POST` |
+| HTTP HEAD| 5            | O(5)          | `HEAD` |
+| HTTP DELETE | 7         | O(7)          | `DELETE` |
+| HTTP CONNECT | 8        | O(8)          | `CONNECT` |
+| HTTP OPTIONS | 8        | O(8)          | `OPTIONS` |
 
 ### Extended Protocol Support
 
@@ -119,6 +119,7 @@ Future Extensions:
 ### Memory Efficiency
 
 The Patricia Trie structure uses approximately:
+
 - **Base overhead**: ~200 bytes for the trie skeleton
 - **Per node**: 24 bytes (HashMap entry + protocol enum)
 - **Total for current protocols**: ~1KB
@@ -145,6 +146,7 @@ struct TrieNode {
 ### Binary Protocol Formats
 
 #### SOCKS5 Detection
+
 ```
 Byte 0: Version (0x05)
 ├─ Detected immediately
@@ -153,28 +155,48 @@ Byte 0: Version (0x05)
 
 #### TLS/SSL Detection
 
+```
+Byte 0: Record Type (0x16 = Handshake)
+Byte 1-2: Version (0x03 0x01/02/03/04)
+├─ 0x03 0x00 = SSL 3.0
+├─ 0x03 0x01 = TLS 1.0
+├─ 0x03 0x02 = TLS 1.1
+├─ 0x03 0x03 = TLS 1.2
+└─ 0x03 0x04 = TLS 1.3
+```
+
+The following sequence diagram illustrates how the proxy detects a TLS handshake and extracts the SNI hostname during the initial client connection:
+
 ```mermaid
 sequenceDiagram 
-    participant C as Client 
-    participant P as Proxy (8080)
-    participant S as Target Server
+    participant C as [Client]
+    participant P as [Proxy (8080)]
+    participant S as [Target Server]
+
+    C->>P: TCP Connect
+    activate P
+    Note right of P: Detect TLS handshake
+    P-->>P: Parse ClientHello
     
-    C->>P: TLS Client Hello
-    Note over P: Detect 0x16 0x03 0xXX
-    Note over P: Extract SNI hostname
-    P->>P: Parse extensions for 0x0000
-    P->>S: Connect to hostname:443
-    P->>S: Forward Client Hello
-    S->>P: Server Hello
-    P->>C: Forward Server Hello
-    C<->P: TLS Handshake Complete
-    C<->P<->S: Encrypted Application Data
+    alt SNI found
+        P-->>P: Extract hostname from SNI
+        P->>S: Connect to hostname:443
+        activate S 
+        S-->>P: Connection established
+        deactivate S
+        P-->>C: Forward TLS stream
+    else No SNI
+        P-->>C: Reset connection
+    end
+    
+    deactivate P
+    
 ```
 
 ##### TLS Client Hello Structure
 
 ```mermaid
-graph LR
+graph LR 
     subgraph "TLS Record Header (5 bytes)"
         A[0x16<br/>Type] --> B[0x03 0x0X<br/>Version] --> C[Length<br/>2 bytes]
     end
@@ -198,7 +220,7 @@ graph LR
         M --> N[List Length<br/>2 bytes]
         N --> O[Type: 0x00<br/>1 byte]
         O --> P[Name Length<br/>2 bytes]
-        P --> Q[Hostname<br/>Variable]
+        P --> Q[Hostname<br/>Variable] 
     end
     
     style A fill:#f96,stroke:#333,stroke-width:2px
@@ -208,6 +230,7 @@ graph LR
 ```
 
 #### HTTP Method Detection
+
 ```
 All HTTP methods end with space (0x20):
 - "GET "     = 0x47 0x45 0x54 0x20
@@ -229,7 +252,7 @@ flowchart TD
     Patricia -->|0x05| SOCKS5Handler[SOCKS5 Handler]
     Patricia -->|0x16 0x03| TLSHandler[TLS Handler]
     Patricia -->|GET/POST/etc| HTTPHandler[HTTP Handler]
-    Patricia -->|Unknown| DefaultHTTP[Default to HTTP]
+    Patricia -->|Unknown| DefaultHTTP[Default to HTTP] 
     
     SOCKS5Handler --> SOCKS5Auth[Parse Auth Methods]
     SOCKS5Auth --> SOCKS5Cmd[Parse CONNECT Command]
@@ -265,37 +288,105 @@ flowchart TD
 ## Core Components
 
 ### PAC Server (Port 8888)
+
 - Serves proxy auto-configuration file
-- URL: `http://$TERMUX_HOST:8888/proxy.pac`
- 
+- URL: `http://$TERMUX_HOST:8080/proxy.pac`
 
 ### Universal HTTP Proxy (Port 8080)
+
 - Handles HTTP, HTTPS, and CONNECT tunneling
 - Protocol detection on single port
 - Bridges WiFi (swlan0) to mobile data (rmnet)
 
 ### Compliance Ports
+
 Individual protocol ports for strict compliance requirements:
-- **1080**: SOCKS5 (RFC 1928 compliant)
+
+- **1080**: SOCKS5 (RFC 1928 compliant)  
 - **8443**: Direct TLS proxy
 - **3128**: Squid-compatible HTTP
-- **1900**: UPnP/SSDP discovery
+- **1900**: UPnP/SSDP discovery ⚠️ **External Network Feature** - Enables automatic port forwarding
+- **5353**: Bonjour/mDNS discovery ⚠️ **External Network Feature** - Enables service discovery
+
+## Network Access Configuration
+
+🌐 **INTENTIONAL DESIGN**: This proxy is designed to share network access across interfaces:
+
+### Network Binding Options
+```bash
+# EXTERNAL ACCESS (default): Share with other devices on network/internet
+BIND_IP=0.0.0.0 litebike-proxy  # ✅ FEATURE: External device access
+
+# LOCAL ONLY: Restrict to current device only  
+BIND_IP=127.0.0.1 litebike-proxy  # Localhost only
+
+# NETWORK SPECIFIC: Bind to specific interface
+BIND_IP=192.168.1.100 litebike-proxy  # Specific local network IP
+```
+
+### Discovery Protocol Features
+
+#### UPnP/SSDP Port Forwarding (Port 1900)
+- **Automatic NAT traversal** for external device access
+- **Mobile data sharing** through WiFi hotspot routing
+- **Remote proxy discovery** via UPnP protocol
+- **Disable in untrusted environments** if security is a concern
+
+#### Bonjour/mDNS Service Discovery (Port 5353)
+- **Automatic proxy discovery** on local networks
+- **Zero-configuration networking** for seamless setup
+- **Service announcement** via multicast DNS
+- **Local domain resolution** (.local domains)
+
+### Deployment Scenarios
+
+#### ✅ **Mobile Data Sharing (Primary Use Case)**
+```bash
+# Termux on Android - Share mobile data via WiFi
+BIND_IP=0.0.0.0 litebike-proxy
+# Other devices connect to your phone's WiFi and use proxy
+```
+
+#### ✅ **Home Network Proxy**
+```bash
+# Share internet connection with devices on home network
+BIND_IP=0.0.0.0 litebike-proxy  
+# Devices on 192.168.x.x network can use proxy
+```
+
+#### ⚠️ **Restricted/Corporate Networks**
+```bash
+# Disable external access features in sensitive environments
+export BIND_IP="127.0.0.1"     # Local only
+export DISABLE_UPNP="true"     # No automatic port forwarding
+litebike-proxy
+```
+
+### Security vs Functionality Trade-offs
+- **Default configuration prioritizes functionality** (external access)
+- **Security restrictions available** when needed
+- **Firewall rules can add additional protection**
+- **Authentication could be added** for enhanced security
 
 ## Client Configuration
 
 ### Automatic (via PAC)
+
 ```
-Proxy Auto-Config URL: http://$TERMUX_HOST:8888/proxy.pac
+Proxy Auto-Config URL: http://$TERMUX_HOST:8080/proxy.pac
 ```
 
 ### Manual
+
 ```
 HTTP Proxy:  $TERMUX_HOST:8080
 HTTPS Proxy: $TERMUX_HOST:8080
-SOCKS Proxy: $TERMUX_HOST:1080
+badass SOCKS Proxy: $TERMUX_HOST:8080
+discrete SOCKS Proxy: $TERMUX_HOST:1080
 ```
 
 ## Sample PAC File
+
 ```javascript
 function FindProxyForURL(url, host) {
   if (isInNet(host, "10.0.0.0", "255.0.0.0"))
@@ -304,7 +395,6 @@ function FindProxyForURL(url, host) {
 }
 ```
 
-<<<<<<< HEAD
 ## Proxy Bridge Script
 
 The included `scripts/proxy-bridge` script provides comprehensive proxy management:
@@ -328,11 +418,13 @@ Litebike uses Tokio for async I/O and implements both HTTP CONNECT tunneling and
 ## Installation
 
 ### Termux (Android)
+
 ```bash
 curl -sL https://github.com/jnorthrup/litebike/raw/master/termux-package/build-on-termux.sh | bash
 ```
 
 ### Desktop/Server
+
 Requirements: Rust 1.70+ with cargo
 
 ```bash
@@ -343,15 +435,31 @@ cargo build --release
 
 ## License
 
-MIT License - See LICENSE file for details
+**Licensed under AGPL-3.0** with commercial licensing available.
+
+### 🔓 AGPL-3.0 (Default)
+- **✅ FREE** for personal, educational, and research use
+- **✅ FREE** for commercial use **IF** you open source your entire application  
+- **⚠️ NETWORK COPYLEFT**: SaaS/hosting **REQUIRES** making source code available
+- **⚠️ MODIFICATIONS**: Must be released under AGPL-3.0
+
+### 💼 Commercial License Alternative
+- **🔓 Proprietary use** without open source requirements
+- **🚀 SaaS/hosting** without source code disclosure  
+- **🏢 Enterprise deployment** with full commercial rights
+- **🤝 Priority support** and consulting services
+
+**Contact**: For commercial licensing, open a GitHub issue with "Commercial License" tag.
+
+**Details**: See [LICENSE](LICENSE) file for complete terms.
 
 ## Contributing
 
-Contributions welcome! Please submit pull requests or issues on GitHub.
-=======
+Contributions welcome! Please submit pull requests or issues on GitHub
+
 ## Termux-Specific Notes
+
 - $TERMUX_HOST: Auto-detected swlan0 IP address
 - Ingress: WiFi interface (swlan0)
 - Egress: Mobile data (rmnet_data*)
 - Purpose: Share mobile data via WiFi proxy bridge
->>>>>>> 102b8e2 (feat: Add Termux ARM64 build and complete proxy implementation)

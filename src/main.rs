@@ -1,4 +1,9 @@
 // LiteBike Proxy - Universal Protocol Detection Proxy
+// Copyright (c) 2025 jnorthrup
+// 
+// Licensed under AGPL-3.0-or-later
+// Commercial licensing available - contact copyright holder
+//
 // Comprehensive proxy with taxonomical abstractions and protocol detection
 // Supports DoH, UPnP, Bonjour, and extensible protocol handling
 
