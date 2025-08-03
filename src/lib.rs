@@ -1,7 +1,25 @@
 pub mod patricia_detector;
 pub mod patricia_detector_simd;
+#[cfg(target_arch = "aarch64")]
+pub mod patricia_detector_simd_arm64;
+#[cfg(feature = "auto-discovery")]
+pub mod pac;
+#[cfg(feature = "auto-discovery")]
+pub mod bonjour;
+#[cfg(feature = "upnp")]
+pub mod upnp;
+#[cfg(feature = "auto-discovery")]
+pub mod auto_discovery;
+pub mod types;
+pub mod note20_features;
+pub mod unified_handler;
+pub mod universal_listener;
+pub mod protocol_registry;
+pub mod protocol_handlers;
+pub mod simple_routing;
+pub mod unified_protocol_manager;
+// Testing and mock modules
 pub mod protocol_mocks;
 pub mod simple_torture_test;
-pub mod types;
 pub mod abstractions;
 pub mod stubs;

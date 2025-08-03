@@ -7,13 +7,16 @@ use std::time::Duration;
 use std::io;
 
 use env_logger::Env;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
 mod patricia_detector;
 use patricia_detector::{PatriciaDetector, Protocol, quick_detect};
+mod auto_discovery;
+use auto_discovery::AutoDiscovery;
+use litebike::note20_features::{Note20NetworkConfig, get_optimal_bind_address, configure_5g_proxy};
 
 // --- Configuration ---
 const HTTP_PORT: u16 = 8080;
@@ -469,6 +472,21 @@ where
 
 /// Gets the local IP address for binding
 fn get_bind_address() -> IpAddr {
+    // Check for Galaxy Note20 5G specific configuration
+    if let Ok(device) = std::fs::read_to_string("/sys/devices/soc0/machine") {
+        if device.contains("SM-N981") || device.contains("SM-N986") {
+            info!("Detected Galaxy Note20 5G");
+            let config = Note20NetworkConfig::default();
+            if let Ok(addr) = get_optimal_bind_address(&config) {
+                if let Ok(ip) = addr.parse::<IpAddr>() {
+                    info!("Using Note20 5G optimized address: {}", ip);
+                    let _ = configure_5g_proxy(&addr);
+                    return ip;
+                }
+            }
+        }
+    }
+    
     // Check environment variables for Termux-specific configuration
     if let Ok(bind_ip_str) = std::env::var("BIND_IP") {
         if let Ok(ip) = bind_ip_str.parse::<IpAddr>() {
@@ -488,6 +506,21 @@ async fn main() {
     
     let bind_ip = get_bind_address();
     info!("Binding to: {}", bind_ip);
+    
+    // Start auto-discovery services (PAC, WPAD, Bonjour, UPnP)
+    if let IpAddr::V4(ipv4) = bind_ip {
+        if !ipv4.is_loopback() {
+            let hostname = hostname::get()
+                .ok()
+                .and_then(|h| h.to_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "litebike".to_string());
+            
+            let auto_discovery = AutoDiscovery::new(ipv4, hostname);
+            if let Err(e) = auto_discovery.start().await {
+                warn!("Auto-discovery failed to start: {}", e);
+            }
+        }
+    }
 
     // Start Universal proxy (HTTP + SOCKS5 detection on 8080)
     let universal_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT))

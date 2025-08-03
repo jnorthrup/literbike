@@ -1,19 +1,24 @@
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::collections::HashMap;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::UdpSocket;
-use tokio::time::{timeout, Duration};
+#[cfg(feature = "upnp")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "upnp")]
+use chrono;
 
 use crate::types::{UpnpAction, StandardPort};
+use crate::universal_listener::PrefixedStream;
+use tokio::net::TcpStream;
 
 const UPNP_MULTICAST_ADDR: &str = "239.255.255.250:1900";
 const SSDP_ALIVE: &str = "ssdp:alive";
 const SSDP_BYEBYE: &str = "ssdp:byebye";
 const SSDP_DISCOVER: &str = "ssdp:discover";
 
+#[cfg(feature = "upnp")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpnpDevice {
     pub uuid: String,
@@ -83,7 +88,7 @@ impl UpnpServer {
         self.devices.insert(device.uuid.clone(), device);
     }
 
-    pub async fn handle_ssdp_request<S>(&mut self, mut stream: S, request: &str) -> io::Result<()>
+    pub async fn handle_ssdp_request<S>(&mut self, stream: S, request: &str) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -123,7 +128,16 @@ impl UpnpServer {
                      ST: {}\r\n\
                      USN: {}::{}\r\n\
                      \r\n",
-                    chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT"),
+                    {
+                        #[cfg(feature = "upnp")]
+                        {
+                            chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+                        }
+                        #[cfg(not(feature = "upnp"))]
+                        {
+                            "Thu, 01 Jan 1970 00:00:00 GMT".to_string()
+                        }
+                    },
                     device.location,
                     search_target,
                     device.uuid,
@@ -136,7 +150,7 @@ impl UpnpServer {
         Ok(())
     }
 
-    async fn handle_subscribe_request<S>(&self, mut stream: S, request: &str) -> io::Result<()>
+    async fn handle_subscribe_request<S>(&self, mut stream: S, _request: &str) -> io::Result<()>
     where
         S: AsyncWrite + Unpin,
     {
@@ -268,7 +282,7 @@ impl UpnpServer {
         }
     }
 
-    fn extract_header(&self, request: &str, header_name: &str) -> Option<&str> {
+    fn extract_header<'a>(&self, request: &'a str, header_name: &str) -> Option<&'a str> {
         for line in request.lines() {
             if line.to_uppercase().starts_with(&format!("{}:", header_name.to_uppercase())) {
                 return line.split(':').nth(1).map(|s| s.trim());
@@ -308,7 +322,7 @@ impl UpnpServer {
         external_port.parse().ok()
     }
 
-    fn extract_xml_value(&self, xml: &str, tag: &str) -> Option<&str> {
+    fn extract_xml_value<'a>(&self, xml: &'a str, tag: &str) -> Option<&'a str> {
         let start_tag = format!("<{}>", tag);
         let end_tag = format!("</{}>", tag);
         
@@ -355,6 +369,7 @@ pub async fn is_upnp_request(request: &str) -> bool {
     ))
 }
 
+#[cfg(feature = "upnp")]
 pub async fn setup_upnp_gateway(local_ip: Ipv4Addr) -> io::Result<()> {
     info!("Setting up UPnP gateway with IP {}", local_ip);
     
@@ -401,6 +416,35 @@ pub async fn setup_upnp_gateway(local_ip: Ipv4Addr) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(not(feature = "upnp"))]
+pub async fn setup_upnp_gateway(_local_ip: Ipv4Addr) -> io::Result<()> {
+    debug!("UPnP support disabled - compile with 'upnp' feature to enable");
+    Ok(())
+}
+
+/// Handler wrapper function for UPnP requests - called by universal listener
+pub async fn handle_upnp_request(mut stream: PrefixedStream<TcpStream>) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt;
+    
+    let mut buffer = [0u8; 1024];
+    let n = stream.read(&mut buffer).await?;
+    if n == 0 { return Ok(()); }
+
+    let request = String::from_utf8_lossy(&buffer[..n]);
+    debug!("UPnP request received: {}", request);
+
+    // Extract local IP from stream or use default
+    let local_ip = stream.inner.local_addr()
+        .map(|addr| match addr.ip() {
+            std::net::IpAddr::V4(ip) => ip,
+            _ => std::net::Ipv4Addr::new(127, 0, 0, 1),
+        })
+        .unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+
+    let mut upnp_server = UpnpServer::new(local_ip);
+    upnp_server.handle_ssdp_request(stream, &request).await
 }
 
 #[cfg(test)]

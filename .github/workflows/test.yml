@@ -1,0 +1,382 @@
+name: Comprehensive Test Suite
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Test different feature combinations
+  unit-tests:
+    name: Unit Tests (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: 
+          - ""                    # No features
+          - "basic-proxy"         # Default features
+          - "doh"                 # DNS-over-HTTPS
+          - "auto-discovery"      # Service discovery
+          - "upnp"               # UPnP support
+          - "advanced-networking" # Advanced networking
+          - "basic-proxy,doh"     # Combined features
+          - "auto-discovery,upnp" # Service features
+          - "full"               # All features
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo clippy --no-default-features --all-targets -- -D warnings
+          else
+            cargo clippy --features "${{ matrix.features }}" --all-targets -- -D warnings
+          fi
+
+      - name: Run unit tests
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo test --no-default-features --lib --verbose
+          else
+            cargo test --features "${{ matrix.features }}" --lib --verbose
+          fi
+
+      - name: Run enhanced protocol detection tests
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo test --no-default-features --test protocol_detection_enhanced --verbose
+          else
+            cargo test --features "${{ matrix.features }}" --test protocol_detection_enhanced --verbose
+          fi
+
+  # Integration tests with full feature set
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run integration tests
+        run: cargo test --features full --test comprehensive_scenarios --verbose
+        env:
+          RUST_LOG: debug
+
+      - name: Run proxy functionality tests
+        run: cargo test --features full --test proxy_functionality --verbose
+
+  # Performance and benchmark tests
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install benchmark dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnuplot
+
+      - name: Run performance regression tests
+        run: cargo test --features full regression_benchmarks --verbose
+
+      - name: Run benchmarks
+        run: cargo bench --features full --verbose
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: benchmark-results
+          path: target/criterion/
+
+  # Feature gate and build validation
+  feature-gate-tests:
+    name: Feature Gate Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-feature-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Test feature combinations
+        run: cargo test --test feature_gates test_all_feature_combinations --ignored --verbose
+
+      - name: Test minimal build
+        run: cargo test --test feature_gates test_minimal_build_size --verbose
+
+      - name: Test default features
+        run: cargo test --test feature_gates test_default_features --verbose
+
+      - name: Test compile time regression
+        run: cargo test --test feature_gates test_compile_time_regression --verbose
+
+  # Security and dependency audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+      - name: Check for known vulnerabilities
+        run: cargo audit --deny warnings
+
+  # Cross-platform testing
+  cross-platform-tests:
+    name: Cross Platform Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, beta]
+        exclude:
+          # Skip beta on Windows and macOS for faster CI
+          - os: macos-latest
+            rust: beta
+          - os: windows-latest
+            rust: beta
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build with default features
+        run: cargo build --features basic-proxy --verbose
+
+      - name: Run basic tests
+        run: cargo test --features basic-proxy --lib --verbose
+
+  # Memory safety and leak detection
+  memory-tests:
+    name: Memory Safety Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-miri-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Miri tests
+        run: |
+          cargo miri setup
+          cargo miri test --lib --no-default-features
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: Run tests under Valgrind
+        run: |
+          cargo build --features basic-proxy
+          valgrind --tool=memcheck --leak-check=full --error-exitcode=1 \
+            ./target/debug/litebike --help
+        continue-on-error: true
+
+  # Code coverage
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-coverage-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Generate code coverage
+        run: |
+          cargo llvm-cov --features full --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+
+  # Documentation tests
+  doc-tests:
+    name: Documentation Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-doc-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Test documentation
+        run: cargo test --features full --doc --verbose
+
+      - name: Check documentation build
+        run: cargo doc --features full --no-deps --verbose
+
+      - name: Check for broken links in documentation
+        run: |
+          cargo install cargo-deadlinks
+          cargo doc --features full --no-deps
+          cargo deadlinks --dir target/doc
+
+  # Final status check
+  test-status:
+    name: Test Status
+    if: always()
+    needs:
+      - unit-tests
+      - integration-tests
+      - performance-tests
+      - feature-gate-tests
+      - security-audit
+      - cross-platform-tests
+      - memory-tests
+      - coverage
+      - doc-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          echo "Unit tests: ${{ needs.unit-tests.result }}"
+          echo "Integration tests: ${{ needs.integration-tests.result }}"
+          echo "Performance tests: ${{ needs.performance-tests.result }}"
+          echo "Feature gate tests: ${{ needs.feature-gate-tests.result }}"
+          echo "Security audit: ${{ needs.security-audit.result }}"
+          echo "Cross-platform tests: ${{ needs.cross-platform-tests.result }}"
+          echo "Memory tests: ${{ needs.memory-tests.result }}"
+          echo "Coverage: ${{ needs.coverage.result }}"
+          echo "Documentation tests: ${{ needs.doc-tests.result }}"
+          
+          # Fail if any critical tests failed
+          if [[ "${{ needs.unit-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.integration-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.security-audit.result }}" != "success" ]]; then
+            echo "Critical tests failed!"
+            exit 1
+          fi
+          
+          echo "All tests completed successfully!"

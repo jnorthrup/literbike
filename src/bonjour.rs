@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use log::{debug, error, info, warn};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::UdpSocket;
-use trust_dns_resolver::TokioAsyncResolver;
-use trust_dns_resolver::proto::rr::{DNSClass, RecordType, RData};
-use trust_dns_resolver::proto::op::{Message, Query};
-use trust_dns_resolver::proto::serialize::binary::{BinDecodable, BinEncodable};
+#[cfg(feature = "doh")]
+use hickory_resolver::TokioAsyncResolver;
 
-use crate::types::{TargetAddress, StandardPort};
+use crate::types::StandardPort;
+use crate::universal_listener::PrefixedStream;
+use tokio::net::TcpStream;
 
 const MDNS_MULTICAST_ADDR: &str = "224.0.0.251:5353";
 const MDNS_TTL: u32 = 120;
@@ -28,10 +28,12 @@ pub struct BonjourServer {
     local_ip: Ipv4Addr,
     hostname: String,
     services: HashMap<String, BonjourService>,
+    #[cfg(feature = "doh")]
     resolver: TokioAsyncResolver,
 }
 
 impl BonjourServer {
+    #[cfg(feature = "doh")]
     pub fn new(local_ip: Ipv4Addr, hostname: String, resolver: TokioAsyncResolver) -> Self {
         let mut server = Self {
             local_ip,
@@ -42,6 +44,21 @@ impl BonjourServer {
             },
             services: HashMap::new(),
             resolver,
+        };
+        server.add_default_services();
+        server
+    }
+
+    #[cfg(not(feature = "doh"))]
+    pub fn new(local_ip: Ipv4Addr, hostname: String) -> Self {
+        let mut server = Self {
+            local_ip,
+            hostname: if hostname.ends_with(".local") {
+                hostname
+            } else {
+                format!("{}.local", hostname)
+            },
+            services: HashMap::new(),
         };
         server.add_default_services();
         server
@@ -80,7 +97,7 @@ impl BonjourServer {
         self.services.insert("_socks._tcp.local".to_string(), socks_service);
     }
 
-    pub async fn handle_mdns_request<S>(&self, mut stream: S, request: &str) -> io::Result<()>
+    pub async fn handle_mdns_request<S>(&self, stream: S, request: &str) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -93,7 +110,7 @@ impl BonjourServer {
         }
     }
 
-    async fn handle_local_domain_request<S>(&self, mut stream: S, request: &str) -> io::Result<()>
+    async fn handle_local_domain_request<S>(&self, stream: S, request: &str) -> io::Result<()>
     where
         S: AsyncWrite + Unpin,
     {
@@ -113,7 +130,7 @@ impl BonjourServer {
         }
     }
 
-    async fn proxy_dns_request<S>(&self, mut stream: S, request: &str) -> io::Result<()>
+    async fn proxy_dns_request<S>(&self, stream: S, request: &str) -> io::Result<()>
     where
         S: AsyncWrite + Unpin,
     {
@@ -372,10 +389,54 @@ pub async fn bridge_mdns_query(query: &str, resolver: &TokioAsyncResolver) -> io
     }
 }
 
+/// Handler wrapper function for Bonjour/mDNS requests - called by universal listener
+pub async fn handle_bonjour(mut stream: PrefixedStream<TcpStream>) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt;
+    
+    let mut buffer = [0u8; 1024];
+    let n = stream.read(&mut buffer).await?;
+    if n == 0 { return Ok(()); }
+
+    let request = String::from_utf8_lossy(&buffer[..n]);
+    debug!("Bonjour/mDNS request received: {}", request);
+
+    // Extract local IP from stream or use default
+    let local_ip = stream.inner.local_addr()
+        .map(|addr| match addr.ip() {
+            std::net::IpAddr::V4(ip) => ip,
+            _ => std::net::Ipv4Addr::new(127, 0, 0, 1),
+        })
+        .unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+
+    // Use system resolver for mDNS queries
+    #[cfg(feature = "auto-discovery")]
+    let resolver = match hickory_resolver::TokioAsyncResolver::tokio_from_system_conf() {
+        Ok(r) => r,
+        Err(_) => hickory_resolver::TokioAsyncResolver::tokio(
+            hickory_resolver::config::ResolverConfig::default(),
+            hickory_resolver::config::ResolverOpts::default()
+        ),
+    };
+    
+    #[cfg(not(feature = "auto-discovery"))]
+    let resolver = ();
+
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "litebike-proxy".to_string());
+
+    #[cfg(feature = "auto-discovery")]
+    let bonjour_server = BonjourServer::new(local_ip, hostname, resolver);
+    #[cfg(not(feature = "auto-discovery"))]
+    let bonjour_server = BonjourServer::new(local_ip, hostname);
+    bonjour_server.handle_mdns_request(stream, &request).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
+    #[cfg(feature = "auto-discovery")]
+    use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 
     #[tokio::test]
     async fn test_is_bonjour_request() {

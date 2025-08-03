@@ -2,10 +2,14 @@ use std::io;
 use std::net::Ipv4Addr;
 use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+#[cfg(feature = "auto-discovery")]
 use serde::{Deserialize, Serialize};
 
-use crate::types::{StandardPort, TargetAddress};
+use crate::types::StandardPort;
+use crate::universal_listener::PrefixedStream;
+use tokio::net::TcpStream;
 
+#[cfg(feature = "auto-discovery")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PacConfig {
     pub proxy_host: String,
@@ -17,6 +21,7 @@ pub struct PacConfig {
     pub bypass_local: bool,
 }
 
+#[cfg(feature = "auto-discovery")]
 impl Default for PacConfig {
     fn default() -> Self {
         Self {
@@ -50,7 +55,7 @@ impl PacServer {
         }
     }
 
-    pub async fn handle_request<S>(&self, mut stream: S, request: &str) -> io::Result<()>
+    pub async fn handle_request<S>(&mut self, stream: S, request: &str) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -333,6 +338,63 @@ networksetup -setautoproxystate "$NETWORK_SERVICE" off
 
 echo "Proxy configuration disabled!"
 "#.to_string()
+}
+
+/// Handler wrapper function for PAC requests - called by universal listener
+pub async fn handle_pac_request(mut stream: PrefixedStream<TcpStream>) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt;
+    
+    let mut buffer = [0u8; 1024];
+    let n = stream.read(&mut buffer).await?;
+    if n == 0 { return Ok(()); }
+
+    let request = String::from_utf8_lossy(&buffer[..n]);
+    debug!("PAC request received: {}", request);
+
+    // Extract local IP from stream or use default
+    let local_ip = stream.inner.local_addr()
+        .map(|addr| match addr.ip() {
+            std::net::IpAddr::V4(ip) => ip,
+            _ => std::net::Ipv4Addr::new(127, 0, 0, 1),
+        })
+        .unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+
+    let pac_config = PacConfig::default();
+    let mut pac_server = PacServer::new(local_ip, pac_config);
+    
+    pac_server.handle_request(stream, &request).await
+}
+
+/// Handler wrapper function for WPAD requests - called by universal listener  
+pub async fn handle_wpad_request(mut stream: PrefixedStream<TcpStream>) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt;
+    
+    let mut buffer = [0u8; 1024];
+    let n = stream.read(&mut buffer).await?;
+    if n == 0 { return Ok(()); }
+
+    let request = String::from_utf8_lossy(&buffer[..n]);
+    debug!("WPAD request received: {}", request);
+
+    // Extract local IP from stream or use default
+    let local_ip = stream.inner.local_addr()
+        .map(|addr| match addr.ip() {
+            std::net::IpAddr::V4(ip) => ip,
+            _ => std::net::Ipv4Addr::new(127, 0, 0, 1),
+        })
+        .unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+
+    let pac_config = PacConfig::default();
+    let mut pac_server = PacServer::new(local_ip, pac_config);
+    
+    // For WPAD, we serve the same PAC content but ensure it's accessible via /wpad.dat
+    let wpad_request = if request.contains("/wpad.dat") {
+        request.replace("/wpad.dat", "/proxy.pac")
+    } else {
+        request.to_string()
+    };
+    
+    pac_server.handle_request(stream, &wpad_request).await
 }
 
 #[cfg(test)]

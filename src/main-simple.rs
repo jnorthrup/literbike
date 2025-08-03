@@ -1,53 +1,21 @@
-// LiteBike Proxy - Universal Protocol Detection Proxy
+// LiteBike Proxy - Simplified Universal Protocol Detection Proxy
 // Copyright (c) 2025 jnorthrup
 // 
 // Licensed under AGPL-3.0-or-later
-// Commercial licensing available - contact copyright holder
-//
-// Comprehensive proxy with taxonomical abstractions and protocol detection
-// Supports DoH, UPnP, Bonjour, and extensible protocol handling
+// Simple proxy implementation for testing basic functionality
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str;
 use std::time::Duration;
 use std::io;
-use std::sync::Arc;
 
 use env_logger::Env;
 use log::{debug, error, info, warn};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::OnceCell;
 use tokio::time::timeout;
-#[cfg(feature = "doh")]
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-#[cfg(feature = "doh")]
-use hickory_resolver::TokioAsyncResolver;
 
 mod types;
-mod abstractions;
-// mod doh; // DoH functionality is now in protocol_handlers
-#[cfg(feature = "upnp")]
-mod upnp;
-#[cfg(feature = "auto-discovery")]
-mod bonjour;
-#[cfg(feature = "auto-discovery")]
-mod pac;
-// Temporarily disabled problematic modules for testing
-// mod extended_protocols;
-// mod advanced_protocols;
-// mod fuzzer;
-// mod advanced_fuzzer;
-// mod violent_fuzzer;
-// mod stubs;
-mod universal_listener;
-#[cfg(feature = "auto-discovery")]
-mod auto_discovery;
-mod patricia_detector;
-mod unified_handler;
-mod protocol_registry;
-mod protocol_handlers;
-mod unified_protocol_manager;
 mod simple_routing;
 
 // --- Configuration ---
@@ -55,56 +23,8 @@ const HTTP_PORT: u16 = 8080;
 const SOCKS_PORT: u16 = 1080;
 const UNIVERSAL_PORT: u16 = 8888;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const UPNP_LEASE_DURATION: u32 = 3600; // 1 hour
 
-// --- DNS Resolution ---
-#[cfg(feature = "doh")]
-static DOH_RESOLVER: OnceCell<TokioAsyncResolver> = OnceCell::const_new();
-
-#[cfg(feature = "doh")]
-async fn get_doh_resolver() -> &'static TokioAsyncResolver {
-    DOH_RESOLVER.get_or_init(|| async {
-        let config = ResolverConfig::cloudflare();
-        let opts = ResolverOpts::default();
-        TokioAsyncResolver::tokio(config, opts)
-    }).await
-}
-
-/// Resolves a hostname to an IP address using available resolver.
-async fn resolve_host(host: &str) -> io::Result<IpAddr> {
-    // Try parsing as IP first
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(ip);
-    }
-
-    #[cfg(feature = "doh")]
-    {
-        let resolver = get_doh_resolver().await;
-        let response = resolver.lookup_ip(host).await.map_err(|e| {
-            error!("DoH resolution failed for {}: {}", host, e);
-            io::Error::new(io::ErrorKind::NotFound, "Host not found")
-        })?;
-
-        response.iter().next().ok_or_else(|| {
-            error!("No IP address found for {}", host);
-            io::Error::new(io::ErrorKind::NotFound, "No IP address found")
-        })
-    }
-    
-    #[cfg(not(feature = "doh"))]
-    {
-        // Fallback to system DNS
-        let addresses: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:80", host))
-            .await?
-            .collect();
-        
-        addresses.first()
-            .map(|addr| addr.ip())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IP address found"))
-    }
-}
-
-/// Connects to a target address, resolving the hostname via DoH if necessary.
+/// Connects to a target address
 async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
     let (host, port_str) = match target.rsplit_once(':') {
         Some((host, port)) => (host, port),
@@ -113,7 +33,20 @@ async fn connect_to_target(target: &str) -> io::Result<TcpStream> {
     
     let port: u16 = port_str.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid port number"))?;
 
-    let ip_addr = resolve_host(host).await?;
+    // Try parsing as IP first
+    let ip_addr = if let Ok(ip) = host.parse::<IpAddr>() {
+        ip
+    } else {
+        // Fallback to system DNS
+        let addresses: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:80", host))
+            .await?
+            .collect();
+        
+        addresses.first()
+            .map(|addr| addr.ip())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No IP address found"))?
+    };
+
     let socket_addr = SocketAddr::new(ip_addr, port);
 
     debug!("Connecting to {} -> {}", target, socket_addr);
@@ -286,51 +219,6 @@ where
     }
 }
 
-/// Gets the IPv4 address for a given network interface name.
-#[cfg(feature = "auto-discovery")]
-fn get_interface_ip(iface_name: &str) -> Option<IpAddr> {
-    pnet::datalink::interfaces().into_iter()
-        .find(|iface| iface.name == iface_name)
-        .and_then(|iface| iface.ips.into_iter().find(|ip| ip.is_ipv4()).map(|ip| ip.ip()))
-}
-
-/// Sets up UPNP port forwarding.
-#[cfg(feature = "upnp")]
-async fn setup_upnp(local_ip: Ipv4Addr) {
-    info!("Attempting to configure UPNP...");
-    let gateway = match tokio::task::spawn_blocking(move || igd_next::search_gateway(Default::default())).await {
-        Ok(Ok(gw)) => gw,
-        Ok(Err(e)) => {
-            warn!("UPNP: Could not find gateway: {}. Manual port forwarding may be required.", e);
-            return;
-        }
-        Err(e) => {
-            warn!("UPNP: Task failed: {}", e);
-            return;
-        }
-    };
-    
-    info!("UPNP Gateway found: {}", gateway.addr);
-    let http_addr = SocketAddr::new(IpAddr::V4(local_ip), HTTP_PORT);
-    if let Err(e) = gateway.add_port(igd_next::PortMappingProtocol::TCP, HTTP_PORT, http_addr, UPNP_LEASE_DURATION, "LiteBike-HTTP") {
-        warn!("UPNP: Failed to map HTTP port: {}", e);
-    } else {
-        info!("UPNP: Successfully mapped HTTP port {}", HTTP_PORT);
-    }
-
-    let socks_addr = SocketAddr::new(IpAddr::V4(local_ip), SOCKS_PORT);
-    if let Err(e) = gateway.add_port(igd_next::PortMappingProtocol::TCP, SOCKS_PORT, socks_addr, UPNP_LEASE_DURATION, "LiteBike-SOCKS5") {
-        warn!("UPNP: Failed to map SOCKS5 port: {}", e);
-    } else {
-        info!("UPNP: Successfully mapped SOCKS5 port {}", SOCKS_PORT);
-    }
-}
-
-#[cfg(not(feature = "upnp"))]
-async fn setup_upnp(_local_ip: Ipv4Addr) {
-    debug!("UPnP support disabled - compile with 'upnp' feature to enable");
-}
-
 /// Simple universal connection handler with protocol detection
 async fn handle_universal_connection(mut stream: TcpStream) -> io::Result<()> {
     // Peek at the first few bytes to detect protocol
@@ -359,29 +247,11 @@ async fn handle_universal_connection(mut stream: TcpStream) -> io::Result<()> {
             
             // Check for special HTTP-based protocols
             if text.contains("/proxy.pac") {
-                debug!("Universal port: PAC request detected");
-                #[cfg(feature = "auto-discovery")]
-                return pac::handle_pac_request(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
-                #[cfg(not(feature = "auto-discovery"))]
-                return handle_http(stream).await;
+                debug!("Universal port: PAC request detected (serving simple response)");
+                serve_simple_pac(stream).await
             } else if text.contains("/wpad.dat") {
-                debug!("Universal port: WPAD request detected");
-                #[cfg(feature = "auto-discovery")]
-                return pac::handle_wpad_request(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
-                #[cfg(not(feature = "auto-discovery"))]
-                return handle_http(stream).await;
-            } else if text.contains(".local") {
-                debug!("Universal port: Bonjour/mDNS request detected");
-                #[cfg(feature = "auto-discovery")]
-                return bonjour::handle_bonjour(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
-                #[cfg(not(feature = "auto-discovery"))]
-                return handle_http(stream).await;
-            } else if text.contains("M-SEARCH") || text.contains("NOTIFY") {
-                debug!("Universal port: UPnP request detected");
-                #[cfg(feature = "upnp")]
-                return upnp::handle_upnp_request(universal_listener::PrefixedStream::new(stream, data.to_vec())).await;
-                #[cfg(not(feature = "upnp"))]
-                return handle_http(stream).await;
+                debug!("Universal port: WPAD request detected (serving simple response)");
+                serve_simple_pac(stream).await
             } else {
                 // Regular HTTP request
                 handle_http(stream).await
@@ -403,55 +273,52 @@ async fn handle_universal_connection(mut stream: TcpStream) -> io::Result<()> {
     }
 }
 
+/// Serve a simple PAC/WPAD response
+async fn serve_simple_pac(mut stream: TcpStream) -> io::Result<()> {
+    let pac_content = r#"function FindProxyForURL(url, host) {
+    // Simple PAC configuration
+    if (host == "localhost" || 
+        host == "127.0.0.1" || 
+        isInNet(host, "127.0.0.0", "255.0.0.0")) {
+        return "DIRECT";
+    }
+    
+    // Private network bypass
+    if (isInNet(host, "10.0.0.0", "255.0.0.0") ||
+        isInNet(host, "172.16.0.0", "255.240.0.0") ||
+        isInNet(host, "192.168.0.0", "255.255.0.0")) {
+        return "DIRECT";
+    }
+    
+    // Default proxy chain with fallback
+    return "PROXY 127.0.0.1:8080; SOCKS5 127.0.0.1:1080; DIRECT";
+}"#;
+
+    let response = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: application/x-ns-proxy-autoconfig\r\n\
+         Content-Length: {}\r\n\
+         Cache-Control: max-age=3600\r\n\
+         \r\n\
+         {}",
+        pac_content.len(),
+        pac_content
+    );
+    
+    info!("Serving simple PAC file to client");
+    stream.write_all(response.as_bytes()).await
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-    let bind_ip_str = {
-        #[cfg(feature = "auto-discovery")]
-        {
-            if let Ok(iface) = std::env::var("INGRESS_INTERFACE") {
-                if let Some(ip) = get_interface_ip(&iface) {
-                    ip.to_string()
-                } else {
-                    "0.0.0.0".to_string()
-                }
-            } else {
-                std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
-            }
-        }
-        #[cfg(not(feature = "auto-discovery"))]
-        {
-            std::env::var("BIND_IP").unwrap_or_else(|_| "0.0.0.0".to_string())
-        }
-    };
-    let bind_ip: IpAddr = bind_ip_str.parse().expect("Invalid BIND_IP address");
+    let bind_ip: IpAddr = std::env::var("BIND_IP")
+        .unwrap_or_else(|_| "0.0.0.0".to_string())
+        .parse()
+        .expect("Invalid BIND_IP address");
 
-    // Initialize auto-discovery services
-    #[cfg(feature = "auto-discovery")]
-    if let IpAddr::V4(ipv4) = bind_ip {
-        let hostname = hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "litebike-proxy".to_string());
-        
-        let auto_discovery = auto_discovery::AutoDiscovery::new(ipv4, hostname);
-        
-        tokio::spawn(async move {
-            if let Err(e) = auto_discovery.start().await {
-                warn!("Auto-discovery services failed to start: {}", e);
-            }
-        });
-    }
-
-    if !bind_ip.is_loopback() {
-        if let IpAddr::V4(ipv4) = bind_ip {
-            let local_ip_clone = ipv4;
-            tokio::spawn(async move {
-                setup_upnp(local_ip_clone).await;
-            });
-        }
-    }
-
+    // Start HTTP proxy listener
     let http_listener = TcpListener::bind(SocketAddr::new(bind_ip, HTTP_PORT)).await.expect("Failed to bind HTTP");
     info!("HTTP proxy listening on {}", http_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, HTTP_PORT)));
     tokio::spawn(async move {
@@ -466,6 +333,7 @@ async fn main() {
         }
     });
 
+    // Start SOCKS5 proxy listener
     let socks_listener = TcpListener::bind(SocketAddr::new(bind_ip, SOCKS_PORT)).await.expect("Failed to bind SOCKS5");
     info!("SOCKS5 proxy listening on {}", socks_listener.local_addr().unwrap_or_else(|_| SocketAddr::new(bind_ip, SOCKS_PORT)));
     tokio::spawn(async move {
@@ -503,83 +371,5 @@ async fn main() {
                 }
             });
         }
-    }
-}
-
-// --- Tests ---
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::io::ReadBuf;
-
-    // A simple mock stream that can be used for testing protocol logic.
-    // It reads from a predefined buffer and writes to another buffer.
-    struct MockStream {
-        reader: io::Cursor<Vec<u8>>,
-        writer: Vec<u8>,
-    }
-
-    impl AsyncRead for MockStream {
-        fn poll_read(
-            mut self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> std::task::Poll<io::Result<()>> {
-            std::pin::Pin::new(&mut self.reader).poll_read(cx, buf)
-        }
-    }
-
-    impl AsyncWrite for MockStream {
-        fn poll_write(
-            mut self: std::pin::Pin<&mut Self>,
-            _cx: &mut std::task::Context<'_>,
-            buf: &[u8],
-        ) -> std::task::Poll<io::Result<usize>> {
-            self.writer.extend_from_slice(buf);
-            std::task::Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<io::Result<()>> {
-            std::task::Poll::Ready(Ok(()))
-        }
-
-        fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<io::Result<()>> {
-            std::task::Poll::Ready(Ok(()))
-        }
-    }
-
-    #[tokio::test]
-    async fn test_socks5_handshake_and_request_ipv4_failure() {
-        // This test simulates the SOCKS5 flow up to the point of connecting to the
-        // remote host, which we assume fails.
-        let mut request = vec![5, 1, 0]; // Handshake
-        request.extend_from_slice(&[5, 1, 0, 1]); // Request header (IPv4)
-        request.extend_from_slice(&[192, 0, 2, 1]); // TEST-NET-1 IP, should not be routable
-        request.extend_from_slice(&53u16.to_be_bytes()); // Port
-
-        let mut stream = MockStream {
-            reader: io::Cursor::new(request),
-            writer: Vec::new(),
-        };
-        
-        // We expect an error because `connect_to_target` will fail in a test environment
-        // without a real network. The handler should gracefully write a failure response.
-        let result = handle_socks5(&mut stream).await;
-        assert!(result.is_err());
-    }
-    
-    #[tokio::test]
-    async fn test_socks5_unsupported_auth() {
-        let request = vec![5, 1, 1]; // SOCKS5, 1 method, GSSAPI
-        let mut stream = MockStream {
-            reader: io::Cursor::new(request),
-            writer: Vec::new(),
-        };
-
-        let result = handle_socks5(&mut stream).await;
-        assert!(result.is_err());
-        
-        // Check that the correct "no acceptable methods" response was sent
-        assert_eq!(stream.writer, &[5, 0xFF]);
     }
 }

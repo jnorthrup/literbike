@@ -263,7 +263,7 @@ impl SimpleTortureTest {
                 protocol,
                 bytes_consumed: bytes,
                 processing_time: duration,
-                memory_efficient: duration < Duration::from_millis(size / 1000 + 10), // Rough heuristic
+                memory_efficient: duration < Duration::from_millis((size / 1000 + 10) as u64), // Rough heuristic
             });
 
             if duration > Duration::from_millis(100) {

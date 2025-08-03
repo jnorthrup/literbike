@@ -28,6 +28,9 @@ pub struct SimdDetector {
 #[cfg(target_arch = "aarch64")]
 pub struct SimdDetector {
     socks5_mask: u8,
+    // Pre-computed NEON vectors for common protocols
+    http_vectors: Vec<uint8x16_t>,
+    tls_pattern: [u8; 3],
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -53,8 +56,19 @@ impl SimdDetector {
 #[cfg(target_arch = "aarch64")]
 impl SimdDetector {
     pub fn new() -> Self {
-        SimdDetector {
-            socks5_mask: 0x05,
+        unsafe {
+            SimdDetector {
+                socks5_mask: 0x05,
+                http_vectors: vec![
+                    vld1q_u8(b"GET             ".as_ptr()),
+                    vld1q_u8(b"POST            ".as_ptr()),
+                    vld1q_u8(b"PUT             ".as_ptr()),
+                    vld1q_u8(b"DELETE          ".as_ptr()),
+                    vld1q_u8(b"HEAD            ".as_ptr()),
+                    vld1q_u8(b"CONNECT         ".as_ptr()),
+                ],
+                tls_pattern: [0x16, 0x03, 0x00],
+            }
         }
     }
 
@@ -136,8 +150,66 @@ impl SimdDetector {
     #[cfg(target_arch = "aarch64")]
     #[inline(always)]
     pub fn detect_simd(&self, buffer: &[u8]) -> Protocol {
-        // ARM64 doesn't have the SIMD implementation yet
-        self.detect_scalar(buffer)
+        if buffer.is_empty() {
+            return Protocol::Unknown;
+        }
+
+        // Fast path for single-byte protocols (optimized for Samsung S20)
+        if buffer[0] == self.socks5_mask {
+            return Protocol::Socks5;
+        }
+
+        // TLS detection (common on mobile)
+        if buffer.len() >= 3 && buffer[0] == self.tls_pattern[0] && buffer[1] == self.tls_pattern[1] {
+            return Protocol::Tls;
+        }
+
+        // Need at least 16 bytes for NEON
+        if buffer.len() < 16 {
+            return self.detect_scalar(buffer);
+        }
+
+        unsafe {
+            // Load first 16 bytes into NEON register
+            let data = vld1q_u8(buffer.as_ptr());
+            
+            // Check HTTP methods using NEON (optimized for Snapdragon 865)
+            for (i, &pattern_vec) in self.http_vectors.iter().enumerate() {
+                // Use NEON comparison
+                let cmp = vceqq_u8(data, pattern_vec);
+                
+                // Extract comparison results efficiently
+                let cmp_low = vget_low_u8(cmp);
+                let cmp_result = vreinterpret_u64_u8(cmp_low);
+                let result = vget_lane_u64(cmp_result, 0);
+                
+                // Method lengths: GET=3, POST=4, PUT=3, DELETE=6, HEAD=4, CONNECT=7
+                let method_len = match i {
+                    0 | 2 => 3,  // GET, PUT
+                    1 | 4 => 4,  // POST, HEAD
+                    3 => 6,      // DELETE
+                    5 => 7,      // CONNECT
+                    _ => continue,
+                };
+                
+                let mask = (1u64 << (method_len * 8)) - 1;
+                if result & mask == mask {
+                    return Protocol::Http;
+                }
+            }
+
+            // Check PROXY protocol
+            if buffer.starts_with(b"PROXY ") {
+                return Protocol::ProxyProtocol;
+            }
+
+            // Check HTTP/2
+            if buffer.len() >= 14 && buffer.starts_with(b"PRI * HTTP/2.0") {
+                return Protocol::Http2;
+            }
+        }
+
+        Protocol::Unknown
     }
 
     // Scalar fallback for short buffers

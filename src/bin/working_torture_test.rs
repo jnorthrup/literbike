@@ -175,7 +175,7 @@ async fn run_adversarial_tests() {
     let mut tests_run = 0;
     let mut slow_tests = 0;
     let mut very_slow_tests = 0;
-    let mut crashes = 0;
+    let crashes = 0;
     
     // Buffer overflow attempts
     let overflow_tests = vec![
@@ -368,9 +368,9 @@ async fn run_performance_tests() {
         let (protocol, bytes) = detector.detect_with_length(&payload);
         let duration = start.elapsed();
         
-        let efficiency = if duration < Duration::from_millis(size / 10000 + 10) {
+        let efficiency = if duration < Duration::from_millis((size / 10000 + 10) as u64) {
             "🚀"
-        } else if duration < Duration::from_millis(size / 1000 + 50) {
+        } else if duration < Duration::from_millis((size / 1000 + 50) as u64) {
             "✅"
         } else {
             "⚠️ "

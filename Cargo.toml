@@ -23,6 +23,10 @@ name = "litebike-proxy"
 path = "src/main-termux.rs"
 
 [[bin]]
+name = "litebike-simple"
+path = "src/main-simple.rs"
+
+[[bin]]
 name = "test-patricia"
 path = "src/bin/test_patricia.rs"
 
@@ -50,18 +54,73 @@ path = "src/bin/working_torture_test.rs"
 name = "minimal-torture-test"
 path = "src/bin/minimal_torture_test.rs"
 
+[[bin]]
+name = "minimal-proxy"
+path = "src/bin/minimal_proxy.rs"
+
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-trust-dns-resolver = { version = "0.23", features = ["dns-over-https-rustls", "tokio-runtime"] }
-pnet = "0.35"
-igd-next = "0.14"
+# Core async runtime - minimal features only
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros", "sync"] }
+
+# DNS resolution - lightweight alternative to trust-dns-resolver
+hickory-resolver = { version = "0.24", features = ["tokio-runtime"], optional = true }
+
+# Network interface detection - only for UPnP feature
+pnet = { version = "0.35", optional = true }
+
+# UPnP port forwarding - optional feature
+igd-next = { version = "0.14", optional = true }
+
+# Logging - minimal features
 log = "0.4"
-env_logger = "0.11"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-httparse = "1.8"
-libc = "0.2"
+env_logger = { version = "0.11", default-features = false, features = ["color"] }
+
+# System utilities
+hostname = { version = "0.3", optional = true }
+
+# Async traits - proc macro only
+async-trait = "0.1"
+
+# Static initialization
 lazy_static = "1.4"
+
+# Serialization - minimal features
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+
+# HTTP parsing - lightweight
+httparse = "1.8"
+
+# Base64 encoding/decoding - for DoH
+base64 = { version = "0.22", optional = true }
+
+# Date/time handling - for UPnP
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+
+# Feature-gated dependencies
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[features]
+default = ["full"]
+
+# Core proxy functionality (HTTP + SOCKS5)
+basic-proxy = []
+
+# DNS over HTTPS support
+doh = ["hickory-resolver", "base64"]
+
+# Auto-discovery services (mDNS/Bonjour, UPnP, PAC/WPAD)
+auto-discovery = ["hostname", "serde", "serde_json", "pnet", "doh"]
+
+# UPnP port forwarding
+upnp = ["igd-next", "pnet", "serde", "serde_json", "chrono"]
+
+# Advanced network features for specific devices
+advanced-networking = ["libc", "hostname"]
+
+# Full feature set (equivalent to current functionality)
+full = ["basic-proxy", "doh", "auto-discovery", "upnp", "advanced-networking"]
 
 [dev-dependencies]
 tokio-test = "0.4"

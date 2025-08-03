@@ -202,7 +202,7 @@ impl BitFlags {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProtocolDetectionResult {
     pub protocol: ProtocolType,
     pub confidence: u8,
