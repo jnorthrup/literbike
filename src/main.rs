@@ -1,3 +1,5 @@
+extern crate env_logger;
+pub mod detection_orchestrator;
 // LiteBike Proxy - Universal Protocol Detection Proxy
 // Copyright (c) 2025 jnorthrup
 // 
@@ -47,7 +49,6 @@ mod patricia_detector;
 mod unified_handler;
 mod protocol_registry;
 mod protocol_handlers;
-mod unified_protocol_manager;
 mod simple_routing;
 
 // --- Configuration ---

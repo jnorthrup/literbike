@@ -1,133 +1,28 @@
-[package]
+        [package]
 name = "litebike"
 version = "0.1.0"
 edition = "2021"
-authors = ["jnorthrup"]
-description = "High-performance proxy with universal protocol detection using Patricia Trie"
-license = "AGPL-3.0-or-later"
-repository = "https://github.com/jnorthrup/litebike"
-keywords = ["proxy", "socks5", "http", "protocol-detection", "networking"]
-categories = ["network-programming", "web-programming"]
-readme = "README.md"
 
 [lib]
 name = "litebike"
 path = "src/lib.rs"
 
-[[bin]]
-name = "litebike"
-path = "src/main.rs"
-
-[[bin]]
-name = "litebike-proxy"
-path = "src/main-termux.rs"
-
-[[bin]]
-name = "litebike-simple"
-path = "src/main-simple.rs"
-
-[[bin]]
-name = "test-patricia"
-path = "src/bin/test_patricia.rs"
-
-[[bin]]
-name = "test-tls-sni"
-path = "src/bin/test_tls_sni.rs"
-
-[[bin]]
-name = "mock-protocols"
-path = "src/bin/mock_protocols.rs"
-
-[[bin]]
-name = "benchmark-simd"
-path = "src/bin/benchmark_simd.rs"
-
-[[bin]]
-name = "massive-torture-test"
-path = "src/bin/massive_torture_test.rs"
-
-[[bin]]
-name = "working-torture-test"
-path = "src/bin/working_torture_test.rs"
-
-[[bin]]
-name = "minimal-torture-test"
-path = "src/bin/minimal_torture_test.rs"
-
-[[bin]]
-name = "minimal-proxy"
-path = "src/bin/minimal_proxy.rs"
-
-[dependencies]
-# Core async runtime - minimal features only
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros", "sync"] }
-
-# DNS resolution - lightweight alternative to trust-dns-resolver
-hickory-resolver = { version = "0.24", features = ["tokio-runtime"], optional = true }
-
-# Network interface detection - only for UPnP feature
-pnet = { version = "0.35", optional = true }
-
-# UPnP port forwarding - optional feature
-igd-next = { version = "0.14", optional = true }
-
-# Logging - minimal features
-log = "0.4"
-env_logger = { version = "0.11", default-features = false, features = ["color"] }
-
-# System utilities
-hostname = { version = "0.3", optional = true }
-
-# Async traits - proc macro only
-async-trait = "0.1"
-
-# Static initialization
-lazy_static = "1.4"
-
-# Serialization - minimal features
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
-
-# HTTP parsing - lightweight
-httparse = "1.8"
-
-# Base64 encoding/decoding - for DoH
-base64 = { version = "0.22", optional = true }
-
-# Date/time handling - for UPnP
-chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
-
-# Feature-gated dependencies
-[target.'cfg(unix)'.dependencies]
-libc = { version = "0.2", optional = true }
+# All binaries in src/bin automatically see the library crate `litebike`
+# via `use crate::...` when compiled within the same package.
 
 [features]
-default = ["full"]
+default = []
 
-# Core proxy functionality (HTTP + SOCKS5)
-basic-proxy = []
+# Optional features toggling submodules to keep edge footprint tight
+auto-discovery = []
+upnp = []
+doh = ["hickory-resolver"]
 
-# DNS over HTTPS support
-doh = ["hickory-resolver", "base64"]
-
-# Auto-discovery services (mDNS/Bonjour, UPnP, PAC/WPAD)
-auto-discovery = ["hostname", "serde", "serde_json", "pnet", "doh"]
-
-# UPnP port forwarding
-upnp = ["igd-next", "pnet", "serde", "serde_json", "chrono"]
-
-# Advanced network features for specific devices
-advanced-networking = ["libc", "hostname"]
-
-# Full feature set (equivalent to current functionality)
-full = ["basic-proxy", "doh", "auto-discovery", "upnp", "advanced-networking"]
-
-[dev-dependencies]
-tokio-test = "0.4"
-
-[profile.release]
-lto = true
-opt-level = 3
-codegen-units = 1
-strip = true
-panic = "abort"
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+async-trait = "0.1"
+base64 = { version = "0.22", features = ["alloc", "std"] }
+hickory-resolver = { version = "0.24", optional = true, features = ["tokio-runtime"] }
+base32 = "0.5.1"
+env_logger = "0.11.8"

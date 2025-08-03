@@ -6,7 +6,6 @@ use env_logger;
 use log::{info, warn, error};
 
 // We'll define the detector locally to avoid import issues
-mod patricia_detector;
 use patricia_detector::{PatriciaDetector, Protocol};
 
 // Inline the patricia detector code for this test to avoid module issues

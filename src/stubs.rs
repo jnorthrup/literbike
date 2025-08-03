@@ -1,8 +1,9 @@
 use std::io;
 use log::{debug, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
-use crate::types::{ProtocolType, ProtocolDetectionResult, BitFlags, ShadowsocksMethod, TlsVersion};
+use crate::types::{ProtocolType, ProtocolDetectionResult};
 use crate::abstractions::{ProtocolDetector, ProtocolHandler, CryptoAbstraction};
+use crate::types::ShadowsocksMethod;
 
 // Helper function to extract SNI from TLS Client Hello
 fn extract_sni_from_hello(buffer: &[u8]) -> Option<String> {

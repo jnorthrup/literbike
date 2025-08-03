@@ -204,8 +204,9 @@ impl BitFlags {
 
 #[derive(Debug, Clone)]
 pub struct ProtocolDetectionResult {
-    pub protocol: ProtocolType,
+    pub protocol_name: String,
     pub confidence: u8,
+    pub rarity_score: f64, // 0.0 (common) to 1.0 (rare)
     pub flags: BitFlags,
     pub metadata: Option<Vec<u8>>,
 }

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use log::{debug, info, warn, error};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
@@ -7,7 +6,6 @@ use crate::abstractions::ProtocolHandler;
 use crate::stubs::*;
 
 pub struct MassiveFuzzer {
-    protocols: HashMap<ProtocolType, Box<dyn ProtocolHandler + Send + Sync>>,
     mutation_strategies: Vec<MutationStrategy>,
     test_cases: Vec<TestCase>,
     stats: FuzzingStats,
@@ -76,28 +74,44 @@ pub struct FuzzingStats {
 
 impl MassiveFuzzer {
     pub fn new() -> Self {
-        let mut protocols: HashMap<ProtocolType, Box<dyn ProtocolHandler + Send + Sync>> = HashMap::new();
-        
-        protocols.insert(ProtocolType::Shadowsocks, Box::new(ShadowsocksHandler::new()));
-        protocols.insert(ProtocolType::Https, Box::new(HttpsSpoofingHandler));
-        protocols.insert(ProtocolType::WebRtc, Box::new(WebRtcHandler));
-        protocols.insert(ProtocolType::Quic, Box::new(QuicHandler));
-        protocols.insert(ProtocolType::Ssh, Box::new(SshHandler));
-        protocols.insert(ProtocolType::Ftp, Box::new(FtpHandler));
-        protocols.insert(ProtocolType::Smtp, Box::new(SmtpHandler));
-        protocols.insert(ProtocolType::Irc, Box::new(IrcHandler));
-        protocols.insert(ProtocolType::Websocket, Box::new(WebSocketHandler));
-        protocols.insert(ProtocolType::Mqtt, Box::new(MqttHandler));
-        protocols.insert(ProtocolType::Sip, Box::new(SipHandler));
-        protocols.insert(ProtocolType::Rtsp, Box::new(RtspHandler));
-
         Self {
-            protocols,
             mutation_strategies: Self::create_mutation_strategies(),
             test_cases: Self::create_base_test_cases(),
             stats: FuzzingStats::default(),
         }
     }
+
+    // Static protocol handler registry as an array of (ProtocolType, constructor)
+    pub const PROTOCOL_HANDLERS: &'static [(ProtocolType, fn() -> Box<dyn ProtocolHandler + Send + Sync>)] = &[
+        (ProtocolType::Shadowsocks, || Box::new(ShadowsocksHandler::new())),
+        (ProtocolType::Https, || Box::new(HttpsSpoofingHandler)),
+        (ProtocolType::WebRtc, || Box::new(WebRtcHandler)),
+        (ProtocolType::Quic, || Box::new(QuicHandler)),
+        (ProtocolType::Ssh, || Box::new(SshHandler)),
+        (ProtocolType::Ftp, || Box::new(FtpHandler)),
+        (ProtocolType::Smtp, || Box::new(SmtpHandler)),
+        (ProtocolType::Irc, || Box::new(IrcHandler)),
+        (ProtocolType::Websocket, || Box::new(WebSocketHandler)),
+        (ProtocolType::Mqtt, || Box::new(MqttHandler)),
+        (ProtocolType::Sip, || Box::new(SipHandler)),
+        (ProtocolType::Rtsp, || Box::new(RtspHandler)),
+    ];
+
+    // Example: static protocol subset
+    pub const FUZZ_PROTOCOLS: &'static [ProtocolType] = &[
+        ProtocolType::Shadowsocks,
+        ProtocolType::Https,
+        ProtocolType::WebRtc,
+        ProtocolType::Quic,
+        ProtocolType::Ssh,
+        ProtocolType::Ftp,
+        ProtocolType::Smtp,
+        ProtocolType::Irc,
+        ProtocolType::Websocket,
+        ProtocolType::Mqtt,
+        ProtocolType::Sip,
+        ProtocolType::Rtsp,
+    ];
 
     fn create_mutation_strategies() -> Vec<MutationStrategy> {
         vec![
@@ -286,8 +300,8 @@ impl MassiveFuzzer {
     async fn test_single_case(&mut self, test_case: &TestCase) {
         self.stats.total_tests += 1;
         
-        let handler = match self.protocols.get(&test_case.protocol) {
-            Some(h) => h,
+        let handler = match Self::PROTOCOL_HANDLERS.iter().find(|(pt,_)| pt == &test_case.protocol) {
+            Some((_, ctor)) => ctor(),
             None => {
                 warn!("No handler for protocol {:?}", test_case.protocol);
                 return;

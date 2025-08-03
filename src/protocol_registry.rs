@@ -6,7 +6,6 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
-use async_trait::async_trait;
 
 use crate::universal_listener::PrefixedStream;
 
@@ -61,6 +60,8 @@ pub trait ProtocolDetector: Send + Sync {
 }
 
 /// Trait for protocol handling logic
+use async_trait::async_trait;
+
 #[async_trait]
 pub trait ProtocolHandler: Send + Sync {
     /// Handle a connection using this protocol

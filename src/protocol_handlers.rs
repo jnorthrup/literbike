@@ -1,3 +1,4 @@
+use base64::Engine;
 // Protocol Handlers implementing the registry interface
 // Provides concrete implementations of detectors and handlers for all supported protocols
 
@@ -6,9 +7,10 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
-use async_trait::async_trait;
+
 
 use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetectionResult};
+use async_trait::async_trait;
 use crate::universal_listener::PrefixedStream;
 #[cfg(feature = "auto-discovery")]
 use crate::{pac, bonjour};
@@ -19,7 +21,8 @@ use hickory_resolver::TokioAsyncResolver;
 #[cfg(feature = "doh")]
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 #[cfg(feature = "doh")]
-use base64::{Engine as _, engine::general_purpose};
+use base64::Engine as _; // bring the trait into scope so STANDARD.decode(...) is available
+use base64::engine::general_purpose;
 
 // ===== HTTP Protocol Detector =====
 
@@ -194,46 +197,46 @@ impl HttpHandler {
 #[async_trait]
 impl ProtocolHandler for HttpHandler {
     async fn handle(&self, stream: PrefixedStream<TcpStream>) -> io::Result<()> {
-        // Read the request to determine routing
-        let mut buffer = [0u8; 2048];
-        let mut stream = stream;
-        let n = stream.read(&mut buffer).await?;
-        
-        if n == 0 {
-            return Ok(());
+            // Read the request to determine routing
+            let mut buffer = [0u8; 2048];
+            let mut stream = stream;
+            let n = stream.read(&mut buffer).await?;
+            
+            if n == 0 {
+                return Ok(());
+            }
+            
+            let request = String::from_utf8_lossy(&buffer[..n]);
+            debug!("HTTP request received: {}", request.lines().next().unwrap_or(""));
+            
+            // Check for specialized protocol requests first
+            #[cfg(feature = "auto-discovery")]
+            if pac::is_pac_request(&request).await {
+                info!("Routing to PAC handler");
+                return pac::handle_pac_request(stream).await;
+            }
+            
+            #[cfg(feature = "auto-discovery")]
+            if request.contains("/wpad.dat") {
+                info!("Routing to WPAD handler");
+                return pac::handle_wpad_request(stream).await;
+            }
+            
+            #[cfg(feature = "auto-discovery")]
+            if bonjour::is_bonjour_request(&request).await {
+                info!("Routing to Bonjour handler");
+                return bonjour::handle_bonjour(stream).await;
+            }
+            
+            #[cfg(feature = "upnp")]
+            if upnp::is_upnp_request(&request).await {
+                info!("Routing to UPnP handler");
+                return upnp::handle_upnp_request(stream).await;
+            }
+            
+            // Handle as regular HTTP proxy
+            self.handle_regular_http(stream, &request).await
         }
-        
-        let request = String::from_utf8_lossy(&buffer[..n]);
-        debug!("HTTP request received: {}", request.lines().next().unwrap_or(""));
-        
-        // Check for specialized protocol requests first
-        #[cfg(feature = "auto-discovery")]
-        if pac::is_pac_request(&request).await {
-            info!("Routing to PAC handler");
-            return pac::handle_pac_request(stream).await;
-        }
-        
-        #[cfg(feature = "auto-discovery")]
-        if request.contains("/wpad.dat") {
-            info!("Routing to WPAD handler");
-            return pac::handle_wpad_request(stream).await;
-        }
-        
-        #[cfg(feature = "auto-discovery")]
-        if bonjour::is_bonjour_request(&request).await {
-            info!("Routing to Bonjour handler");
-            return bonjour::handle_bonjour(stream).await;
-        }
-        
-        #[cfg(feature = "upnp")]
-        if upnp::is_upnp_request(&request).await {
-            info!("Routing to UPnP handler");
-            return upnp::handle_upnp_request(stream).await;
-        }
-        
-        // Handle as regular HTTP proxy
-        self.handle_regular_http(stream, &request).await
-    }
     
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {
         detection.protocol_name == "http"
@@ -260,7 +263,13 @@ impl ProtocolDetector for Socks5Detector {
             let nmethods = data[1] as usize;
             if data.len() >= 2 + nmethods {
                 // Complete handshake
-                return ProtocolDetectionResult::new("socks5", 250, 2 + nmethods);
+                // Validate methods
+                let valid_methods = data[2..2 + nmethods].iter().all(|&method| method <= 0xFF);
+                if valid_methods {
+                    return ProtocolDetectionResult::new("socks5", 250, 2 + nmethods);
+                } else {
+                    return ProtocolDetectionResult::new("socks5", 50, data.len());
+                }
             } else {
                 // Partial handshake
                 return ProtocolDetectionResult::new("socks5", 200, data.len());
@@ -769,7 +778,7 @@ impl DohHandler {
             padded.push('=');
         }
         
-        general_purpose::STANDARD.decode(padded)
+        general_purpose::STANDARD.decode(&padded)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
     
@@ -801,7 +810,7 @@ impl ProtocolHandler for DohHandler {
         let request = String::from_utf8_lossy(&buffer[..n]);
         debug!("DoH request received: {}", request.lines().next().unwrap_or(""));
         
-        self.handle_doh_request(stream, &request).await
+        self.handle_doh_get(stream, &request).await
     }
     
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {

@@ -18,6 +18,7 @@ pub mod protocol_registry;
 pub mod protocol_handlers;
 pub mod simple_routing;
 pub mod unified_protocol_manager;
+pub mod detection_orchestrator;
 // Testing and mock modules
 pub mod protocol_mocks;
 pub mod simple_torture_test;

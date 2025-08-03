@@ -1,2 +1,11 @@
-# Cross-compilation configuration
-# Android NDK paths should be set via environment variables
+[target.aarch64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-isysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk",
+  "-C", "link-arg=-Wl,-syslibroot,/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk"
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-isysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk",
+  "-C", "link-arg=-Wl,-syslibroot,/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk"
+]

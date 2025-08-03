@@ -2,13 +2,13 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::TcpStream;
-use log::{debug, error, info};
+use log::{info, error, warn};
+use crate::types::{BitFlags, ShadowsocksMethod};
 
 use crate::types::{
-    ProtocolType, TargetAddress, ConnectionState, BitFlags, ProtocolDetectionResult,
-    Socks5Command, Socks5Reply, HttpMethod, AuthMethod, ShadowsocksMethod, TlsVersion
+    ProtocolType, TargetAddress, ConnectionState, ProtocolDetectionResult
 };
 
 pub trait SocketListener: Send + Sync {
@@ -29,7 +29,7 @@ pub trait UniversalStream: AsyncRead + AsyncWrite + Send + Sync + Unpin {
 }
 
 pub trait ProtocolDetector: Send + Sync {
-    async fn detect(&self, buffer: &[u8]) -> ProtocolDetectionResult;
+    fn detect(&self, buffer: &[u8]) -> Vec<ProtocolDetectionResult>;
     fn confidence_threshold(&self) -> u8;
     fn required_bytes(&self) -> usize;
 }
@@ -95,14 +95,15 @@ impl UniversalConnection {
 
         // Basic protocol detection - return Raw for now
         let best_result = ProtocolDetectionResult {
-            protocol: ProtocolType::Raw,
+            protocol_name: "raw".to_string(),
             confidence: 50,
             flags: BitFlags::NONE,
+            rarity_score: 0.0,
             metadata: None,
         };
 
         self.detection_result = Some(best_result.clone());
-        self.protocol = best_result.protocol;
+        self.protocol = ProtocolType::Raw;
         Ok(best_result)
     }
 
@@ -187,9 +188,9 @@ impl UniversalStream for UniversalConnection {
 pub struct HttpDetector;
 
 impl ProtocolDetector for HttpDetector {
-    async fn detect(&self, buffer: &[u8]) -> ProtocolDetectionResult {
+    fn detect(&self, buffer: &[u8]) -> Vec<ProtocolDetectionResult> {
         let data = String::from_utf8_lossy(buffer);
-        let confidence = if data.starts_with("GET ") || data.starts_with("POST ") || 
+        let confidence = if data.starts_with("GET ") || data.starts_with("POST ") ||
                            data.starts_with("PUT ") || data.starts_with("DELETE ") ||
                            data.starts_with("HEAD ") || data.starts_with("OPTIONS ") ||
                            data.starts_with("CONNECT ") || data.starts_with("TRACE ") ||
@@ -201,57 +202,31 @@ impl ProtocolDetector for HttpDetector {
             0
         };
 
-        let protocol = if data.starts_with("CONNECT ") {
-            ProtocolType::Connect
+        let protocol_name = if data.starts_with("CONNECT ") {
+            "connect".to_string()
         } else if data.contains("/dns-query") {
-            ProtocolType::Doh
+            "doh".to_string()
         } else {
-            ProtocolType::Http
+            "http".to_string()
         };
 
-        ProtocolDetectionResult {
-            protocol,
+        vec![ProtocolDetectionResult {
+            protocol_name,
             confidence,
             flags: BitFlags::NONE,
+            rarity_score: 0.0,
             metadata: Some(buffer.to_vec()),
-        }
+        }]
     }
 
     fn confidence_threshold(&self) -> u8 { 150 }
     fn required_bytes(&self) -> usize { 8 }
 }
 
-pub struct Socks5Detector;
-
-impl ProtocolDetector for Socks5Detector {
-    async fn detect(&self, buffer: &[u8]) -> ProtocolDetectionResult {
-        let confidence = if buffer.len() >= 3 && buffer[0] == 5 {
-            let nmethods = buffer[1] as usize;
-            if buffer.len() >= 2 + nmethods && nmethods > 0 && nmethods <= 255 {
-                255
-            } else {
-                100
-            }
-        } else {
-            0
-        };
-
-        ProtocolDetectionResult {
-            protocol: ProtocolType::Socks5,
-            confidence,
-            flags: BitFlags::NONE,
-            metadata: Some(buffer.to_vec()),
-        }
-    }
-
-    fn confidence_threshold(&self) -> u8 { 200 }
-    fn required_bytes(&self) -> usize { 3 }
-}
-
 pub struct TlsDetector;
 
 impl ProtocolDetector for TlsDetector {
-    async fn detect(&self, buffer: &[u8]) -> ProtocolDetectionResult {
+    fn detect(&self, buffer: &[u8]) -> Vec<ProtocolDetectionResult> {
         let confidence = if buffer.len() >= 6 {
             if buffer[0] == 0x16 && // Handshake
                (buffer[1] == 0x03 && (buffer[2] == 0x01 || buffer[2] == 0x02 || buffer[2] == 0x03 || buffer[2] == 0x04)) {
@@ -265,12 +240,13 @@ impl ProtocolDetector for TlsDetector {
             0
         };
 
-        ProtocolDetectionResult {
-            protocol: ProtocolType::Tls,
+        vec![ProtocolDetectionResult {
+            protocol_name: "tls".to_string(),
             confidence,
             flags: if confidence > 200 { BitFlags::ENCRYPTED } else { BitFlags::NONE },
+            rarity_score: 0.0,
             metadata: Some(buffer.to_vec()),
-        }
+        }]
     }
 
     fn confidence_threshold(&self) -> u8 { 200 }
@@ -280,7 +256,7 @@ impl ProtocolDetector for TlsDetector {
 pub struct UpnpDetector;
 
 impl ProtocolDetector for UpnpDetector {
-    async fn detect(&self, buffer: &[u8]) -> ProtocolDetectionResult {
+    fn detect(&self, buffer: &[u8]) -> Vec<ProtocolDetectionResult> {
         let data = String::from_utf8_lossy(buffer);
         let confidence = if data.starts_with("M-SEARCH ") {
             255
@@ -298,12 +274,13 @@ impl ProtocolDetector for UpnpDetector {
             0
         };
 
-        ProtocolDetectionResult {
-            protocol: ProtocolType::Upnp,
+        vec![ProtocolDetectionResult {
+            protocol_name: "upnp".to_string(),
             confidence,
             flags: BitFlags::NONE,
+            rarity_score: 0.0,
             metadata: Some(buffer.to_vec()),
-        }
+        }]
     }
 
     fn confidence_threshold(&self) -> u8 { 150 }
@@ -322,7 +299,7 @@ impl ShadowsocksDetector {
 }
 
 impl ProtocolDetector for ShadowsocksDetector {
-    async fn detect(&self, buffer: &[u8]) -> ProtocolDetectionResult {
+    fn detect(&self, buffer: &[u8]) -> Vec<ProtocolDetectionResult> {
         let confidence = if buffer.len() >= 32 {
             if self.is_likely_encrypted(buffer) {
                 100 // Lower confidence since we can't verify without decryption
@@ -333,12 +310,13 @@ impl ProtocolDetector for ShadowsocksDetector {
             0
         };
 
-        ProtocolDetectionResult {
-            protocol: ProtocolType::Shadowsocks,
+        vec![ProtocolDetectionResult {
+            protocol_name: "shadowsocks".to_string(),
             confidence,
             flags: BitFlags::ENCRYPTED,
+            rarity_score: 0.0,
             metadata: Some(buffer.to_vec()),
-        }
+        }]
     }
 
     fn confidence_threshold(&self) -> u8 { 80 }

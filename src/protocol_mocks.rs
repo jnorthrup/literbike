@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use log::{debug, info, warn, error};
-use crate::types::{ProtocolType, ProtocolDetectionResult};
+use log::{info, warn, error};
+use crate::types::ProtocolType;
 use crate::patricia_detector::{PatriciaDetector, Protocol};
 
 #[derive(Clone)]
