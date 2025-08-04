@@ -39,14 +39,14 @@ echo -e "${GREEN}✅ NDK linker found${NC}"
 
 # Build for Termux
 echo -e "${YELLOW}Building for Termux...${NC}"
-cargo build --target $TARGET --profile termux --bin litebike-proxy
+cargo build --target $TARGET --release --bin litebike
 
 # Check if build succeeded
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Build successful!${NC}"
     
     # Show binary info
-    BINARY="target/$TARGET/termux/litebike-proxy"
+    BINARY="target/$TARGET/release/litebike"
     if [ -f "$BINARY" ]; then
         echo -e "${YELLOW}Binary info:${NC}"
         ls -lh "$BINARY"
@@ -54,20 +54,20 @@ if [ $? -eq 0 ]; then
         
         # Create Termux package directory
         mkdir -p termux-package
-        cp "$BINARY" termux-package/litebike-proxy
+        cp "$BINARY" termux-package/litebike
         cp README.md termux-package/
         cp scripts/proxy-bridge termux-package/
         
         echo -e "${GREEN}✅ Termux package created in termux-package/${NC}"
         echo -e "${YELLOW}Installation on Termux:${NC}"
-        echo "  1. Copy litebike-proxy to \$PREFIX/bin/"
+        echo "  1. Copy litebike to \$PREFIX/bin/"
         echo "  2. Copy proxy-bridge to \$PREFIX/bin/"
         echo "  3. chmod +x \$PREFIX/bin/litebike-proxy"
         echo "  4. chmod +x \$PREFIX/bin/proxy-bridge"
         echo ""
         echo -e "${GREEN}Usage in Termux:${NC}"
-        echo "  litebike-proxy                    # Start proxy server"
-        echo "  BIND_IP=0.0.0.0 litebike-proxy   # Bind to all interfaces"
+        echo "  litebike                    # Start proxy server"
+        echo "  BIND_IP=0.0.0.0 litebike   # Bind to all interfaces"
         echo "  proxy-bridge                     # Full bridge setup"
         
     else

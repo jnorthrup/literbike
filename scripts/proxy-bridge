@@ -1,631 +1,336 @@
 #!/usr/bin/env bash
 
-# Proxy Bridge - Improved Version with SSH and auto-discovery
-# Core functionality: litebike server + client auto-discovery + SSH remote start
+# Symmetric Proxy Bridge - Updated for Litebike Universal Protocol Detection
+# Key changes: Use port 8888 universal proxy, better TERMUX_HOST handling, SSH localhost forwarding
 
-set -e
+set -euo pipefail
 
 # Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly BLUE='\033[0;34m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
 
-# Default ports
-HTTP_PORT="${HTTP_PORT:-8080}"
-SOCKS_PORT="${SOCKS_PORT:-1080}"
-TERMUX_PORT="${TERMUX_PORT:-8022}"
-TERMUX_USER="${TERMUX_USER:-u0_a471}"
-
-# Litebike path
-LITEBIKE="$HOME/litebike/target/release/litebike"
-
-detect_platform() {
-    if [[ "$PREFIX" == *"com.termux"* ]]; then
-        echo "termux"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    else
-        echo "linux"
-    fi
-}
-
-get_local_ip() {
-    case $(detect_platform) in
-        "termux")
-            # Parse ifconfig for network interfaces
-            ifconfig 2>/dev/null | grep -A 1 '^swlan0:' | grep 'inet ' | awk '{print $2}' || echo "192.168.111.176"
-            ;;
-        "macos")
-            # Get gateway IP from default route
-            route get default 2>/dev/null | grep gateway | awk '{print $2}' || \
-            netstat -nr | grep '^default' | awk '{print $2}' | head -1 || \
-            echo "192.168.1.1"
-            ;;
-        *)
-            ip route get 8.8.8.8 2>/dev/null | awk '{print $7; exit}' || echo "127.0.0.1"
-            ;;
-    esac
-}
-
-# Get gateway IP (for auto-discovering Termux host)
-get_gateway_ip() {
-    case $(detect_platform) in
-        "macos")
-            # Get gateway IP from route to 8.8.8.8
-            route get 8.8.8.8 2>/dev/null | grep gateway | awk '{print $2}' || \
-            route get default 2>/dev/null | grep gateway | awk '{print $2}' || \
-            netstat -nr | grep '^default' | awk '{print $2}' | head -1 || \
-            echo "192.168.1.1"
-            ;;
-        *)
-            ip route get 8.8.8.8 2>/dev/null | grep via | awk '{print $3}' || \
-            ip route | grep default | awk '{print $3}' || \
-            echo "192.168.1.1"
-            ;;
-    esac
-}
+# Configuration
+readonly SCRIPT_VERSION="2.1.0-litebike"
+readonly UNIVERSAL_PORT=8888        # Litebike universal protocol detection port
+readonly SSH_PORT="${TERMUX_PORT:-8022}"
+readonly SSH_USER="${TERMUX_USER:-u0_a471}"
+readonly PRIMARY_INTERFACE="swlan0"
+readonly LITEBIKE_BINARY="$HOME/litebike/target/release/litebike"
 
 # Auto-detect TERMUX_HOST if not set
-if [ -z "$TERMUX_HOST" ]; then
-    TERMUX_HOST=$(get_gateway_ip)
+if [ -z "${TERMUX_HOST:-}" ]; then
+    case "$(uname)" in
+        "Darwin")
+            TERMUX_HOST=$(route get default 2>/dev/null | grep gateway | awk '{print $2}' || echo "192.168.1.1")
+            ;;
+        *)
+            TERMUX_HOST=$(ip route get 8.8.8.8 2>/dev/null | grep via | awk '{print $3}' || echo "192.168.1.1")
+            ;;
+    esac
 fi
 
-# Gets the primary network service name on macOS (e.g., "Wi-Fi", "Ethernet")
-get_primary_macos_service() {
-    local primary_interface_device=$(route get default 2>/dev/null | grep 'interface:' | awk '{print $2}')
-    local network_service=""
-    
-    if [ -n "$primary_interface_device" ]; then
-        network_service=$(networksetup -listallhardwareports | awk -v device="$primary_interface_device" '
-            /Hardware Port:/ { port = $0 }
-            /Device:/ && $2 == device {
-                sub(/Hardware Port: /, "", port);
-                print port;
-                exit
-            }
-        ')
-    fi
-    
-    # Fallback for cases where the above logic fails
-    if [ -z "$network_service" ]; then
-        network_service=$(networksetup -listallnetworkservices | grep -E "Wi-Fi|AirPort" | head -1 || echo "Wi-Fi")
-    fi
-    
-    echo "$network_service"
+log_info() { echo -e "[$(date '+%H:%M:%S')] ${GREEN}INFO${NC} $*" >&2; }
+log_warn() { echo -e "[$(date '+%H:%M:%S')] ${YELLOW}WARN${NC} $*" >&2; }
+log_error() { echo -e "[$(date '+%H:%M:%S')] ${RED}ERROR${NC} $*" >&2; }
+
+get_local_ip() {
+    case "$(uname)" in
+        "Darwin")
+            ifconfig en0 2>/dev/null | grep 'inet ' | awk '{print $2}' || echo "127.0.0.1"
+            ;;
+        *)
+            ifconfig 2>/dev/null | grep -A2 swlan0 | grep 'inet ' | awk '{print $2}' || echo "127.0.0.1"
+            ;;
+    esac
 }
 
-# Parse available rmnet interfaces from ifconfig
-get_rmnet_interfaces() {
-    ifconfig 2>/dev/null | grep -E '^rmnet_data[0-9]+:' | cut -d':' -f1 | tr '\n' ',' | sed 's/,$//'
-}
-
-# Get rmnet IP addresses  
-get_rmnet_ips() {
-    ifconfig 2>/dev/null | grep -A 1 -E '^rmnet_data[0-9]+:' | grep 'inet ' | awk '{print $2}' | tr '\n' ',' | sed 's/,$//'
-}
-
-# SSH remote start functionality
-ssh_start_server() {
-    local host="${1:-$TERMUX_HOST}"
-    local user="${2:-$TERMUX_USER}"
-    local port="${3:-$TERMUX_PORT}"
-    local mode="${4:-default}" # Add mode argument
-    
-    echo -e "${GREEN}Starting proxy server on $host via SSH...${NC}"
-    echo -e "${BLUE}Connecting as $user@$host:$port${NC}"
-    
-    # Copy the script if needed
-    echo -e "${YELLOW}Ensuring proxy-bridge script is on remote...${NC}"
-    scp -P "$port" "$0" "$user@$host:proxy-bridge-improved" 2>/dev/null || true
-    
-    # Start the server remotely with the specified mode
-    ssh -p "$port" "$user@$host" "bash proxy-bridge-improved server $mode" &
-    
-    # Give it time to start
-    sleep 3
-    
-    echo -e "${GREEN}✅ Remote server start initiated${NC}"
-}
-
-# Core litebike server (unified port approach)
+# Start litebike server
 start_server() {
     local mode="${1:-default}"
-    echo -e "${GREEN}Starting litebike server...${NC}"
+    
+    log_info "Starting litebike server..."
     
     # Build if needed
-    if [ ! -x "$LITEBIKE" ]; then
-        echo -e "${YELLOW}Building litebike...${NC}"
+    if [ ! -x "$LITEBIKE_BINARY" ]; then
+        log_info "Building litebike..."
         if [ -d "$HOME/litebike" ]; then
             cd "$HOME/litebike"
             cargo build --release || exit 1
-            cp target/release/litebike-proxy "$HOME/"
         else
-            echo -e "${RED}Error: litebike source not found${NC}"
+            log_error "litebike source not found at $HOME/litebike"
             exit 1
         fi
     fi
     
-    # Kill existing proxies
-    pkill -f litebike-proxy 2>/dev/null || true
-    pkill -f 3proxy 2>/dev/null || true
-    pkill -f vproxy 2>/dev/null || true
+    # Kill existing and free port
+    pkill -f litebike 2>/dev/null || true
+    pkill -f ":$UNIVERSAL_PORT" 2>/dev/null || true
+    sleep 2
     
-    # Get local IP
-    local local_ip=$(get_local_ip)
-    
-    # Default configuration: ingress=local_ip, egress=0.0.0.0
-    local bind_ip="$local_ip"
-    local egress_ip="0.0.0.0"
-    local egress_interface=""
-    
-    if [[ "$mode" == "rmnet" ]] || [[ "$mode" == "precision" ]]; then
-        # Precision mode: Parse current network topology from ifconfig
-        local rmnet_interfaces=$(get_rmnet_interfaces)
-        local rmnet_ips=$(get_rmnet_ips)
-        
-        echo -e "${BLUE}Precision mode - analyzing network topology${NC}"
-        echo -e "${BLUE}Available rmnet interfaces: $rmnet_interfaces${NC}"
-        echo -e "${BLUE}Available rmnet IPs: $rmnet_ips${NC}"
-        
-        # Use first available rmnet interface for egress
-        if [ -n "$rmnet_interfaces" ]; then
-            egress_interface=$(echo "$rmnet_interfaces" | cut -d',' -f1)
-            echo -e "${YELLOW}Selected egress interface: $egress_interface${NC}"
-        fi
+    # Check if port is still in use (Termux-compatible)
+    if netstat -tulpn 2>/dev/null | grep ":$UNIVERSAL_PORT " >/dev/null 2>&1; then
+        log_warn "Port $UNIVERSAL_PORT still in use, finding alternative..."
+        UNIVERSAL_PORT=8889
+        log_info "Using alternative port: $UNIVERSAL_PORT"
     fi
     
-    # Start litebike
-    echo -e "${GREEN}Starting litebike proxy server...${NC}"
-    echo -e "${BLUE}Ingress: $bind_ip:$HTTP_PORT (HTTP/HTTPS)${NC}"
-    echo -e "${BLUE}Ingress: $bind_ip:$SOCKS_PORT (SOCKS5)${NC}"
+    # Get local IP for binding
+    local bind_ip=$(get_local_ip)
     
-    if [ -n "$egress_interface" ]; then
-        echo -e "${BLUE}Egress: $egress_interface (specific interface)${NC}"
-        BIND_IP="$bind_ip" EGRESS_INTERFACE="$egress_interface" "$LITEBIKE" &
+    # Start litebike on universal port  
+    log_info "Starting litebike on universal port $UNIVERSAL_PORT"
+    log_info "Binding to: $bind_ip:$UNIVERSAL_PORT"
+    cd "$HOME/litebike"
+    
+    # Try to start with proper error handling
+    local log_file="$HOME/litebike.log"
+    export BIND_IP="$bind_ip"
+    "$LITEBIKE_BINARY" >"$log_file" 2>&1 &
+    local litebike_pid=$!
+    
+    sleep 3
+    
+    # Check if litebike started successfully
+    if kill -0 $litebike_pid 2>/dev/null; then
+        log_info "✅ Litebike started on $bind_ip:$UNIVERSAL_PORT (PID: $litebike_pid)"
     else
-        echo -e "${BLUE}Egress: $egress_ip (all interfaces)${NC}"
-        BIND_IP="$bind_ip" EGRESS_IP="$egress_ip" "$LITEBIKE" &
+        log_error "Failed to start litebike - check $log_file for details"
+        [ -f "$log_file" ] && tail -20 "$log_file"
+        return 1
     fi
+    log_info "Supports: HTTP, HTTPS, SOCKS5, TLS, DoH, PAC/WPAD, Bonjour, UPnP"
+    
+    # Print PAC and auto-discovery URLs
+    echo
+    log_info "${GREEN}Auto-Discovery URLs:${NC}"
+    echo "  PAC URL:        http://$bind_ip:$UNIVERSAL_PORT/proxy.pac"
+    echo "  WPAD URL:       http://$bind_ip:$UNIVERSAL_PORT/wpad.dat"
+    echo "  Config URL:     http://$bind_ip:$UNIVERSAL_PORT/config"
+    echo
+    log_info "${GREEN}Bonjour/mDNS:${NC}"
+    echo "  Service Name:   litebike-proxy._http._tcp.local"
+    echo "  Service Type:   _http._tcp"
+    echo
+    log_info "${GREEN}Manual Configuration:${NC}"
+    echo "  HTTP Proxy:     $bind_ip:$UNIVERSAL_PORT"
+    echo "  SOCKS5 Proxy:   $bind_ip:$UNIVERSAL_PORT"
+    echo "  SSH Forward:    ssh -L 8888:${bind_ip}:8888 ${SSH_USER}@${bind_ip} -p ${SSH_PORT}"
+}
+
+# SSH localhost forwarding helper
+ssh_forward() {
+    local remote_host="${1:-$TERMUX_HOST}"
+    local local_port="${2:-$UNIVERSAL_PORT}"
+    local remote_port="${3:-$UNIVERSAL_PORT}"
+    
+    log_info "Setting up SSH localhost forwarding..."
+    log_info "Local: localhost:$local_port -> Remote: $remote_host:$remote_port"
+    
+    # Kill existing SSH forwards
+    pkill -f "ssh.*$local_port:.*:$remote_port" 2>/dev/null || true
+    
+    # Start SSH tunnel
+    ssh -N -L "$local_port:$remote_host:$remote_port" "$SSH_USER@$remote_host" -p "$SSH_PORT" &
+    local ssh_pid=$!
     
     sleep 2
     
-    echo -e "${GREEN}✅ Litebike started${NC}"
-    echo -e "HTTP/HTTPS: ${YELLOW}$bind_ip:$HTTP_PORT${NC}"
-    echo -e "SOCKS5: ${YELLOW}$bind_ip:$SOCKS_PORT${NC}"
-}
-
-# Configure developer tool proxies
-configure_dev_proxies() {
-    local host="$1"
-    local http_port="${2:-$HTTP_PORT}"
-    local socks_port="${3:-$SOCKS_PORT}"
-    
-    echo -e "${YELLOW}Configuring developer tool proxies...${NC}"
-    
-    # Git proxy configuration
-    git config --global http.proxy "http://$host:$http_port"
-    git config --global https.proxy "http://$host:$http_port"
-    echo -e "${GREEN}✓ Git proxy configured${NC}"
-    
-    # NPM proxy configuration
-    npm config set proxy "http://$host:$http_port" 2>/dev/null || true
-    npm config set https-proxy "http://$host:$http_port" 2>/dev/null || true
-    echo -e "${GREEN}✓ NPM proxy configured${NC}"
-    
-    # Homebrew proxy (macOS)
-    if command -v brew >/dev/null 2>&1; then
-        export HOMEBREW_PROXY="http://$host:$http_port"
-        export HOMEBREW_NO_ENV_FILTERING=1
-        echo -e "${GREEN}✓ Homebrew proxy configured${NC}"
-    fi
-    
-    # SSH proxy configuration
-    mkdir -p ~/.ssh
-    if ! grep -q "ProxyCommand" ~/.ssh/config 2>/dev/null; then
-        cat >> ~/.ssh/config << EOF
-# Proxy configuration for SSH
-Host *
-    ProxyCommand nc -x $host:$socks_port %h %p
-EOF
-        echo -e "${GREEN}✓ SSH proxy configured${NC}"
-    fi
-    
-    # Curl configuration
-    mkdir -p ~
-    cat > ~/.curlrc << EOF
-# Proxy configuration for curl
-proxy = "http://$host:$http_port"
-EOF
-        echo -e "${GREEN}✓ Curl proxy configured${NC}"
-    
-    # VSCode settings
-    local vscode_settings_dir="$HOME/Library/Application Support/Code/User"
-    if [ -d "$vscode_settings_dir" ]; then
-        # Read existing settings
-        local settings_file="$vscode_settings_dir/settings.json"
-        if [ -f "$settings_file" ]; then
-            # Backup existing settings
-            cp "$settings_file" "$settings_file.bak"
-            # Update proxy settings using Python to handle JSON properly
-            python3 -c "import json\nwith open('$settings_file', 'r') as f:\n    settings = json.load(f)\nsettings['http.proxy'] = 'http://$host:$http_port'\nsettings['http.proxyStrictSSL'] = False\nwith open('$settings_file', 'w') as f:\n    json.dump(settings, f, indent=2)" 2>/dev/null || true
-            echo -e "${GREEN}✓ VSCode proxy configured${NC}"
-        fi
-    fi
-    
-    # Cursor settings (similar to VSCode)
-    local cursor_settings_dir="$HOME/Library/Application Support/Cursor/User"
-    if [ -d "$cursor_settings_dir" ]; then
-        local cursor_settings_file="$cursor_settings_dir/settings.json"
-        if [ -f "$cursor_settings_file" ]; then
-            cp "$cursor_settings_file" "$cursor_settings_file.bak"
-            python3 -c "import json\nwith open('$cursor_settings_file', 'r') as f:\n    settings = json.load(f)\nsettings['http.proxy'] = 'http://$host:$http_port'\nsettings['http.proxyStrictSSL'] = False\nwith open('$cursor_settings_file', 'w') as f:\n    json.dump(settings, f, indent=2)" 2>/dev/null || true
-            echo -e "${GREEN}✓ Cursor proxy configured${NC}"
-        fi
-    fi
-    
-    # Shell environment variables
-    export HTTP_PROXY="http://$host:$http_port"
-    export HTTPS_PROXY="http://$host:$http_port"
-    export ALL_PROXY="socks5h://$host:$socks_port"
-    export http_proxy="http://$host:$http_port"
-    export https_proxy="http://$host:$http_port"
-    export all_proxy="socks5h://$host:$socks_port"
-    export NO_PROXY="localhost,127.0.0.1,::1,${TERMUX_HOST},*.local,*.bonjour.local,*.upnp.local,224.0.0.251,239.255.255.250,169.254.0.0/16"
-    export no_proxy="localhost,127.0.0.1,::1,${TERMUX_HOST},*.local,*.bonjour.local,*.upnp.local,224.0.0.251,239.255.255.250,169.254.0.0/16"
-    
-    # Write to shell profile for persistence
-    local shell_profile=""
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_profile="$HOME/.zshrc"
-    else
-        shell_profile="$HOME/.bashrc"
-    fi
-    
-    if [ -f "$shell_profile" ]; then
-        # Remove old proxy settings
-        sed -i.bak '/# Proxy Bridge Settings/,/# End Proxy Bridge Settings/d' "$shell_profile" 2>/dev/null || true
+    if kill -0 $ssh_pid 2>/dev/null; then
+        log_info "✅ SSH tunnel established (PID: $ssh_pid)"
+        log_info "Access proxy via: localhost:$local_port"
         
-        # Add new proxy settings
-        cat >> "$shell_profile" << EOF
-
-# Proxy Bridge Settings
-export HTTP_PROXY="http://$host:$http_port"
-export HTTPS_PROXY="http://$host:$http_port"
-export ALL_PROXY="socks5h://$host:$socks_port"
-export http_proxy="http://$host:$http_port"
-export https_proxy="http://$host:$http_port"
-export all_proxy="socks5h://$host:$socks_port"
-export NO_PROXY="localhost,127.0.0.1,::1,${TERMUX_HOST},*.local,*.bonjour.local,*.upnp.local,224.0.0.251,239.255.255.250,169.254.0.0/16"
-export no_proxy="localhost,127.0.0.1,::1,${TERMUX_HOST},*.local,*.bonjour.local,*.upnp.local,224.0.0.251,239.255.255.250,169.254.0.0/16"
-# End Proxy Bridge Settings
-EOF
-        echo -e "${GREEN}✓ Shell profile updated${NC}"
-    fi
-}
-
-# Clear developer tool proxies
-clear_dev_proxies() {
-    echo -e "${YELLOW}Clearing developer tool proxies...${NC}"
-    
-    # Git
-    git config --global --unset http.proxy 2>/dev/null || true
-    git config --global --unset https.proxy 2>/dev/null || true
-    echo -e "${GREEN}✓ Git proxy cleared${NC}"
-    
-    # NPM
-    npm config delete proxy 2>/dev/null || true
-    npm config delete https-proxy 2>/dev/null || true
-    echo -e "${GREEN}✓ NPM proxy cleared${NC}"
-    
-    # SSH proxy
-    if [ -f ~/.ssh/config ]; then
-        sed -i.bak '/# Proxy configuration for SSH/,/ProxyCommand/d' ~/.ssh/config 2>/dev/null || true
-        echo -e "${GREEN}✓ SSH proxy cleared${NC}"
-    fi
-    
-    # Curl
-    rm -f ~/.curlrc
-    echo -e "${GREEN}✓ Curl proxy cleared${NC}"
-    
-    # VSCode settings
-    local vscode_settings_dir="$HOME/Library/Application Support/Code/User"
-    if [ -f "$vscode_settings_dir/settings.json" ]; then
-        python3 -c "import json\nwith open('$vscode_settings_dir/settings.json', 'r') as f:\n    settings = json.load(f)\nsettings.pop('http.proxy', None)\nsettings.pop('http.proxyStrictSSL', None)\nwith open('$vscode_settings_dir/settings.json', 'w') as f:\n    json.dump(settings, f, indent=2)" 2>/dev/null || true
-        echo -e "${GREEN}✓ VSCode proxy cleared${NC}"
-    fi
-    
-    # Cursor settings
-    local cursor_settings_dir="$HOME/Library/Application Support/Cursor/User"
-    if [ -f "$cursor_settings_dir/settings.json" ]; then
-        python3 -c "import json\nwith open('$cursor_settings_dir/settings.json', 'r') as f:\n    settings = json.load(f)\nsettings.pop('http.proxy', None)\nsettings.pop('http.proxyStrictSSL', None)\nwith open('$cursor_settings_dir/settings.json', 'w') as f:\n    json.dump(settings, f, indent=2)" 2>/dev/null || true
-        echo -e "${GREEN}✓ Cursor proxy cleared${NC}"
-    fi
-    
-    # Shell environment
-    unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
-    unset HOMEBREW_PROXY HOMEBREW_NO_ENV_FILTERING
-    
-    # Remove from shell profile
-    local shell_profile=""
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_profile="$HOME/.zshrc"
+        echo
+        echo "curl --proxy http://localhost:${local_port} http://httpbin.org/ip"
     else
-        shell_profile="$HOME/.bashrc"
-    fi
-    
-    if [ -f "$shell_profile" ]; then
-        sed -i.bak '/# Proxy Bridge Settings/,/# End Proxy Bridge Settings/d' "$shell_profile" 2>/dev/null || true
-        echo -e "${GREEN}✓ Shell profile cleaned${NC}"
+        log_error "SSH tunnel failed to start"
+        return 1
     fi
 }
 
-# Client auto-discovery and configuration
+# Start client configuration
 start_client() {
-    local target="${1:-auto}"
-    local platform=$(detect_platform)
+    local target="${1:-$TERMUX_HOST}"
     
-    if [[ "$platform" != "macos" ]]; then
-        echo -e "${YELLOW}Client mode optimized for macOS${NC}"
-    fi
-    
-    # Handle auto mode
+    # Resolve "auto" to actual TERMUX_HOST
     if [[ "$target" == "auto" ]]; then
-        # Auto-detect gateway IP
         target="$TERMUX_HOST"
-        echo -e "${GREEN}Auto-detected gateway: $target${NC}"
     fi
     
-    echo -e "${GREEN}Configuring client for: $target${NC}"
+    log_info "Configuring client for: $target"
     
-    # Try to start server via SSH if it's not responding
-    if ! curl -s --max-time 2 --proxy "http://$target:$HTTP_PORT" "http://httpbin.org/ip" >/dev/null 2>&1; then
-        echo -e "${YELLOW}Proxy not responding, attempting to start via SSH...${NC}"
-        # Pass the mode from the client command to the server
-        ssh_start_server "$target" "$TERMUX_USER" "$TERMUX_PORT" "${1:-auto}"
+    # Test if proxy is responding
+    if ! curl -s --max-time 3 --proxy "http://$target:$UNIVERSAL_PORT" "http://httpbin.org/ip" >/dev/null 2>&1; then
+        log_warn "Proxy not responding, trying to start via SSH..."
+        ssh -p "$SSH_PORT" "$SSH_USER@$target" "bash proxy-bridge server" &
         sleep 3
     fi
     
-    # Configure system and dev proxies
-    configure_system_proxy "$target"
-    configure_dev_proxies "$target"
+    # Configure system proxy (macOS)
+    if [[ "$(uname)" == "Darwin" ]]; then
+        local wifi_service=$(networksetup -listallnetworkservices | grep -E "Wi-Fi|AirPort" | head -1 || echo "Wi-Fi")
+        
+        log_info "Configuring system proxy for $wifi_service"
+        log_info "Setting proxy to: $target:$UNIVERSAL_PORT"
+        
+        networksetup -setwebproxy "$wifi_service" "$target" "$UNIVERSAL_PORT"
+        networksetup -setsecurewebproxy "$wifi_service" "$target" "$UNIVERSAL_PORT"
+        networksetup -setsocksfirewallproxy "$wifi_service" "$target" "$UNIVERSAL_PORT"
+        networksetup -setwebproxystate "$wifi_service" on
+        networksetup -setsecurewebproxystate "$wifi_service" on
+        networksetup -setsocksfirewallproxystate "$wifi_service" on
+        
+        log_info "✅ System proxy configured to $target:$UNIVERSAL_PORT"
+    fi
+    
+    # Configure git
+    git config --global http.proxy "http://$target:$UNIVERSAL_PORT"
+    git config --global https.proxy "http://$target:$UNIVERSAL_PORT"
+    log_info "✅ Git proxy configured"
     
     # Test connection
     test_connection "$target"
 }
 
-# Configure system proxy settings
-configure_system_proxy() {
-    local host="$1"
-    local http_port="${2:-$HTTP_PORT}" 
-    local socks_port="${3:-$SOCKS_PORT}"
-    
-    echo -e "${YELLOW}Configuring system proxy...${NC}"
-    
-    case $(detect_platform) in
-        "macos")
-            local network_service=$(get_primary_macos_service)
-            echo -e "${BLUE}Network service: $network_service${NC}"
-            
-            # Configure HTTP/HTTPS proxy
-            networksetup -setwebproxy "$network_service" "$host" "$http_port"
-            networksetup -setsecurewebproxy "$network_service" "$host" "$http_port"
-            networksetup -setwebproxystate "$network_service" on
-            networksetup -setsecurewebproxystate "$network_service" on
-            
-            # Configure SOCKS proxy
-            networksetup -setsocksfirewallproxy "$network_service" "$host" "$socks_port"
-            networksetup -setsocksfirewallproxystate "$network_service" on
-            
-            echo -e "${GREEN}✅ macOS system proxy configured${NC}"
-            ;;
-        *)
-            # Environment variables for other platforms
-            export HTTP_PROXY="http://$host:$http_port"
-            export HTTPS_PROXY="http://$host:$http_port"
-            export ALL_PROXY="socks5h://$host:$socks_port"
-            export http_proxy="http://$host:$http_port"
-            export https_proxy="http://$host:$http_port"
-            export all_proxy="socks5h://$host:$socks_port"
-            
-            echo -e "${GREEN}✅ Environment proxy configured${NC}"
-            ;;
-    esac
-    
-    echo -e "HTTP/HTTPS: ${YELLOW}$host:$http_port${NC}"
-    echo -e "SOCKS5: ${YELLOW}$host:$socks_port${NC}"
-}
-
 # Test proxy connection
 test_connection() {
-    local gateway_host="${1:-$TERMUX_HOST}"
+    local host="${1:-$TERMUX_HOST}"
     
-    echo -e "${BLUE}Testing connection to $gateway_host...${NC}"
+    log_info "Testing connection to $host:$UNIVERSAL_PORT..."
     
-    # Test HTTP proxy
-    if curl -s --max-time 10 --proxy "http://$gateway_host:$HTTP_PORT" "http://httpbin.org/ip" >/dev/null; then
-        echo -e "${GREEN}✅ HTTP proxy working${NC}"
+    # Test HTTP
+    if curl -s --max-time 10 --proxy "http://$host:$UNIVERSAL_PORT" "http://httpbin.org/ip" >/dev/null; then
+        log_info "✅ HTTP proxy working"
     else
-        echo -e "${RED}❌ HTTP proxy failed${NC}"
+        log_error "❌ HTTP proxy failed"
     fi
     
-    # Test SOCKS5 proxy
-    if curl -s --max-time 10 --socks5 "$gateway_host:$SOCKS_PORT" "http://httpbin.org/ip" >/dev/null; then
-        echo -e "${GREEN}✅ SOCKS5 proxy working${NC}"
+    # Test SOCKS5  
+    if curl -s --max-time 10 --socks5 "$host:$UNIVERSAL_PORT" "http://httpbin.org/ip" >/dev/null; then
+        log_info "✅ SOCKS5 proxy working"
     else
-        echo -e "${RED}❌ SOCKS5 proxy failed${NC}"
+        log_error "❌ SOCKS5 proxy failed"
     fi
     
     # Show current IP
-    echo -e "${BLUE}Current IP:${NC}"
-    curl -s --max-time 5 --proxy "http://$gateway_host:$HTTP_PORT" ifconfig.me/ip || echo "Unable to determine IP"
+    echo -e "${BLUE}Current external IP:${NC}"
+    curl -s --max-time 5 --proxy "http://$host:$UNIVERSAL_PORT" ifconfig.me/ip || echo "Unable to determine"
 }
 
-# Stop all proxy services
+# Stop all services
 stop_all() {
-    echo -e "${YELLOW}Stopping all proxy services...${NC}"
+    log_info "Stopping all proxy services..."
     
-    local platform=$(detect_platform)
+    # Kill litebike
+    pkill -f litebike 2>/dev/null && log_info "✓ litebike stopped" || log_info "✓ No litebike running"
     
-    # Kill proxy processes
-    pkill -f litebike-proxy 2>/dev/null && echo -e "${GREEN}✓ litebike stopped${NC}" || echo -e "${BLUE}✓ No litebike running${NC}"
-    pkill -f "vproxy.*run.*multi" 2>/dev/null && echo -e "${GREEN}✓ vproxy stopped${NC}" || echo -e "${BLUE}✓ No vproxy running${NC}"
-    pkill -f 3proxy 2>/dev/null && echo -e "${GREEN}✓ 3proxy stopped${NC}" || echo -e "${BLUE}✓ No 3proxy running${NC}"
+    # Kill SSH forwards
+    pkill -f "ssh.*$UNIVERSAL_PORT:" 2>/dev/null && log_info "✓ SSH forwards stopped" || log_info "✓ No SSH forwards"
     
-    # Clear system proxy on macOS
-    if [[ "$platform" == "macos" ]]; then
-        local network_service=$(get_primary_macos_service)
-        networksetup -setwebproxystate "$network_service" off 2>/dev/null
-        networksetup -setsecurewebproxystate "$network_service" off 2>/dev/null
-        networksetup -setsocksfirewallproxystate "$network_service" off 2>/dev/null
-        echo -e "${GREEN}✓ System proxy cleared for '$network_service'${NC}"
+    # Clear system proxy (macOS)
+    if [[ "$(uname)" == "Darwin" ]]; then
+        local wifi_service=$(networksetup -listallnetworkservices | grep -E "Wi-Fi|AirPort" | head -1 || echo "Wi-Fi")
+        networksetup -setwebproxystate "$wifi_service" off 2>/dev/null || true
+        networksetup -setsecurewebproxystate "$wifi_service" off 2>/dev/null || true
+        networksetup -setsocksfirewallproxystate "$wifi_service" off 2>/dev/null || true
+        log_info "✓ System proxy cleared"
     fi
     
-    # Clear dev proxies
-    clear_dev_proxies
+    # Clear git proxy
+    git config --global --unset http.proxy 2>/dev/null || true
+    git config --global --unset https.proxy 2>/dev/null || true
+    log_info "✓ Git proxy cleared"
     
-    echo -e "${GREEN}✅ All services stopped${NC}"
+    log_info "✅ All services stopped"
 }
 
-# Show current status
+# Show status
 show_status() {
-    local platform=$(detect_platform)
-    
-    echo -e "${YELLOW}Platform: ${BLUE}$platform${NC}"
-    echo -e "${YELLOW}Local IP: ${BLUE}$(get_local_ip)${NC}"
-    echo -e "${YELLOW}Gateway IP: ${BLUE}$(get_gateway_ip)${NC}"
-    echo -e "${YELLOW}TERMUX_HOST: ${BLUE}$TERMUX_HOST${NC}"
+    echo -e "${YELLOW}System Status:${NC}"
+    echo -e "Platform: $(uname)"
+    echo -e "Local IP: $(get_local_ip)"
+    echo -e "TERMUX_HOST: $TERMUX_HOST"
+    echo -e "Universal Port: $UNIVERSAL_PORT"
     echo
     
-    # Check litebike
-    if pgrep -f litebike-proxy >/dev/null 2>&1; then
+    # Check processes
+    if pgrep -f litebike >/dev/null 2>&1; then
         echo -e "${GREEN}✓ litebike server running${NC}"
+        echo
+        echo -e "${YELLOW}Auto-Discovery URLs:${NC}"
+        echo "  PAC URL:        http://$(get_local_ip):$UNIVERSAL_PORT/proxy.pac"
+        echo "  WPAD URL:       http://$(get_local_ip):$UNIVERSAL_PORT/wpad.dat"
+        echo "  Config URL:     http://$(get_local_ip):$UNIVERSAL_PORT/config"
     else
         echo -e "${BLUE}✗ litebike server not running${NC}"
     fi
     
-    # Show system proxy status on macOS
-    if [[ "$platform" == "macos" ]]; then
-        local network_service=$(get_primary_macos_service)
-        echo -e "\n${YELLOW}System proxy status ($network_service):${NC}"
-        
-        local http_proxy=$(networksetup -getwebproxy "$network_service" 2>/dev/null)
-        if echo "$http_proxy" | grep -q "Enabled: Yes"; then
-            echo -e "  ${GREEN}HTTP proxy enabled${NC}"
-            echo "$http_proxy" | grep -E "Server:|Port:" | sed 's/^/    /'
-        else
-            echo -e "  ${BLUE}HTTP proxy disabled${NC}"
-        fi
-        
-        local socks_proxy=$(networksetup -getsocksfirewallproxy "$network_service" 2>/dev/null)
-        if echo "$socks_proxy" | grep -q "Enabled: Yes"; then
-            echo -e "  ${GREEN}SOCKS proxy enabled${NC}"
-            echo "$socks_proxy" | grep -E "Server:|Port:" | sed 's/^/    /'
-        else
-            echo -e "  ${BLUE}SOCKS proxy disabled${NC}"
-        fi
-        
-        # Check dev tool proxies
-        echo -e "\n${YELLOW}Developer tool proxies:${NC}"
-        local git_proxy=$(git config --global --get http.proxy 2>/dev/null)
-        if [ -n "$git_proxy" ]; then
-            echo -e "  ${GREEN}Git: $git_proxy${NC}"
-        else
-            echo -e "  ${BLUE}Git: not configured${NC}"
-        fi
-        
-        local npm_proxy=$(npm config get proxy 2>/dev/null)
-        if [ -n "$npm_proxy" ] && [ "$npm_proxy" != "null" ]; then
-            echo -e "  ${GREEN}NPM: $npm_proxy${NC}"
-        else
-            echo -e "  ${BLUE}NPM: not configured${NC}"
-        fi
-        
-        if [ -f ~/.curlrc ]; then
-            echo -e "  ${GREEN}Curl: configured${NC}"
-        else
-            echo -e "  ${BLUE}Curl: not configured${NC}"
-        fi
-        
-        if grep -q "ProxyCommand" ~/.ssh/config 2>/dev/null; then
-            echo -e "  ${GREEN}SSH: configured${NC}"
-        else
-            echo -e "  ${BLUE}SSH: not configured${NC}"
-        fi
-        
-        local vscode_settings_dir="$HOME/Library/Application Support/Code/User"
-        if [ -f "$vscode_settings_dir/settings.json" ] && grep -q "http.proxy" "$vscode_settings_dir/settings.json" 2>/dev/null; then
-            echo -e "  ${GREEN}VSCode: configured${NC}"
-        else
-            echo -e "  ${BLUE}VSCode: not configured${NC}"
-        fi
-        
-        local cursor_settings_dir="$HOME/Library/Application Support/Cursor/User"
-        if [ -f "$cursor_settings_dir/settings.json" ] && grep -q "http.proxy" "$cursor_settings_dir/settings.json" 2>/dev/null; then
-            echo -e "  ${GREEN}Cursor: configured${NC}"
-        else
-            echo -e "  ${BLUE}Cursor: not configured${NC}"
-        fi
+    if pgrep -f "ssh.*$UNIVERSAL_PORT:" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ SSH forward active${NC}"
+    else
+        echo -e "${BLUE}✗ No SSH forwards${NC}"
     fi
+    echo
+    echo "ssh -L 8888:${TERMUX_HOST}:8888 ${SSH_USER}@${TERMUX_HOST} -p ${SSH_PORT}"
 }
 
 show_help() {
     echo -e "${BLUE}╔══════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║    PROXY BRIDGE - IMPROVED       ║${NC}"
-    echo -e "${BLUE}║  SSH + Auto-discovery + Tools    ║${NC}"
+    echo -e "${BLUE}║    PROXY BRIDGE - LITEBIKE       ║${NC}"
+    echo -e "${BLUE}║   Universal Port 8888 Proxy     ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════╝${NC}"
     echo
     echo -e "${YELLOW}Usage:${NC}"
-    echo "  $0 server [default|rmnet]           - Start litebike server"
-    echo "  $0 client [auto|host]               - Configure client (with SSH start)"  
-    echo "  $0 ssh [host] [user] [port]         - Start server via SSH"
-    echo "  $0 test [gateway_host]              - Test connection"
-    echo "  $0 status                           - Show current status"
-    echo "  $0 stop                             - Stop all services"
+    echo "  $0 server [mode]           - Start litebike server"
+    echo "  $0 client [host]           - Configure client (auto-starts server via SSH)"
+    echo "  $0 forward [host] [port]   - SSH localhost forward to proxy"
+    echo "  $0 test [host]             - Test proxy connection"
+    echo "  $0 status                  - Show current status"
+    echo "  $0 stop                    - Stop all services"
     echo
     echo -e "${YELLOW}Examples:${NC}"
     echo "  # On Termux (Server):"
-    echo "  $0 server                           - Start server (default mode)"
-    echo "  $0 server rmnet                     - Start with rmnet precision"
+    echo "  $0 server                  - Start litebike on 8888"
     echo
     echo "  # On Mac/Client:"
-    echo "  $0 client auto                      - Auto-detect gateway and configure"
-    echo "  $0 client 192.168.1.200             - Specific gateway"
-    echo "  $0 ssh 192.168.1.200                - Start server via SSH"
-    echo "  $0 test                             - Test connection"
-    echo "  $0 stop                             - Clear all settings"
+    echo "  $0 client                  - Auto-configure for \$TERMUX_HOST"
+    echo "  $0 forward                 - SSH tunnel localhost:8888 -> remote:8888"
+    echo "  $0 test                    - Test connection"
+    echo "  $0 stop                    - Clear all settings"
     echo
-    echo -e "${YELLOW}Environment Variables:${NC}"
-    echo "  TERMUX_HOST    - Termux host IP (auto-detected from route)"
-    echo "  TERMUX_USER    - SSH user (default: u0_a471)"
-    echo "  TERMUX_PORT    - SSH port (default: 8022)"
-    echo "  HTTP_PORT      - HTTP proxy port (default: 8080)"
-    echo "  SOCKS_PORT     - SOCKS5 port (default: 1080)"
+    echo -e "${YELLOW}Environment:${NC}"
+    echo "  TERMUX_HOST=${TERMUX_HOST} (auto-detected)"
+    echo "  TERMUX_USER=${SSH_USER}"
+    echo "  TERMUX_PORT=${SSH_PORT}"
     echo
     echo -e "${YELLOW}Features:${NC}"
-    echo "  • Auto-detects gateway IP from default route"
-    echo "  • SSH remote server start capability"
-    echo "  • Configures git, npm, homebrew proxies"
-    echo "  • Persistent shell environment settings"
-    echo "  • Single unified proxy server (HTTP/HTTPS + SOCKS5)"
-    echo "  • Default: ingress=local_ip, egress=0.0.0.0 (all interfaces)"
-    echo "  • Precision mode: rmnet interface selection for mobile data"
+    echo "  • Universal port 8888 for all protocols (HTTP/SOCKS5/TLS/DoH)"
+    echo "  • Auto-detection of TERMUX_HOST from routing table"
+    echo "  • SSH localhost forwarding for easy access"
+    echo "  • System proxy configuration (macOS)"
+    echo "  • Git proxy configuration"
+    echo "  • PAC/WPAD auto-configuration support"
+    echo "  • Bonjour/mDNS service advertisement"
+    echo "  • UPnP port mapping for router traversal"
+    echo
+    echo "ssh -L 8888:${TERMUX_HOST}:8888 ${SSH_USER}@${TERMUX_HOST} -p ${SSH_PORT}"
 }
 
 # Main execution
 case "${1:-help}" in
-    "server")
-        start_server "$2"
+    "server"|"start")
+        start_server "${2:-default}"
         ;;
     "client")
-        start_client "$2"
+        start_client "${2:-$TERMUX_HOST}"
         ;;
-    "ssh")
-        ssh_start_server "$2" "$3" "$4"
+    "forward")
+        ssh_forward "${2:-$TERMUX_HOST}" "${3:-$UNIVERSAL_PORT}" "${4:-$UNIVERSAL_PORT}"
         ;;
     "test")
-        test_connection "$2"
+        test_connection "${2:-$TERMUX_HOST}"
         ;;
     "status")
         show_status

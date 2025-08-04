@@ -19,8 +19,15 @@ pub mod protocol_handlers;
 pub mod simple_routing;
 pub mod unified_protocol_manager;
 pub mod detection_orchestrator;
+pub mod socks5_channels;
+pub mod socks5_channelized_handler;
 // Testing and mock modules
 pub mod protocol_mocks;
 pub mod simple_torture_test;
 pub mod abstractions;
 pub mod stubs;
+pub mod libc_socket_tune;
+pub mod libc_listener;
+pub mod libc_logger;
+pub mod libc_random;
+pub mod libc_base64;

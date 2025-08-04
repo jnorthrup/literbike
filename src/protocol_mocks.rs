@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 use log::{info, warn, error};
 use crate::types::ProtocolType;
 use crate::patricia_detector::{PatriciaDetector, Protocol};

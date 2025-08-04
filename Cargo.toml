@@ -14,15 +14,17 @@ path = "src/lib.rs"
 default = []
 
 # Optional features toggling submodules to keep edge footprint tight
-auto-discovery = []
-upnp = []
-doh = ["hickory-resolver"]
+# auto-discovery = []
+# upnp = []
+# doh = ["hickory-resolver"]
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt-multi-thread", "macros", "time"] }
 log = "0.4"
-async-trait = "0.1"
-base64 = { version = "0.22", features = ["alloc", "std"] }
-hickory-resolver = { version = "0.24", optional = true, features = ["tokio-runtime"] }
-base32 = "0.5.1"
+libc = "0.2"
+# async-trait = "0.1"
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+# hickory-resolver = { version = "0.24", optional = true, features = ["tokio-runtime"] }
+# base32 = "0.5.1"
 env_logger = "0.11.8"
+rand = { version = "0.8", features = ["std"] }

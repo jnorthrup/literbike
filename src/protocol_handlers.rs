@@ -3,14 +3,19 @@ use base64::Engine;
 // Provides concrete implementations of detectors and handlers for all supported protocols
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
 
+#[cfg(target_os = "android")]
+use libc;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use std::os::fd::{FromRawFd, IntoRawFd};
 
-use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetectionResult};
-use async_trait::async_trait;
+
+use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetectionResult, ProtocolFut};
+// Removed async-trait to minimize dependencies; keep trait methods sync by returning boxed futures if needed
 use crate::universal_listener::PrefixedStream;
 #[cfg(feature = "auto-discovery")]
 use crate::{pac, bonjour};
@@ -24,6 +29,146 @@ use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use base64::Engine as _; // bring the trait into scope so STANDARD.decode(...) is available
 use base64::engine::general_purpose;
 
+/// Establish an outbound TCP connection with optional egress binding via libc syscalls.
+/// Priority:
+/// 1) If EGRESS_INTERFACE is set, attempt SO_BINDTODEVICE(iface)
+/// 2) Else if EGRESS_BIND_IP is set, bind(2) to that local IP (port 0)
+/// 3) Else connect normally
+async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
+    // Parse "host:port"
+    let (host, port_str) = target.rsplit_once(':')
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid target format, missing port"))?;
+    let port: u16 = port_str.parse()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid port"))?;
+
+    // Resolve with Tokio (async-friendly)
+    let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await?;
+    let addr = addrs.next().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No address resolved"))?;
+
+    // Environment controls
+    let iface_opt = std::env::var("EGRESS_INTERFACE").ok();
+    let bind_ip_opt = std::env::var("EGRESS_BIND_IP").ok().and_then(|s| s.parse::<IpAddr>().ok());
+
+    // Non-Android/Linux fallback: use Tokio connect directly
+    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    {
+        let _ = (iface_opt, bind_ip_opt);
+        return TcpStream::connect(addr).await;
+    }
+
+    // Android/Linux path: libc socket + optional SO_BINDTODEVICE/bind + connect, then wrap fd into Tokio
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    unsafe {
+        // Choose domain by addr family
+        let (domain, sockaddr_storage, socklen) = match addr {
+            SocketAddr::V4(v4) => {
+                let mut sa: libc::sockaddr_in = std::mem::zeroed();
+                sa.sin_family = libc::AF_INET as u16;
+                sa.sin_port = u16::to_be(v4.port());
+                sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(v4.ip().octets()) };
+                (libc::AF_INET, std::mem::transmute::<libc::sockaddr_in, libc::sockaddr_storage>(sa), std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t)
+            }
+            SocketAddr::V6(v6) => {
+                let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
+                sa.sin6_family = libc::AF_INET6 as u16;
+                sa.sin6_port = u16::to_be(v6.port());
+                sa.sin6_addr = libc::in6_addr { s6_addr: v6.ip().octets() };
+                sa.sin6_flowinfo = v6.flowinfo();
+                sa.sin6_scope_id = v6.scope_id();
+                (libc::AF_INET6, std::mem::transmute::<libc::sockaddr_in6, libc::sockaddr_storage>(sa), std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t)
+            }
+        };
+
+        // Create non-blocking socket
+        let fd = libc::socket(domain, libc::SOCK_STREAM | libc::SOCK_NONBLOCK, 0);
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        // Helper to ensure close on error
+        struct FdGuard(i32);
+        impl Drop for FdGuard {
+            fn drop(&mut self) {
+                if self.0 >= 0 {
+                    unsafe { libc::close(self.0); }
+                }
+            }
+        }
+        let mut guard = FdGuard(fd);
+
+        // Try SO_BINDTODEVICE if interface provided
+        if let Some(iface) = iface_opt.as_ref() {
+            let ifname = std::ffi::CString::new(iface.as_str()).unwrap_or_default();
+            let ret = libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_BINDTODEVICE,
+                                       ifname.as_ptr() as *const libc::c_void,
+                                       ifname.as_bytes_with_nul().len() as libc::socklen_t);
+            if ret != 0 {
+                let e = io::Error::last_os_error();
+                debug!("SO_BINDTODEVICE({}) failed: {}", iface, e);
+                // proceed; fall back to IP bind if available
+            } else {
+                debug!("SO_BINDTODEVICE applied to interface {}", iface);
+            }
+        }
+
+        // If no iface or iface failed, try bind to specific IP if provided and family matches
+        if let Some(ip) = bind_ip_opt {
+            let (bind_ok, bind_ret) = match (ip, addr) {
+                (IpAddr::V4(ipv4), SocketAddr::V4(_)) => {
+                    let mut sa: libc::sockaddr_in = std::mem::zeroed();
+                    sa.sin_family = libc::AF_INET as u16;
+                    sa.sin_port = 0u16.to_be(); // ephemeral
+                    sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(ipv4.octets()) };
+                    let ret = libc::bind(fd,
+                                         &std::mem::transmute::<libc::sockaddr_in, libc::sockaddr>(sa) as *const libc::sockaddr,
+                                         std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t);
+                    (true, ret)
+                }
+                (IpAddr::V6(ipv6), SocketAddr::V6(_)) => {
+                    let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
+                    sa.sin6_family = libc::AF_INET6 as u16;
+                    sa.sin6_port = 0u16.to_be(); // ephemeral
+                    sa.sin6_addr = libc::in6_addr { s6_addr: ipv6.octets() };
+                    let ret = libc::bind(fd,
+                                         &std::mem::transmute::<libc::sockaddr_in6, libc::sockaddr>(sa) as *const libc::sockaddr,
+                                         std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t);
+                    (true, ret)
+                }
+                _ => (false, 0),
+            };
+            if bind_ok && bind_ret != 0 {
+                let e = io::Error::last_os_error();
+                debug!("bind(EGRESS_BIND_IP) failed: {}", e);
+            } else if bind_ok {
+                debug!("Bound local egress to {}", ip);
+            }
+        }
+
+        // Connect
+        let connect_ret = libc::connect(
+            fd,
+            &sockaddr_storage as *const libc::sockaddr_storage as *const libc::sockaddr,
+            socklen,
+        );
+
+        if connect_ret != 0 {
+            let err = io::Error::last_os_error();
+            // EINPROGRESS is expected for non-blocking; let Tokio complete it
+            if err.raw_os_error() != Some(libc::EINPROGRESS) {
+                return Err(err);
+            }
+        }
+
+        // Wrap fd into nonblocking std::net::TcpStream then into tokio::net::TcpStream
+        let std_stream = std::net::TcpStream::from_raw_fd(fd);
+        // prevent guard from closing; ownership moved to std_stream
+        guard.0 = -1;
+        std_stream.set_nonblocking(true)?;
+        let tokio_stream = TcpStream::from_std(std_stream)?;
+        Ok(tokio_stream)
+    }
+}
+
 // ===== HTTP Protocol Detector =====
 
 pub struct HttpDetector;
@@ -34,7 +179,6 @@ impl HttpDetector {
     }
 }
 
-#[async_trait]
 impl ProtocolDetector for HttpDetector {
     fn detect(&self, data: &[u8]) -> ProtocolDetectionResult {
         if let Ok(text) = std::str::from_utf8(data) {
@@ -118,7 +262,7 @@ impl HttpHandler {
     }
     
     async fn handle_connect_tunnel(&self, mut stream: PrefixedStream<TcpStream>, target: &str) -> io::Result<()> {
-        match TcpStream::connect(target).await {
+        match connect_via_egress_sys(target).await {
             Ok(remote) => {
                 stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
                 self.relay_streams(stream, remote).await
@@ -131,7 +275,7 @@ impl HttpHandler {
     }
     
     async fn handle_http_forward(&self, stream: PrefixedStream<TcpStream>, request: &[u8], target: &str) -> io::Result<()> {
-        match TcpStream::connect(target).await {
+        match connect_via_egress_sys(target).await {
             Ok(mut remote) => {
                 remote.write_all(request).await?;
                 self.relay_streams(stream, remote).await
@@ -194,12 +338,11 @@ impl HttpHandler {
     }
 }
 
-#[async_trait]
 impl ProtocolHandler for HttpHandler {
-    async fn handle(&self, stream: PrefixedStream<TcpStream>) -> io::Result<()> {
+    fn handle(&self, mut stream: PrefixedStream<TcpStream>) -> ProtocolFut {
+        Box::pin(async move {
             // Read the request to determine routing
             let mut buffer = [0u8; 2048];
-            let mut stream = stream;
             let n = stream.read(&mut buffer).await?;
             
             if n == 0 {
@@ -236,7 +379,8 @@ impl ProtocolHandler for HttpHandler {
             
             // Handle as regular HTTP proxy
             self.handle_regular_http(stream, &request).await
-        }
+        })
+    }
     
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {
         detection.protocol_name == "http"
@@ -255,7 +399,6 @@ impl Socks5Detector {
     }
 }
 
-#[async_trait]
 impl ProtocolDetector for Socks5Detector {
     fn detect(&self, data: &[u8]) -> ProtocolDetectionResult {
         if data.len() >= 2 && data[0] == 0x05 {
@@ -376,7 +519,7 @@ impl Socks5Handler {
         let atyp = buf[3];
         let target = self.read_socks_address(&mut stream, atyp).await?;
 
-        match TcpStream::connect(&target).await {
+        match connect_via_egress_sys(&target).await {
             Ok(remote) => {
                 info!("SOCKS5 connection to {}", target);
                 let local_addr = remote.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
@@ -447,10 +590,12 @@ impl Socks5Handler {
     }
 }
 
-#[async_trait]
 impl ProtocolHandler for Socks5Handler {
-    async fn handle(&self, stream: PrefixedStream<TcpStream>) -> io::Result<()> {
-        self.handle_socks5_connection(stream).await
+    fn handle(&self, stream: PrefixedStream<TcpStream>) -> ProtocolFut {
+        Box::pin(async move {
+            // move stream into the async block only; no borrow of self escapes
+            self.handle_socks5_connection(stream).await
+        })
     }
     
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {
@@ -470,7 +615,6 @@ impl TlsDetector {
     }
 }
 
-#[async_trait]
 impl ProtocolDetector for TlsDetector {
     fn detect(&self, data: &[u8]) -> ProtocolDetectionResult {
         if data.len() >= 3 && data[0] == 0x16 && data[1] == 0x03 {
@@ -506,13 +650,14 @@ impl TlsHandler {
     }
 }
 
-#[async_trait]
 impl ProtocolHandler for TlsHandler {
-    async fn handle(&self, _stream: PrefixedStream<TcpStream>) -> io::Result<()> {
-        info!("TLS passthrough - connection will be closed");
-        // For now, just close TLS connections as we can't proxy them without termination
-        // In a full implementation, you'd extract SNI and forward to the appropriate server
-        Ok(())
+    fn handle(&self, _stream: PrefixedStream<TcpStream>) -> ProtocolFut {
+        Box::pin(async move {
+            info!("TLS passthrough - connection will be closed");
+            // For now, just close TLS connections as we can't proxy them without termination
+            // In a full implementation, you'd extract SNI and forward to the appropriate server
+            Ok(())
+        })
     }
     
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {
@@ -532,7 +677,6 @@ impl DohDetector {
     }
 }
 
-#[async_trait]
 impl ProtocolDetector for DohDetector {
     fn detect(&self, data: &[u8]) -> ProtocolDetectionResult {
         if let Ok(text) = std::str::from_utf8(data) {
@@ -769,17 +913,18 @@ impl DohHandler {
         0
     }
     
-    fn decode_base64url(&self, input: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode_base64url(&self, input: &str) -> Result<Vec<u8>, io::Error> {
         // RFC 4648 Section 5 - base64url decoding
         let mut padded = input.replace('-', "+").replace('_', "/");
-        
+
         // Add padding if needed
         while padded.len() % 4 != 0 {
             padded.push('=');
         }
-        
-        general_purpose::STANDARD.decode(&padded)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+
+        general_purpose::STANDARD
+            .decode(&padded)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("base64 decode error: {e}")))
     }
     
     async fn send_doh_error(&self, mut stream: PrefixedStream<TcpStream>, status: u16, message: &str) -> io::Result<()> {
@@ -795,22 +940,22 @@ impl DohHandler {
     }
 }
 
-#[async_trait]
 impl ProtocolHandler for DohHandler {
-    async fn handle(&self, stream: PrefixedStream<TcpStream>) -> io::Result<()> {
-        // Read the request to determine routing
-        let mut buffer = [0u8; 2048];
-        let mut stream = stream;
-        let n = stream.read(&mut buffer).await?;
-        
-        if n == 0 {
-            return Ok(());
-        }
-        
-        let request = String::from_utf8_lossy(&buffer[..n]);
-        debug!("DoH request received: {}", request.lines().next().unwrap_or(""));
-        
-        self.handle_doh_get(stream, &request).await
+    fn handle(&self, mut stream: PrefixedStream<TcpStream>) -> ProtocolFut {
+        Box::pin(async move {
+            // Read the request to determine routing
+            let mut buffer = [0u8; 2048];
+            let n = stream.read(&mut buffer).await?;
+
+            if n == 0 {
+                return Ok(());
+            }
+
+            let request = String::from_utf8_lossy(&buffer[..n]);
+            debug!("DoH request received: {}", request.lines().next().unwrap_or(""));
+
+            self.handle_doh_get(stream, &request).await
+        })
     }
     
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {

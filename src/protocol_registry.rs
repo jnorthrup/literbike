@@ -8,6 +8,8 @@ use tokio::net::TcpStream;
 use log::{debug, info, warn};
 
 use crate::universal_listener::PrefixedStream;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Protocol detection result with confidence scoring
 #[derive(Debug, Clone)]
@@ -43,8 +45,9 @@ impl ProtocolDetectionResult {
     }
 }
 
+pub type ProtocolFut<'a> = Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'a>>;
+
 /// Trait for protocol detection logic
-#[async_trait]
 pub trait ProtocolDetector: Send + Sync {
     /// Detect protocol from initial bytes
     fn detect(&self, data: &[u8]) -> ProtocolDetectionResult;
@@ -59,17 +62,15 @@ pub trait ProtocolDetector: Send + Sync {
     fn protocol_name(&self) -> &str;
 }
 
-/// Trait for protocol handling logic
-use async_trait::async_trait;
-
-#[async_trait]
+/* Trait for protocol handling logic without async-trait.
+   Return a boxed future to keep the trait object-safe. */
 pub trait ProtocolHandler: Send + Sync {
     /// Handle a connection using this protocol
-    async fn handle(&self, stream: PrefixedStream<TcpStream>) -> io::Result<()>;
-    
+    fn handle(&self, stream: PrefixedStream<TcpStream>) -> ProtocolFut;
+
     /// Check if this handler can process the detection result
     fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool;
-    
+
     /// Protocol name for logging
     fn protocol_name(&self) -> &str;
 }

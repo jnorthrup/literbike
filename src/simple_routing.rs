@@ -5,6 +5,8 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpListener;
 use log::{info, warn, error};
+use crate::libc_socket_tune::TcpTuningOptions;
+use crate::libc_listener::{bind_with_options, ListenerOptions};
 
 /// Simple routing configuration
 #[derive(Debug, Clone)]
@@ -13,6 +15,7 @@ pub struct RouteConfig {
     pub port: u16,
     pub bind_addr: IpAddr,
     pub protocols: Vec<String>,
+    pub tcp_tuning: TcpTuningOptions,
 }
 
 impl RouteConfig {
@@ -23,6 +26,7 @@ impl RouteConfig {
             port: 8888,
             bind_addr: "0.0.0.0".parse().unwrap(),
             protocols: vec!["all".to_string()],
+            tcp_tuning: TcpTuningOptions::default(),
         }
     }
     
@@ -33,6 +37,7 @@ impl RouteConfig {
             port: 8888,
             bind_addr: "127.0.0.1".parse().unwrap(),
             protocols: vec!["all".to_string()],
+            tcp_tuning: TcpTuningOptions::default(),
         }
     }
     
@@ -62,6 +67,7 @@ impl RouteConfig {
             port,
             bind_addr,
             protocols,
+            tcp_tuning: TcpTuningOptions::default(),
         })
     }
     
@@ -81,6 +87,7 @@ impl RouteConfig {
 pub struct SimpleRouter {
     primary_config: RouteConfig,
     fallback_config: RouteConfig,
+    listener_options: ListenerOptions,
 }
 
 impl SimpleRouter {
@@ -89,6 +96,7 @@ impl SimpleRouter {
         Self {
             primary_config: RouteConfig::default(),
             fallback_config: RouteConfig::fallback(),
+            listener_options: ListenerOptions::default(),
         }
     }
     
@@ -97,6 +105,7 @@ impl SimpleRouter {
         Self {
             primary_config: primary,
             fallback_config: RouteConfig::fallback(),
+            listener_options: ListenerOptions::default(),
         }
     }
     
@@ -108,9 +117,9 @@ impl SimpleRouter {
               primary_addr.ip(), primary_addr.port(), self.primary_config.interface);
         
         // Try primary configuration first
-        match TcpListener::bind(primary_addr).await {
+        match bind_with_options(primary_addr, &self.listener_options).await {
             Ok(listener) => {
-                info!("Successfully bound to primary: {}:{} ({})", 
+                info!("Successfully bound to primary: {}:{} ({}) with SO_REUSEADDR/SO_REUSEPORT", 
                       primary_addr.ip(), primary_addr.port(), self.primary_config.interface);
                 Ok((listener, self.primary_config.clone()))
             }
@@ -119,9 +128,9 @@ impl SimpleRouter {
                       self.primary_config.interface, e);
                 
                 let fallback_addr = self.fallback_config.socket_addr();
-                match TcpListener::bind(fallback_addr).await {
+                match bind_with_options(fallback_addr, &self.listener_options).await {
                     Ok(listener) => {
-                        warn!("Fallback successful: {}:{} ({})", 
+                        warn!("Fallback successful: {}:{} ({}) with SO_REUSEADDR/SO_REUSEPORT", 
                               fallback_addr.ip(), fallback_addr.port(), self.fallback_config.interface);
                         Ok((listener, self.fallback_config.clone()))
                     }
