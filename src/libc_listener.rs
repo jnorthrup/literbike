@@ -112,7 +112,7 @@ pub async fn bind_with_options(addr: SocketAddr, options: &ListenerOptions) -> R
             return Err(err);
         }
         
-        Ok(TcpListener::from_raw_fd(fd))
+        Ok(TcpListener::from_std(std::net::TcpListener::from_raw_fd(fd))?)
     }
 }
 

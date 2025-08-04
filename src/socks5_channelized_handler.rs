@@ -17,6 +17,7 @@ use crate::universal_listener::PrefixedStream;
 use crate::protocol_registry::{ProtocolHandler, ProtocolDetectionResult, ProtocolFut};
 
 /// Channelized SOCKS5 handler that uses continuation-based decode stages
+#[derive(Clone)]
 pub struct ChannelizedSocks5Handler;
 
 impl ChannelizedSocks5Handler {
@@ -165,6 +166,7 @@ pub fn create_channelized_socks5_handler() -> Box<dyn Fn(PrefixedStream<TcpStrea
     let handler = ChannelizedSocks5Handler::new();
     
     Box::new(move |stream| {
+        let handler = handler.clone();
         Box::pin(async move {
             handler.handle_socks5_channelized(stream).await
         })

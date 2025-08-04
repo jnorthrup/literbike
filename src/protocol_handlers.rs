@@ -34,7 +34,7 @@ use base64::engine::general_purpose;
 /// 1) If EGRESS_INTERFACE is set, attempt SO_BINDTODEVICE(iface)
 /// 2) Else if EGRESS_BIND_IP is set, bind(2) to that local IP (port 0)
 /// 3) Else connect normally
-async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
+pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
     // Parse "host:port"
     let (host, port_str) = target.rsplit_once(':')
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid target format, missing port"))?;
@@ -66,7 +66,9 @@ async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
                 sa.sin_family = libc::AF_INET as u16;
                 sa.sin_port = u16::to_be(v4.port());
                 sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(v4.ip().octets()) };
-                (libc::AF_INET, std::mem::transmute::<libc::sockaddr_in, libc::sockaddr_storage>(sa), std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t)
+                let mut storage: libc::sockaddr_storage = std::mem::zeroed();
+                std::ptr::copy_nonoverlapping(&sa as *const _ as *const u8, &mut storage as *mut _ as *mut u8, std::mem::size_of::<libc::sockaddr_in>());
+                (libc::AF_INET, storage, std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t)
             }
             SocketAddr::V6(v6) => {
                 let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
@@ -75,7 +77,9 @@ async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
                 sa.sin6_addr = libc::in6_addr { s6_addr: v6.ip().octets() };
                 sa.sin6_flowinfo = v6.flowinfo();
                 sa.sin6_scope_id = v6.scope_id();
-                (libc::AF_INET6, std::mem::transmute::<libc::sockaddr_in6, libc::sockaddr_storage>(sa), std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t)
+                let mut storage: libc::sockaddr_storage = std::mem::zeroed();
+                std::ptr::copy_nonoverlapping(&sa as *const _ as *const u8, &mut storage as *mut _ as *mut u8, std::mem::size_of::<libc::sockaddr_in6>());
+                (libc::AF_INET6, storage, std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t)
             }
         };
 
@@ -120,7 +124,7 @@ async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
                     sa.sin_port = 0u16.to_be(); // ephemeral
                     sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(ipv4.octets()) };
                     let ret = libc::bind(fd,
-                                         &std::mem::transmute::<libc::sockaddr_in, libc::sockaddr>(sa) as *const libc::sockaddr,
+                                         &sa as *const _ as *const libc::sockaddr,
                                          std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t);
                     (true, ret)
                 }
@@ -130,7 +134,7 @@ async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
                     sa.sin6_port = 0u16.to_be(); // ephemeral
                     sa.sin6_addr = libc::in6_addr { s6_addr: ipv6.octets() };
                     let ret = libc::bind(fd,
-                                         &std::mem::transmute::<libc::sockaddr_in6, libc::sockaddr>(sa) as *const libc::sockaddr,
+                                         &sa as *const _ as *const libc::sockaddr,
                                          std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t);
                     (true, ret)
                 }

@@ -152,6 +152,7 @@ async fn main() {
         port: cfg.bind_port,
         bind_addr: cfg.bind_addr,
         protocols: vec!["all".to_string()],
+        tcp_tuning: Default::default(),
     };
 
     // Universal listener using simple routing with swlan0 fallback

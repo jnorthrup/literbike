@@ -55,64 +55,15 @@ pub async fn accept_with_options(
     listener: &TcpListener,
     options: &TcpTuningOptions,
 ) -> Result<(TcpStream, std::net::SocketAddr)> {
-    let listener_fd = listener.as_raw_fd();
-    
     loop {
-        listener.ready(tokio::io::Interest::READABLE).await?;
-        
-        let mut addr: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-        let mut addr_len = std::mem::size_of::<libc::sockaddr_storage>() as socklen_t;
-        
-        let fd = unsafe {
-            accept4(
-                listener_fd,
-                &mut addr as *mut _ as *mut libc::sockaddr,
-                &mut addr_len,
-                SOCK_CLOEXEC | SOCK_NONBLOCK,
-            )
-        };
-        
-        if fd < 0 {
-            let err = Error::last_os_error();
-            if err.kind() == std::io::ErrorKind::WouldBlock {
-                continue;
-            }
-            return Err(err);
-        }
+        let (stream, addr) = listener.accept().await?;
+        let fd = stream.as_raw_fd();
         
         unsafe {
             apply_socket_options(fd, options)?;
         }
         
-        let socket_addr = unsafe {
-            let addr_ptr = &addr as *const _ as *const libc::sockaddr;
-            match (*addr_ptr).sa_family as i32 {
-                libc::AF_INET => {
-                    let v4 = *(addr_ptr as *const libc::sockaddr_in);
-                    std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
-                        std::net::Ipv4Addr::from(u32::from_be(v4.sin_addr.s_addr)),
-                        u16::from_be(v4.sin_port),
-                    ))
-                },
-                libc::AF_INET6 => {
-                    let v6 = *(addr_ptr as *const libc::sockaddr_in6);
-                    std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
-                        std::net::Ipv6Addr::from(v6.sin6_addr.s6_addr),
-                        u16::from_be(v6.sin6_port),
-                        v6.sin6_flowinfo,
-                        v6.sin6_scope_id,
-                    ))
-                },
-                _ => return Err(Error::new(std::io::ErrorKind::Other, "Unknown address family")),
-            }
-        };
-        
-        let stream = unsafe {
-            use std::os::unix::io::FromRawFd;
-            TcpStream::from_raw_fd(fd)
-        };
-        
-        return Ok((stream, socket_addr));
+        return Ok((stream, addr));
     }
 }
 
