@@ -1,6 +1,198 @@
-# LiteBike Proxy
+# LiteBike Network Utility
 
-A lightweight, high-performance proxy server written in Rust, designed for mobile and embedded environments. Supports both HTTP/HTTPS and SOCKS5 protocols with intelligent network interface routing and comprehensive protocol detection using Patricia Trie-based pattern matching.
+A comprehensive network utility bootloader that acts like a BIOS for network operations - detecting the environment and choosing optimal execution pathways to survive network lockdowns and restrictions. Also includes a high-performance proxy server with intelligent protocol detection using Patricia Trie-based pattern matching.
+
+## Command Structure
+
+```dot
+digraph litebike_commands {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    // Root command
+    litebike [label="litebike\n-v, --verbose\n-h, --help\n-V, --version", style=filled, fillcolor=lightblue];
+    
+    // Main subcommands
+    net [label="net\nNetwork interface and routing management"];
+    proxy [label="proxy\nProxy server and client operations"];
+    connect [label="connect\nConnection management and testing"];
+    completion [label="completion\nBash completion utilities"];
+    utils [label="utils\nLegacy network utility compatibility"];
+    
+    // Net subcommands
+    net_interfaces [label="interfaces\nList and manage network interfaces"];
+    net_routes [label="routes\nRouting table operations"];
+    net_stats [label="stats\nNetwork statistics and monitoring"];
+    net_discover [label="discover\nNetwork discovery and scanning"];
+    
+    // Interface subcommands
+    interfaces_list [label="list\n-a, --all\n-f, --format FORMAT"];
+    interfaces_show [label="show\nShow details for specific interface"];
+    
+    // Routes subcommands
+    routes_list [label="list\n-4, --ipv4\n-6, --ipv6"];
+    routes_test [label="test\n-c, --count COUNT"];
+    
+    // Stats subcommands
+    stats_connections [label="connections\n-l, --listening\n-t, --tcp\n-u, --udp"];
+    
+    // Discover subcommands
+    discover_hosts [label="hosts\n-r, --range CIDR\n-t, --timeout MS"];
+    
+    // Proxy subcommands
+    proxy_server [label="server\n-p, --port PORT\n-b, --bind ADDRESS\n-d, --daemon"];
+    proxy_client [label="client\n-s, --server HOST:PORT\n-L, --local-port PORT"];
+    proxy_socks [label="socks\nSOCKS proxy operations"];
+    
+    // SOCKS subcommands
+    socks_server [label="server\n-p, --port PORT\n-v, --version VERSION"];
+    
+    // Connect subcommands
+    connect_repl [label="repl\n-p, --port PORT"];
+    connect_ssh [label="ssh\n-p, --port PORT\n-u, --user USER"];
+    connect_test [label="test\n-p, --port PORT\n-t, --timeout SECONDS"];
+    
+    // Completion subcommands
+    completion_generate [label="generate\n-s, --shell SHELL"];
+    completion_install [label="install\nInstall completion script to system"];
+    
+    // Utils subcommands (legacy compatibility)
+    utils_ifconfig [label="ifconfig\n-a, --all"];
+    utils_netstat [label="netstat\n-l, --listening\n-a, --all"];
+    utils_route [label="route\nRouting table display"];
+    utils_ip [label="ip\nIP configuration"];
+    
+    // IP subcommands
+    ip_addr [label="addr\nAddress management"];
+    ip_route [label="route\nRoute management"];
+    
+    // Connections
+    litebike -> net;
+    litebike -> proxy;
+    litebike -> connect;
+    litebike -> completion;
+    litebike -> utils;
+    
+    net -> net_interfaces;
+    net -> net_routes;
+    net -> net_stats;
+    net -> net_discover;
+    
+    net_interfaces -> interfaces_list;
+    net_interfaces -> interfaces_show;
+    
+    net_routes -> routes_list;
+    net_routes -> routes_test;
+    
+    net_stats -> stats_connections;
+    
+    net_discover -> discover_hosts;
+    
+    proxy -> proxy_server;
+    proxy -> proxy_client;
+    proxy -> proxy_socks;
+    
+    proxy_socks -> socks_server;
+    
+    connect -> connect_repl;
+    connect -> connect_ssh;
+    connect -> connect_test;
+    
+    completion -> completion_generate;
+    completion -> completion_install;
+    
+    utils -> utils_ifconfig;
+    utils -> utils_netstat;
+    utils -> utils_route;
+    utils -> utils_ip;
+    
+    utils_ip -> ip_addr;
+    utils_ip -> ip_route;
+}
+```
+
+## Features
+
+- **Multi-Pathway Execution**: Direct syscalls, legacy binary execution, network REPL, SSH tunneling, shell fallback
+- **Environment Detection**: Automatically adapts to constraints (no /proc, no root, Android/Termux, containers)
+- **Legacy Compatibility**: Drop-in replacement for `ifconfig`, `netstat`, `route`, `ip`
+- **Integrated Bash Completion**: Self-generating completion scripts with context-aware suggestions
+- **Cross-Platform**: Works on Android/Termux, macOS, Linux without modification
+
+## Installation
+
+```bash
+./setup-litebike-cli.sh                    # Builds everything + installs completions
+export PATH="$(pwd)/target/release:$PATH"  # Add to PATH
+```
+
+## Usage Examples
+
+### Modern Interface
+```bash
+# Network management
+litebike net interfaces list
+litebike net interfaces list --all --format json
+litebike net routes list --ipv4
+litebike net stats connections --listening
+litebike net discover hosts --range 192.168.1.0/24
+
+# Proxy operations
+litebike proxy server --port 8080 --bind 0.0.0.0
+litebike proxy client --server 192.168.1.1:8080 --local-port 1080
+litebike proxy socks server --port 1080 --version 5
+
+# Connection testing
+litebike connect repl 192.168.1.1
+litebike connect ssh 192.168.1.1 --user u0_a471 --port 8022
+litebike connect test 8.8.8.8 --port 53
+```
+
+### Legacy Compatibility
+```bash
+# These work exactly like traditional utilities
+ifconfig -a
+netstat -tuln
+route
+ip addr show
+```
+
+### Bash Completion
+```bash
+# Generate completion script
+litebike completion generate --shell bash
+
+# Install completions system-wide
+litebike completion install
+```
+
+## Network Security Benefits
+
+Perfect for lockdown scenarios:
+
+- **Multiple Attack Vectors**: If one pathway is blocked, automatically tries others
+- **Stealth Operations**: Can operate through various channels (HTTP, SSH, direct syscalls)
+- **Cross-Platform**: Works on Android/Termux, macOS, Linux without modification
+- **No Dependencies**: Core functionality uses only syscalls, no external files needed
+
+## Technical Architecture
+
+### Execution Pathways
+
+1. **Direct Syscalls**: Pure syscall implementation using libc for maximum reliability
+2. **Legacy Binary Execution**: Falls back to system ifconfig/netstat/route/ip when available
+3. **Network REPL**: Executes commands via HTTP REPL on litebike servers
+4. **SSH Tunneling**: Routes commands through SSH connections
+5. **Shell Fallback**: Last resort shell execution
+
+### Environment Detection
+
+Automatically detects and adapts to:
+- No /proc filesystem (Android/Termux)
+- No root privileges
+- Container environments
+- Network restrictions
+- Missing system utilities
 
 ## Patricia Trie Protocol Detection
 

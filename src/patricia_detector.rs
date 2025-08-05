@@ -1,9 +1,8 @@
-// Patricia Trie based Protocol Detector for Universal Port 8080
-// Efficiently identifies protocols from initial bytes using a radix tree
+// High-Performance Compile-Time Combinatorial Protocol Detector
+// Zero-runtime allocation protocol detection using invariant byte analysis
+// Optimized for Android/Termux syscall-only environments
 
-use std::collections::HashMap;
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Protocol {
     Http,
     Socks5,
@@ -14,178 +13,200 @@ pub enum Protocol {
     Unknown,
 }
 
-#[derive(Debug)]
-struct TrieNode {
-    children: HashMap<u8, Box<TrieNode>>,
-    protocol: Option<Protocol>,
-    prefix_len: usize,
+// Compile-time protocol pattern constants
+const SOCKS5_PATTERN: &[u8] = &[0x05];
+
+const TLS_SSL30_PATTERN: &[u8] = &[0x16, 0x03, 0x00];
+const TLS_10_PATTERN: &[u8] = &[0x16, 0x03, 0x01];
+const TLS_11_PATTERN: &[u8] = &[0x16, 0x03, 0x02];
+const TLS_12_PATTERN: &[u8] = &[0x16, 0x03, 0x03];
+const TLS_13_PATTERN: &[u8] = &[0x16, 0x03, 0x04];
+
+const HTTP_GET_PATTERN: &[u8] = b"GET ";
+const HTTP_POST_PATTERN: &[u8] = b"POST ";
+const HTTP_PUT_PATTERN: &[u8] = b"PUT ";
+const HTTP_DELETE_PATTERN: &[u8] = b"DELETE ";
+const HTTP_HEAD_PATTERN: &[u8] = b"HEAD ";
+const HTTP_OPTIONS_PATTERN: &[u8] = b"OPTIONS ";
+const HTTP_CONNECT_PATTERN: &[u8] = b"CONNECT ";
+const HTTP_PATCH_PATTERN: &[u8] = b"PATCH ";
+const HTTP_TRACE_PATTERN: &[u8] = b"TRACE ";
+
+const PROXY_V1_PATTERN: &[u8] = b"PROXY ";
+const PROXY_V2_PATTERN: &[u8] = &[0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A];
+
+const HTTP2_PREFACE_PATTERN: &[u8] = b"PRI * HTTP/2.0\r\n";
+
+// Efficient const pattern matching helper
+#[inline]
+const fn starts_with_pattern(data: &[u8], pattern: &[u8]) -> bool {
+    if data.len() < pattern.len() {
+        return false;
+    }
+    
+    let mut i = 0;
+    while i < pattern.len() {
+        if data[i] != pattern[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
-impl TrieNode {
-    fn new() -> Self {
-        TrieNode {
-            children: HashMap::new(),
-            protocol: None,
-            prefix_len: 0,
+// Zero-allocation combinatorial protocol detector
+// Uses rarity-ordered byte analysis for maximum performance
+#[inline]
+pub const fn detect_protocol_combinatorial(data: &[u8]) -> (Protocol, usize) {
+    if data.is_empty() {
+        return (Protocol::Unknown, 0);
+    }
+
+    // First-level dispatch by first byte (ordered by rarity for fastest rejection)
+    match data[0] {
+        // SOCKS5 - Extremely rare first byte (0x05)
+        0x05 => {
+            if starts_with_pattern(data, SOCKS5_PATTERN) {
+                (Protocol::Socks5, SOCKS5_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
         }
+
+        // TLS - Very rare first byte (0x16)
+        0x16 => {
+            if data.len() >= 3 && data[1] == 0x03 {
+                match data[2] {
+                    0x00 if starts_with_pattern(data, TLS_SSL30_PATTERN) => 
+                        (Protocol::Tls, TLS_SSL30_PATTERN.len()),
+                    0x01 if starts_with_pattern(data, TLS_10_PATTERN) => 
+                        (Protocol::Tls, TLS_10_PATTERN.len()),
+                    0x02 if starts_with_pattern(data, TLS_11_PATTERN) => 
+                        (Protocol::Tls, TLS_11_PATTERN.len()),
+                    0x03 if starts_with_pattern(data, TLS_12_PATTERN) => 
+                        (Protocol::Tls, TLS_12_PATTERN.len()),
+                    0x04 if starts_with_pattern(data, TLS_13_PATTERN) => 
+                        (Protocol::Tls, TLS_13_PATTERN.len()),
+                    _ => (Protocol::Unknown, 0),
+                }
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // PROXY v2 - Moderately rare first byte sequence (0x0D)
+        0x0D => {
+            if starts_with_pattern(data, PROXY_V2_PATTERN) {
+                (Protocol::ProxyProtocol, PROXY_V2_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // HTTP methods and other protocols starting with common ASCII letters
+        // 'P' - POST, PUT, PATCH, PROXY v1, HTTP/2 preface
+        b'P' => {
+            if starts_with_pattern(data, HTTP2_PREFACE_PATTERN) {
+                (Protocol::Http2, HTTP2_PREFACE_PATTERN.len())
+            } else if starts_with_pattern(data, PROXY_V1_PATTERN) {
+                (Protocol::ProxyProtocol, PROXY_V1_PATTERN.len())
+            } else if starts_with_pattern(data, HTTP_POST_PATTERN) {
+                (Protocol::Http, HTTP_POST_PATTERN.len())
+            } else if starts_with_pattern(data, HTTP_PUT_PATTERN) {
+                (Protocol::Http, HTTP_PUT_PATTERN.len())
+            } else if starts_with_pattern(data, HTTP_PATCH_PATTERN) {
+                (Protocol::Http, HTTP_PATCH_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // 'G' - GET
+        b'G' => {
+            if starts_with_pattern(data, HTTP_GET_PATTERN) {
+                (Protocol::Http, HTTP_GET_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // 'D' - DELETE
+        b'D' => {
+            if starts_with_pattern(data, HTTP_DELETE_PATTERN) {
+                (Protocol::Http, HTTP_DELETE_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // 'H' - HEAD
+        b'H' => {
+            if starts_with_pattern(data, HTTP_HEAD_PATTERN) {
+                (Protocol::Http, HTTP_HEAD_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // 'O' - OPTIONS
+        b'O' => {
+            if starts_with_pattern(data, HTTP_OPTIONS_PATTERN) {
+                (Protocol::Http, HTTP_OPTIONS_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // 'C' - CONNECT
+        b'C' => {
+            if starts_with_pattern(data, HTTP_CONNECT_PATTERN) {
+                (Protocol::Http, HTTP_CONNECT_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // 'T' - TRACE
+        b'T' => {
+            if starts_with_pattern(data, HTTP_TRACE_PATTERN) {
+                (Protocol::Http, HTTP_TRACE_PATTERN.len())
+            } else {
+                (Protocol::Unknown, 0)
+            }
+        }
+
+        // All other bytes - Unknown protocol
+        _ => (Protocol::Unknown, 0),
     }
 }
 
-pub struct PatriciaDetector {
-    root: TrieNode,
-}
+// Compatibility wrapper to maintain existing API
+pub struct PatriciaDetector;
 
 impl PatriciaDetector {
-    pub fn new() -> Self {
-        let mut detector = PatriciaDetector {
-            root: TrieNode::new(),
-        };
-        detector.build_trie();
-        detector
+    #[inline]
+    pub const fn new() -> Self {
+        PatriciaDetector
     }
 
-    fn build_trie(&mut self) {
-        // HTTP methods - all start with uppercase ASCII
-        self.insert(b"GET ", Protocol::Http);
-        self.insert(b"POST ", Protocol::Http);
-        self.insert(b"PUT ", Protocol::Http);
-        self.insert(b"DELETE ", Protocol::Http);
-        self.insert(b"HEAD ", Protocol::Http);
-        self.insert(b"OPTIONS ", Protocol::Http);
-        self.insert(b"CONNECT ", Protocol::Http);
-        self.insert(b"PATCH ", Protocol::Http);
-        self.insert(b"TRACE ", Protocol::Http);
-
-        // SOCKS5 - starts with version byte 0x05
-        self.insert(&[0x05], Protocol::Socks5);
-
-        // TLS/SSL - starts with handshake 0x16 followed by version
-        self.insert(&[0x16, 0x03, 0x00], Protocol::Tls); // SSL 3.0
-        self.insert(&[0x16, 0x03, 0x01], Protocol::Tls); // TLS 1.0
-        self.insert(&[0x16, 0x03, 0x02], Protocol::Tls); // TLS 1.1
-        self.insert(&[0x16, 0x03, 0x03], Protocol::Tls); // TLS 1.2
-        self.insert(&[0x16, 0x03, 0x04], Protocol::Tls); // TLS 1.3
-
-        // HAProxy PROXY protocol v1 - starts with "PROXY "
-        self.insert(b"PROXY ", Protocol::ProxyProtocol);
-        
-        // HAProxy PROXY protocol v2 - binary signature
-        self.insert(&[0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A], 
-                    Protocol::ProxyProtocol);
-        
-        // HTTP/2 preface - "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-        self.insert(b"PRI * HTTP/2.0\r\n", Protocol::Http2);
-        
-        // NGINX specific patterns would be in HTTP headers, not initial bytes
-        // WebSocket - HTTP with Upgrade header, but starts like HTTP
-        // Will be detected as HTTP first, then upgraded
-    }
-
-    fn insert(&mut self, prefix: &[u8], protocol: Protocol) {
-        let mut current = &mut self.root;
-        
-        for &byte in prefix {
-            current = current.children.entry(byte).or_insert_with(|| Box::new(TrieNode::new()));
-        }
-        
-        current.protocol = Some(protocol);
-        current.prefix_len = prefix.len();
-    }
-
+    #[inline]
     pub fn detect(&self, buffer: &[u8]) -> Protocol {
-        if buffer.is_empty() {
-            return Protocol::Unknown;
-        }
-
-        let mut current = &self.root;
-        let mut last_match = None;
-
-        for (i, &byte) in buffer.iter().enumerate() {
-            if let Some(node) = current.children.get(&byte) {
-                current = node;
-                if let Some(ref proto) = current.protocol {
-                    last_match = Some((proto.clone(), i + 1));
-                }
-            } else {
-                break;
-            }
-        }
-
-        // Return the longest matching protocol
-        last_match.map(|(proto, _)| proto).unwrap_or(Protocol::Unknown)
+        detect_protocol_combinatorial(buffer).0
     }
 
-    // Optimized detection that returns protocol and consumed bytes
+    #[inline]
     pub fn detect_with_length(&self, buffer: &[u8]) -> (Protocol, usize) {
-        if buffer.is_empty() {
-            return (Protocol::Unknown, 0);
-        }
-
-        let mut current = &self.root;
-        let mut last_match = (Protocol::Unknown, 0);
-
-        for (i, &byte) in buffer.iter().enumerate() {
-            if let Some(node) = current.children.get(&byte) {
-                current = node;
-                if let Some(ref proto) = current.protocol {
-                    last_match = (proto.clone(), i + 1);
-                }
-            } else {
-                break;
-            }
-        }
-
-        last_match
+        detect_protocol_combinatorial(buffer)
     }
 }
 
-// Fast bitwise protocol detection for common cases
+// Legacy compatibility function - now uses the combinatorial detector
 #[inline]
 pub fn quick_detect(buffer: &[u8]) -> Option<Protocol> {
-    if buffer.len() < 2 {
-        return None;
-    }
-
-    match buffer[0] {
-        // SOCKS5 version
-        0x05 => Some(Protocol::Socks5),
-        
-        // TLS handshake
-        0x16 if buffer.len() >= 3 && buffer[1] == 0x03 => Some(Protocol::Tls),
-        
-        // HAProxy PROXY protocol v2 signature
-        0x0D if buffer.len() >= 12 
-            && buffer[1] == 0x0A 
-            && buffer[2] == 0x0D 
-            && buffer[3] == 0x0A => Some(Protocol::ProxyProtocol),
-        
-        // HTTP methods or PROXY v1
-        b'P' => {
-            if buffer.len() >= 6 {
-                match &buffer[0..6] {
-                    b"PROXY " => Some(Protocol::ProxyProtocol),
-                    b"POST " => Some(Protocol::Http),
-                    b"PUT " => Some(Protocol::Http),
-                    b"PATCH " => Some(Protocol::Http),
-                    _ if buffer.len() >= 14 && &buffer[0..14] == b"PRI * HTTP/2.0" => Some(Protocol::Http2),
-                    _ => None,
-                }
-            } else if buffer.len() >= 4 && &buffer[0..4] == b"PUT " {
-                Some(Protocol::Http)
-            } else {
-                None
-            }
-        }
-        
-        // Other HTTP methods
-        b'G' if buffer.len() >= 4 && &buffer[0..4] == b"GET " => Some(Protocol::Http),
-        b'H' if buffer.len() >= 5 && &buffer[0..5] == b"HEAD " => Some(Protocol::Http),
-        b'D' if buffer.len() >= 7 && &buffer[0..7] == b"DELETE " => Some(Protocol::Http),
-        b'O' if buffer.len() >= 8 && &buffer[0..8] == b"OPTIONS " => Some(Protocol::Http),
-        b'C' if buffer.len() >= 8 && &buffer[0..8] == b"CONNECT " => Some(Protocol::Http),
-        b'T' if buffer.len() >= 6 && &buffer[0..6] == b"TRACE " => Some(Protocol::Http),
-        
-        _ => None,
+    let (protocol, _) = detect_protocol_combinatorial(buffer);
+    match protocol {
+        Protocol::Unknown => None,
+        proto => Some(proto),
     }
 }
 

@@ -17,6 +17,7 @@ use std::os::fd::{FromRawFd, IntoRawFd};
 use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetectionResult, ProtocolFut};
 // Removed async-trait to minimize dependencies; keep trait methods sync by returning boxed futures if needed
 use crate::universal_listener::PrefixedStream;
+use crate::repl_handler::ReplHandler;
 #[cfg(feature = "auto-discovery")]
 use crate::{pac, bonjour};
 #[cfg(feature = "upnp")]
@@ -223,6 +224,61 @@ impl HttpHandler {
         Self
     }
     
+    /// Handle REPL requests for symmetric proxy functionality  
+    async fn handle_repl_request(mut stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
+        debug!("Processing REPL request");
+        
+        // Extract request body for POST requests
+        let request_body = if request.contains("POST") {
+            // Find Content-Length header
+            let mut content_length = 0;
+            for line in request.lines() {
+                if line.to_lowercase().starts_with("content-length:") {
+                    if let Some(len_str) = line.split(':').nth(1) {
+                        content_length = len_str.trim().parse().unwrap_or(0);
+                    }
+                    break;
+                }
+            }
+            
+            if content_length > 0 {
+                // Find the end of headers (empty line)
+                if let Some(body_start) = request.find("\r\n\r\n") {
+                    let body_offset = body_start + 4;
+                    let existing_body = &request[body_offset..];
+                    
+                    if existing_body.len() >= content_length {
+                        existing_body[..content_length].to_string()
+                    } else {
+                        // Need to read more data
+                        let remaining = content_length - existing_body.len();
+                        let mut body = existing_body.to_string();
+                        let mut buffer = vec![0u8; remaining];
+                        
+                        match stream.read_exact(&mut buffer).await {
+                            Ok(_) => {
+                                body.push_str(&String::from_utf8_lossy(&buffer));
+                                body
+                            }
+                            Err(_) => existing_body.to_string()
+                        }
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            // GET request - return help or status
+            String::from(r#"{"command": "help", "args": []}"#)
+        };
+        
+        // Use the REPL handler to process the command
+        let repl_handler = ReplHandler::new();
+        repl_handler.handle_repl_request(stream, &request_body).await
+    }
+    
     /// Handle regular HTTP proxy requests
     async fn handle_regular_http(&self, stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
         debug!("Handling regular HTTP request");
@@ -356,7 +412,13 @@ impl ProtocolHandler for HttpHandler {
             let request = String::from_utf8_lossy(&buffer[..n]);
             debug!("HTTP request received: {}", request.lines().next().unwrap_or(""));
             
-            // Check for specialized protocol requests first
+            // Check for REPL endpoint first (symmetric proxy functionality)
+            if request.contains("POST /repl") || request.contains("GET /repl") {
+                info!("Routing to REPL handler");
+                return Self::handle_repl_request(stream, &request).await;
+            }
+            
+            // Check for specialized protocol requests
             #[cfg(feature = "auto-discovery")]
             if pac::is_pac_request(&request).await {
                 info!("Routing to PAC handler");

@@ -31,3 +31,12 @@ pub mod libc_listener;
 pub mod libc_logger;
 pub mod libc_random;
 pub mod libc_base64;
+pub mod repl_handler;
+// CLI and DSL modules
+pub mod cli_dsl;
+pub mod cli_core;
+pub mod reentrant_dsl;
+// Syscall-based network operations
+pub mod syscall_netops;
+// SSH client functionality
+pub mod ssh_client;

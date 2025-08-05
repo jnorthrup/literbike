@@ -27,6 +27,7 @@ use crate::protocol_handlers::{HttpHandler, Socks5Handler, TlsHandler};
 use crate::protocol_registry::ProtocolHandler;
 use crate::universal_listener::PrefixedStream;
 use crate::libc_socket_tune::{accept_with_options, TcpTuningOptions};
+use crate::repl_handler::ReplHandler;
 
 mod types;
 mod abstractions;
@@ -55,6 +56,7 @@ mod simple_routing;
 mod libc_socket_tune;
 mod libc_listener;
 mod config;
+mod repl_handler;
 
 // --- Configuration ---
 const HTTP_PORT: u16 = 8080;

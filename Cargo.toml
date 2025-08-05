@@ -21,8 +21,20 @@ doh = ["hickory-resolver"]
 # upnp = []
 # doh = ["hickory-resolver"]
 
+[[bin]]
+name = "netutils"
+path = "src/bin/netutils.rs"
+
+[[bin]]
+name = "litebike_client"
+path = "src/bin/litebike_client.rs"
+
+[[bin]]
+name = "litebike"
+path = "src/bin/litebike.rs"
+
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt-multi-thread", "macros", "time", "sync", "process"] }
 log = "0.4"
 libc = "0.2"
 # async-trait = "0.1"

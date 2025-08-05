@@ -22,4 +22,4 @@ litebike-proxy
 *.dylib
 
 # Logs
-*.log
+*.log**/*.o
