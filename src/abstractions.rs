@@ -1,3 +1,4 @@
+use crate::protocol_handlers::Socks5Detector;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -486,20 +487,20 @@ mod tests {
     async fn test_http_detection() {
         let detector = HttpDetector;
         let http_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        let result = detector.detect(http_request).await;
+        let result = detector.detect(http_request);
         
-        assert_eq!(result.protocol, ProtocolType::Http);
-        assert_eq!(result.confidence, 255);
+        assert_eq!(result[0].protocol_name, "http");
+        assert_eq!(result[0].confidence, 255);
     }
 
     #[tokio::test]  
     async fn test_socks5_detection() {
         let detector = Socks5Detector;
         let socks5_handshake = &[0x05, 0x01, 0x00]; // SOCKS5, 1 method, no auth
-        let result = detector.detect(socks5_handshake).await;
+        let result = detector.detect(socks5_handshake);
         
-        assert_eq!(result.protocol, ProtocolType::Socks5);
-        assert_eq!(result.confidence, 255);
+        assert_eq!(result[0].protocol_name, "socks5");
+        assert_eq!(result[0].confidence, 255);
     }
 
     #[test]

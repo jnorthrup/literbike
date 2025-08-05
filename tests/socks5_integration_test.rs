@@ -11,6 +11,23 @@ use litebike::universal_listener::{detect_protocol, Protocol, PrefixedStream};
 use litebike::protocol_handlers::Socks5Handler;
 use litebike::protocol_registry::ProtocolHandler;
 
+#[derive(Clone)]
+struct Socks5HandlerWrapper(Socks5Handler);
+
+impl ProtocolHandler for Socks5HandlerWrapper {
+    fn handle(&self, stream: PrefixedStream<TcpStream>) -> litebike::protocol_registry::ProtocolFut {
+        self.0.handle(stream)
+    }
+
+    fn can_handle(&self, detection: &litebike::protocol_registry::ProtocolDetectionResult) -> bool {
+        self.0.can_handle(detection)
+    }
+
+    fn protocol_name(&self) -> &str {
+        self.0.protocol_name()
+    }
+}
+
 #[tokio::test]
 async fn test_socks5_detection_works() {
     // Test that SOCKS5 packets are correctly identified

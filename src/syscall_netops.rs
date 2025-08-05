@@ -262,7 +262,7 @@ impl SyscallNetOps {
             libc::fcntl(sock, libc::F_SETFL, flags | libc::O_NONBLOCK);
             
             let mut addr: sockaddr_in = mem::zeroed();
-            addr.sin_family = AF_INET as u8;
+            addr.sin_family = AF_INET as libc::sa_family_t;
             addr.sin_port = (80u16).to_be(); // Try HTTP port
             addr.sin_addr.s_addr = u32::from(gateway).to_be();
             
@@ -275,7 +275,7 @@ impl SyscallNetOps {
             libc::close(sock);
             
             // For quick test, even connection refused is a good sign the gateway exists
-            let errno = *libc::__error();
+            let errno = unsafe { *libc::__errno() };
             result == 0 || errno == libc::ECONNREFUSED || errno == libc::EINPROGRESS
         }
     }

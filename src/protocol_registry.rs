@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
+use async_trait::async_trait;
 
 use crate::universal_listener::PrefixedStream;
 use std::future::Future;
@@ -255,11 +256,12 @@ mod tests {
         }
     }
     
-    #[async_trait]
     impl ProtocolHandler for MockHandler {
-        async fn handle(&self, mut _stream: PrefixedStream<TcpStream>) -> io::Result<()> {
-            // Just close the connection for testing
-            Ok(())
+        fn handle(&self, mut _stream: PrefixedStream<TcpStream>) -> ProtocolFut {
+            Box::pin(async move {
+                // Just close the connection for testing
+                Ok(())
+            })
         }
         
         fn can_handle(&self, detection: &ProtocolDetectionResult) -> bool {

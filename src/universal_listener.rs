@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 use log::{debug, info};
 
 /// Protocol detection result
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Protocol {
     Http,
     Socks5,

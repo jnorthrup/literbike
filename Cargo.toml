@@ -43,3 +43,4 @@ hickory-resolver = { version = "0.24", optional = true, features = ["tokio-runti
 # base32 = "0.5.1"
 env_logger = "0.11.8"
 rand = { version = "0.8", features = ["std"] }
+async-trait = "0.1.88"
