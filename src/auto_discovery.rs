@@ -14,6 +14,7 @@ use crate::upnp::UpnpServer;
 use crate::types::StandardPort;
 
 
+#[cfg(feature = "doh")]
 use hickory_resolver::{TokioAsyncResolver, config::{ResolverConfig, ResolverOpts}};
 
 /// Unified auto-discovery service that cheaply coordinates all discovery protocols
@@ -21,7 +22,7 @@ pub struct AutoDiscovery {
     local_ip: Ipv4Addr,
     hostname: String,
     pac_server: Arc<RwLock<PacServer>>,
-    bonjour_server: Arc<RwLock<BonjourServer>>,
+    bonjour_server: Arc<RwLock<BonjourDiscovery>>,
     upnp_server: Arc<RwLock<UpnpServer>>,
     
 }
@@ -48,8 +49,8 @@ impl AutoDiscovery {
         let pac_server = Arc::new(RwLock::new(PacServer::new(local_ip, pac_config)));
         
         // Create resolver for DOH-enabled services
-        
-        let resolver = {
+        #[cfg(feature = "doh")]
+        let _resolver = {
             let config = ResolverConfig::cloudflare();
             let opts = ResolverOpts::default();
             TokioAsyncResolver::tokio(config, opts)
@@ -57,11 +58,10 @@ impl AutoDiscovery {
         
         
         let bonjour_server = Arc::new(RwLock::new(
-            BonjourServer::new(local_ip, hostname.clone(), resolver)
-        ));
-        
-        let bonjour_server = Arc::new(RwLock::new(
-            BonjourServer::new(local_ip, hostname.clone())
+            BonjourDiscovery::new().unwrap_or_else(|e| {
+                warn!("Failed to create Bonjour discovery: {}", e);
+                panic!("Cannot continue without Bonjour discovery") 
+            })
         ));
         
         let upnp_server = Arc::new(RwLock::new(UpnpServer::new(local_ip)));

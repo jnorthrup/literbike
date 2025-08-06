@@ -8,14 +8,8 @@ use std::ffi::CStr;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::time::Duration;
 
-// Platform-specific ioctl constants
-mod ioctl_consts {
-    pub const SIOCGIFCONF: u64 = 0x8912;
-    pub const SIOCGIFADDR: u64 = 0x8915;
-    pub const SIOCGIFFLAGS: u64 = 0x8913;
-    pub const SIOCGIFNETMASK: u64 = 0x891b;
-}
 
+#[cfg(target_os = "macos")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0xc00c6924;
     pub const SIOCGIFADDR: u64 = 0xc0206921;
@@ -23,6 +17,15 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0xc0206925;
 }
 
+#[cfg(target_os = "linux")]
+mod ioctl_consts {
+    pub const SIOCGIFCONF: u64 = 0x8912;
+    pub const SIOCGIFADDR: u64 = 0x8915;
+    pub const SIOCGIFFLAGS: u64 = 0x8913;
+    pub const SIOCGIFNETMASK: u64 = 0x891b;
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -203,7 +206,7 @@ impl SyscallNetOps {
     }
 
     /// Discover default gateway (non-Linux fallback)
-    pub fn discover_default_gateway() -> Result<Ipv4Addr, String> {
+    pub fn discover_default_gateway_fallback() -> Result<Ipv4Addr, String> {
         // On macOS/other systems, try multiple approaches
         
         // First try to get interfaces

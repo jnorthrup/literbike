@@ -126,9 +126,11 @@ impl UpnpServer {
                      USN: {}::{}\r\n\
                      \r\n",
                     {
+                        #[cfg(feature = "chrono")]
                         {
                             chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
                         }
+                        #[cfg(not(feature = "chrono"))]
                         {
                             "Thu, 01 Jan 1970 00:00:00 GMT".to_string()
                         }
@@ -412,10 +414,6 @@ pub async fn setup_upnp_gateway(local_ip: Ipv4Addr) -> io::Result<()> {
     Ok(())
 }
 
-pub async fn setup_upnp_gateway(_local_ip: Ipv4Addr) -> io::Result<()> {
-    debug!("UPnP support disabled - compile with 'upnp' feature to enable");
-    Ok(())
-}
 
 /// Handler wrapper function for UPnP requests - called by universal listener
 pub async fn handle_upnp_request(mut stream: PrefixedStream<TcpStream>) -> std::io::Result<()> {

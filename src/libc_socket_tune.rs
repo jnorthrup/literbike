@@ -1,9 +1,20 @@
-use libc::{accept4, setsockopt, c_int, c_void, socklen_t};
+use libc::{setsockopt, c_int, c_void, socklen_t};
 use libc::{
-    SOCK_CLOEXEC, SOCK_NONBLOCK,
     SOL_SOCKET, SO_KEEPALIVE, SO_RCVBUF, SO_SNDBUF,
-    IPPROTO_TCP, TCP_NODELAY, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT,
+    IPPROTO_TCP, TCP_NODELAY, TCP_KEEPINTVL, TCP_KEEPCNT,
 };
+
+// Platform-specific constants
+#[cfg(target_os = "linux")]
+use libc::{accept4, SOCK_CLOEXEC, SOCK_NONBLOCK, TCP_KEEPIDLE};
+
+#[cfg(target_os = "macos")]
+const TCP_KEEPALIVE: c_int = 0x10; // macOS uses TCP_KEEPALIVE instead of TCP_KEEPIDLE
+
+#[cfg(not(target_os = "linux"))]
+const SOCK_CLOEXEC: c_int = 0;
+#[cfg(not(target_os = "linux"))]
+const SOCK_NONBLOCK: c_int = 0;
 use std::io::{Error, Result};
 use std::os::unix::io::{AsRawFd, RawFd};
 use tokio::net::{TcpListener, TcpStream};
@@ -74,7 +85,10 @@ pub unsafe fn apply_socket_options(fd: RawFd, options: &TcpTuningOptions) -> Res
         set_socket_option(fd, SOL_SOCKET, SO_KEEPALIVE, &val)?;
         
         if let Some(idle) = options.keepalive_idle_secs {
+            #[cfg(target_os = "linux")]
             set_socket_option(fd, IPPROTO_TCP, TCP_KEEPIDLE, &(idle as c_int))?;
+            #[cfg(target_os = "macos")]
+            set_socket_option(fd, IPPROTO_TCP, TCP_KEEPALIVE, &(idle as c_int))?;
         }
         
         if let Some(interval) = options.keepalive_interval_secs {
@@ -97,12 +111,6 @@ pub unsafe fn apply_socket_options(fd: RawFd, options: &TcpTuningOptions) -> Res
     Ok(())
 }
 
-pub async fn accept_with_options(
-    listener: &TcpListener,
-    _options: &TcpTuningOptions,
-) -> Result<(TcpStream, std::net::SocketAddr)> {
-    listener.accept().await
-}
 
 pub fn apply_stream_options(stream: &TcpStream, options: &TcpTuningOptions) -> Result<()> {
     if options.nodelay {
@@ -117,7 +125,13 @@ pub fn apply_stream_options(stream: &TcpStream, options: &TcpTuningOptions) -> R
             set_socket_option(fd, SOL_SOCKET, SO_KEEPALIVE, &val)?;
             
             if let Some(idle) = options.keepalive_idle_secs {
-                set_socket_option(fd, IPPROTO_TCP, TCP_KEEPIDLE, &(idle as c_int))?;
+                #[cfg(target_os = "linux")]
+                {
+                    use libc::TCP_KEEPIDLE;
+                    set_socket_option(fd, IPPROTO_TCP, TCP_KEEPIDLE, &(idle as c_int))?;
+                }
+                #[cfg(target_os = "macos")]
+                set_socket_option(fd, IPPROTO_TCP, TCP_KEEPALIVE, &(idle as c_int))?;
             }
             
             if let Some(interval) = options.keepalive_interval_secs {

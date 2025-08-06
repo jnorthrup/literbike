@@ -8,6 +8,7 @@ use std::mem;
 use std::ptr;
 
 // Basic ioctl constants (platform specific)
+#[cfg(target_os = "linux")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -16,11 +17,21 @@ mod ioctl_consts {
     pub const SIOCGIFHWADDR: u64 = 0x8927;
 }
 
+#[cfg(target_os = "macos")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0xc00c6924;
     pub const SIOCGIFADDR: u64 = 0xc0206921;
     pub const SIOCGIFFLAGS: u64 = 0xc0206911;
     pub const SIOCGIFNETMASK: u64 = 0xc0206925;
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+mod ioctl_consts {
+    pub const SIOCGIFCONF: u64 = 0x8912;
+    pub const SIOCGIFADDR: u64 = 0x8915;
+    pub const SIOCGIFFLAGS: u64 = 0x8913;
+    pub const SIOCGIFNETMASK: u64 = 0x891b;
+    pub const SIOCGIFHWADDR: u64 = 0x8927;
 }
 
 use ioctl_consts::*;

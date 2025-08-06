@@ -20,7 +20,9 @@ use crate::repl_handler::ReplHandler;
 use crate::egress_connector::{connect_with_backoff, start_health_checker};
 use crate::{pac, bonjour};
 use crate::upnp;
+#[cfg(feature = "doh")]
 use hickory_resolver::TokioAsyncResolver;
+#[cfg(feature = "doh")]
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use base64::Engine as _; // bring the trait into scope so STANDARD.decode(...) is available
 use base64::engine::general_purpose;
@@ -47,18 +49,20 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
     let bind_ip_opt = std::env::var("EGRESS_BIND_IP").ok().and_then(|s| s.parse::<IpAddr>().ok());
 
     // Non-Android/Linux fallback: use Tokio connect directly
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         let _ = (iface_opt, bind_ip_opt);
         return TcpStream::connect(addr).await;
     }
 
     // Android/Linux path: libc socket + optional SO_BINDTODEVICE/bind + connect, then wrap fd into Tokio
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     unsafe {
         // Choose domain by addr family
         let (domain, sockaddr_storage, socklen) = match addr {
             SocketAddr::V4(v4) => {
                 let mut sa: libc::sockaddr_in = std::mem::zeroed();
-                sa.sin_family = libc::AF_INET as u16;
+                sa.sin_family = libc::AF_INET as u8;
                 sa.sin_port = u16::to_be(v4.port());
                 sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(v4.ip().octets()) };
                 let mut storage: libc::sockaddr_storage = std::mem::zeroed();
@@ -67,7 +71,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
             }
             SocketAddr::V6(v6) => {
                 let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
-                sa.sin6_family = libc::AF_INET6 as u16;
+                sa.sin6_family = libc::AF_INET6 as u8;
                 sa.sin6_port = u16::to_be(v6.port());
                 sa.sin6_addr = libc::in6_addr { s6_addr: v6.ip().octets() };
                 sa.sin6_flowinfo = v6.flowinfo();
@@ -79,7 +83,12 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
         };
 
         // Create non-blocking socket
-        let fd = libc::socket(domain, libc::SOCK_STREAM | libc::SOCK_NONBLOCK, 0);
+        #[cfg(target_os = "linux")]
+        const SOCK_NONBLOCK: libc::c_int = 0x800; // Linux SOCK_NONBLOCK
+        #[cfg(target_os = "linux")]
+        let fd = libc::socket(domain, libc::SOCK_STREAM | SOCK_NONBLOCK, 0);
+        #[cfg(not(target_os = "linux"))]
+        let fd = libc::socket(domain, libc::SOCK_STREAM, 0);
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -95,10 +104,12 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
         }
         let mut guard = FdGuard(fd);
 
-        // Try SO_BINDTODEVICE if interface provided
+        // Try SO_BINDTODEVICE if interface provided (Linux only)
+        #[cfg(target_os = "linux")]
         if let Some(iface) = iface_opt.as_ref() {
+            const SO_BINDTODEVICE: libc::c_int = 25;
             let ifname = std::ffi::CString::new(iface.as_str()).unwrap_or_default();
-            let ret = libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_BINDTODEVICE,
+            let ret = libc::setsockopt(fd, libc::SOL_SOCKET, SO_BINDTODEVICE,
                                        ifname.as_ptr() as *const libc::c_void,
                                        ifname.as_bytes_with_nul().len() as libc::socklen_t);
             if ret != 0 {
@@ -115,7 +126,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
             let (bind_ok, bind_ret) = match (ip, addr) {
                 (IpAddr::V4(ipv4), SocketAddr::V4(_)) => {
                     let mut sa: libc::sockaddr_in = std::mem::zeroed();
-                    sa.sin_family = libc::AF_INET as u16;
+                    sa.sin_family = libc::AF_INET as u8;
                     sa.sin_port = 0u16.to_be(); // ephemeral
                     sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(ipv4.octets()) };
                     let ret = libc::bind(fd,
@@ -125,7 +136,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
                 }
                 (IpAddr::V6(ipv6), SocketAddr::V6(_)) => {
                     let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
-                    sa.sin6_family = libc::AF_INET6 as u16;
+                    sa.sin6_family = libc::AF_INET6 as u8;
                     sa.sin6_port = 0u16.to_be(); // ephemeral
                     sa.sin6_addr = libc::in6_addr { s6_addr: ipv6.octets() };
                     let ret = libc::bind(fd,
@@ -802,22 +813,10 @@ impl ProtocolDetector for DohDetector {
 // ===== DoH (DNS-over-HTTPS) Protocol Handler =====
 
 pub struct DohHandler {
-    resolver: TokioAsyncResolver,
-}
-
-pub struct DohHandler {
     _phantom: std::marker::PhantomData<()>,
 }
 
 impl DohHandler {
-    pub async fn new() -> Self {
-        let config = ResolverConfig::cloudflare();
-        let opts = ResolverOpts::default();
-        let resolver = TokioAsyncResolver::tokio(config, opts);
-        
-        Self { resolver }
-    }
-    
     pub async fn new() -> Self {
         Self { _phantom: std::marker::PhantomData }
     }

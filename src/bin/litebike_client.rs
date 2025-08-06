@@ -12,9 +12,10 @@ use std::process::Command;
 use std::collections::HashMap;
 
 
-use litebike::bonjour::BonjourClient;
+// use litebike::bonjour::BonjourClient; // Not available in current implementation
 
 // Platform-specific ioctl constants
+#[cfg(target_os = "linux")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -22,6 +23,7 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0x891b;
 }
 
+#[cfg(target_os = "macos")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0xc00c6924;
     pub const SIOCGIFADDR: u64 = 0xc0206921;
@@ -29,6 +31,7 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0xc0206925;
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -227,19 +230,13 @@ impl LitebikeClient {
     /// Auto-discover litebike peers using Bonjour/mDNS
     
     async fn discover_peers(&mut self) -> io::Result<Ipv4Addr> {
-        let peers = BonjourClient::discover_peers().await?;
-        if let Some(peer) = peers.first() {
-            if let Some(addr) = peer.ipv4_addr {
-                println!("✓ Found litebike peer at {}", addr);
-                self.target_host = Some(addr);
-                return Ok(addr);
-            }
-        }
-        
-        Err(io::Error::new(
+        // BonjourClient not implemented - return error
+        return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "No litebike peers found on network"
-        ))
+            "Peer discovery not implemented"
+        ));
+        #[allow(unreachable_code)]
+        let peers = Vec::<()>::new();
     }
     
     /// Test if litebike is running on the given address
@@ -536,7 +533,7 @@ async fn main() {
                 client.discover_peers().await.unwrap_or_else(|e| {
                     eprintln!("Peer discovery failed: {}", e);
                     std::process::exit(1);
-                })
+                });
             }
             {
                 client.target_host.unwrap_or_else(|| {

@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use libc::{getrandom, GRND_NONBLOCK};
 use libc::{open, read, close, O_RDONLY};
 use std::io::{self, Error};
@@ -10,25 +11,25 @@ pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
     }
     
     // Try getrandom() syscall first (Linux 3.17+)
-    let ret = unsafe {
-        getrandom(
-            buf.as_mut_ptr() as *mut libc::c_void,
-            len,
-            GRND_NONBLOCK,
-        )
-    };
-    
-    if ret >= 0 && ret as usize == len {
-        return Ok(());
+    #[cfg(target_os = "linux")]
+    {
+        let ret = unsafe {
+            getrandom(
+                buf.as_mut_ptr() as *mut libc::c_void,
+                len,
+                GRND_NONBLOCK,
+            )
+        };
+        
+        if ret >= 0 && ret as usize == len {
+            return Ok(());
+        }
     }
     
     // Fall back to /dev/urandom
     random_bytes_urandom(buf)
 }
 
-pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
-    random_bytes_urandom(buf)
-}
 
 fn random_bytes_urandom(buf: &mut [u8]) -> io::Result<()> {
     unsafe {

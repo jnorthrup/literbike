@@ -64,7 +64,7 @@ async fn main() {
                     _ => None,
                 }
             }) {
-                found_peer = Some(SocketAddr::new(IpAddr::V4(ipv4), service.get_port()));
+                found_peer = Some(SocketAddr::new(IpAddr::V4(*ipv4), service.get_port()));
                 info!("Discovered LiteBike peer at {}", found_peer.unwrap());
                 break;
             }

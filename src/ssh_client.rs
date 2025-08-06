@@ -72,9 +72,12 @@ impl SshClient {
 
             if result < 0 {
                 // Platform-specific errno access
-                let errno = *libc::__errno_location();
-                let errno = *libc::__error();
-                let errno = *libc::__errno_location();
+                #[cfg(target_os = "linux")]
+                let errno = unsafe { *libc::__errno_location() };
+                #[cfg(target_os = "macos")]
+                let errno = unsafe { *libc::__error() };
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
                 
                 return Err(format!("Failed to connect to SSH server: errno {}", errno).into());
             }
