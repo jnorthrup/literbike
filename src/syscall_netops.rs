@@ -274,9 +274,11 @@ impl SyscallNetOps {
             
             libc::close(sock);
             
-            // For quick test, even connection refused is a good sign the gateway exists
-            let errno = unsafe { *libc::__errno() };
-            result == 0 || errno == libc::ECONNREFUSED || errno == libc::EINPROGRESS
+            // For quick test, even connection refused is a good sign the gateway exists.
+            // Replace non-portable __errno() with errno lookup via io::Error::last_os_error().
+            let last = std::io::Error::last_os_error();
+            let code = last.raw_os_error().unwrap_or_default();
+            result == 0 || code == libc::ECONNREFUSED || code == libc::EINPROGRESS
         }
     }
 
@@ -318,6 +320,11 @@ impl SyscallNetOps {
         
         // Fallback to common private ranges
         Ok("192.168.1.0/24".to_string())
+    }
+
+    /// Basic constructor to satisfy tests and examples
+    pub fn new() -> Self {
+        Self {}
     }
 
     /// Scan for proxy servers using raw socket connections

@@ -33,6 +33,10 @@ path = "src/bin/litebike_client.rs"
 name = "litebike"
 path = "src/bin/litebike.rs"
 
+[[bin]]
+name = "p2p_netcat"
+path = "src/bin/p2p_netcat.rs"
+
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt-multi-thread", "macros", "time", "sync", "process"] }
 log = "0.4"
@@ -44,3 +48,5 @@ hickory-resolver = { version = "0.24", optional = true, features = ["tokio-runti
 env_logger = "0.11.8"
 rand = { version = "0.8", features = ["std"] }
 async-trait = "0.1.88"
+lazy_static = "1.4"
+mdns-sd = "0.11.0"

@@ -6,9 +6,7 @@ use litebike::protocol_handlers::{
     HttpDetector, Socks5Detector, TlsDetector, DohDetector
 };
 
-#[cfg(feature = "simd")]
-use litebike::patricia_detector_simd::PatriciaDetectorSIMD;
-use litebike::patricia_detector::PatriciaDetector;
+
 
 use crate::utils::{
     HttpTestData, Socks5TestData, TlsTestData, DohTestData, FuzzGenerator,
@@ -230,102 +228,7 @@ mod property_based_tests {
 mod simd_validation_tests {
     use super::*;
 
-    #[cfg(feature = "simd")]
-    #[test]
-    fn test_simd_vs_scalar_patricia_equivalence() {
-        let simd_detector = PatriciaDetectorSIMD::new();
-        let scalar_detector = PatriciaDetector::new();
-        
-        // Test with known protocol patterns
-        let test_data = vec![
-            HttpTestData.valid_requests(),
-            Socks5TestData.valid_requests(),
-            TlsTestData.valid_requests(),
-            DohTestData.valid_requests(),
-        ].into_iter().flatten().collect::<Vec<_>>();
-        
-        for (i, data) in test_data.iter().enumerate() {
-            let simd_result = simd_detector.detect(data);
-            let scalar_result = scalar_detector.detect(data);
-            
-            assert_eq!(
-                simd_result.protocol_name, scalar_result.protocol_name,
-                "Protocol mismatch on test {}: SIMD='{}' vs Scalar='{}'",
-                i, simd_result.protocol_name, scalar_result.protocol_name
-            );
-            
-            // Confidence may differ slightly due to different implementations
-            let confidence_diff = (simd_result.confidence as i16 - scalar_result.confidence as i16).abs();
-            assert!(
-                confidence_diff <= 10,
-                "Confidence difference too large on test {}: SIMD={} vs Scalar={} (diff={})",
-                i, simd_result.confidence, scalar_result.confidence, confidence_diff
-            );
-        }
-    }
     
-    #[cfg(feature = "simd")]
-    #[test]
-    fn test_simd_performance_advantage() {
-        let simd_detector = PatriciaDetectorSIMD::new();
-        let scalar_detector = PatriciaDetector::new();
-        
-        // Generate large amount of test data
-        let fuzzer = FuzzGenerator;
-        let test_data = fuzzer.generate_random_data(1024, 4096, 1000);
-        
-        // Warm up
-        for data in test_data.iter().take(10) {
-            let _ = simd_detector.detect(data);
-            let _ = scalar_detector.detect(data);
-        }
-        
-        // Benchmark SIMD
-        let mut simd_timer = Timer::new();
-        for data in &test_data {
-            let _ = simd_detector.detect(data);
-        }
-        let simd_duration = simd_timer.elapsed();
-        
-        // Benchmark scalar
-        let mut scalar_timer = Timer::new();
-        for data in &test_data {
-            let _ = scalar_detector.detect(data);
-        }
-        let scalar_duration = scalar_timer.elapsed();
-        
-        println!("SIMD duration: {:?}", simd_duration);
-        println!("Scalar duration: {:?}", scalar_duration);
-        
-        // SIMD should be faster, but allow for variance
-        let speedup = scalar_duration.as_nanos() as f64 / simd_duration.as_nanos() as f64;
-        println!("SIMD speedup: {:.2}x", speedup);
-        
-        // We expect at least some improvement, but don't make it too strict
-        // as performance can vary based on data patterns and CPU
-        assert!(speedup >= 0.8, "SIMD implementation is significantly slower: {:.2}x", speedup);
-    }
-    
-    #[cfg(feature = "simd")]
-    #[test]
-    fn test_simd_with_malformed_data() {
-        let detector = PatriciaDetectorSIMD::new();
-        let fuzzer = FuzzGenerator;
-        
-        // Test with malformed headers that might trigger edge cases
-        let malformed_data = fuzzer.generate_malformed_headers();
-        
-        for (i, data) in malformed_data.iter().enumerate() {
-            // Should not panic
-            let result = detector.detect(data);
-            
-            // Basic sanity checks
-            assert!(result.bytes_consumed <= data.len(),
-                   "SIMD detector consumed too many bytes on malformed test {}", i);
-            assert!(result.confidence <= 255,
-                   "SIMD detector confidence overflow on malformed test {}", i);
-        }
-    }
 }
 
 #[cfg(test)]

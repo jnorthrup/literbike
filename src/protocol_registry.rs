@@ -211,7 +211,6 @@ pub fn create_shared_registry() -> Arc<ProtocolRegistry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncWriteExt;
     
     // Mock detector for testing
     struct MockDetector {

@@ -233,29 +233,28 @@ fn extract_value(line: &str, key: &str) -> Option<String> {
     }
 }
 
-/// Note20-specific proxy binding
+/// Note20-specific proxy binding - prioritizes ingress interfaces
 pub fn get_optimal_bind_address(config: &Note20NetworkConfig) -> io::Result<String> {
-    // Check for active 5G connection first
+    // Primary ingress: Check hotspot (swlan0) first for serving clients
+    if is_interface_up(config.swlan0)? {
+        return get_interface_ip(config.swlan0);
+    }
+    
+    // Secondary ingress: WiFi 6 for local network clients
+    if is_interface_up(config.wlan0)? {
+        return get_interface_ip(config.wlan0);
+    }
+    
+    // Fallback: Use rmnet for direct binding (though typically for egress)
     if let Ok(network_type) = get_network_type() {
         if network_type.contains("5G") {
-            // Prefer rmnet_data2 for 5G internet
             if is_interface_up(config.rmnet_data2)? {
                 return get_interface_ip(config.rmnet_data2);
             }
         }
     }
     
-    // Check WiFi 6
-    if is_interface_up(config.wlan0)? {
-        return get_interface_ip(config.wlan0);
-    }
-    
-    // Check hotspot
-    if is_interface_up(config.swlan0)? {
-        return get_interface_ip(config.swlan0);
-    }
-    
-    // Fallback to any active rmnet
+    // Fallback to any active interface
     if let Ok(iface) = detect_active_interface() {
         return get_interface_ip(&iface);
     }

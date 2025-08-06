@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::sync::Mutex;
 use log::{info, warn, error};
 use crate::types::ProtocolType;
-use crate::patricia_detector::{PatriciaDetector, Protocol};
+use crate::protocol_detector::{ProtocolDetector, Protocol};
 
 #[derive(Clone)]
 pub struct ProtocolMock {
@@ -56,8 +56,8 @@ pub struct MockState {
     pub errors: Vec<String>,
 }
 
-pub struct MassiveProtocolTester {
-    detector: PatriciaDetector,
+pub struct ProtocolIntegrationTester {
+    detector: ProtocolDetector,
     mocks: HashMap<ProtocolType, ProtocolMock>,
     global_behaviors: Vec<MockBehavior>,
     stress_tests: Vec<StressTest>,
@@ -135,13 +135,13 @@ pub enum FailureScenario {
     AvailabilityFailure,
 }
 
-impl MassiveProtocolTester {
+impl ProtocolIntegrationTester {
     pub fn new() -> Self {
         Self {
-            detector: PatriciaDetector::new(),
+            detector: ProtocolDetector::new(),
             mocks: HashMap::new(),
             global_behaviors: vec![],
-            stress_tests: Self::create_massive_stress_tests(),
+            stress_tests: Self::create_stress_tests(),
             adversarial_payloads: Self::create_adversarial_payloads(),
         }
     }
@@ -245,7 +245,7 @@ impl MassiveProtocolTester {
         ]
     }
 
-    fn create_massive_stress_tests() -> Vec<StressTest> {
+    fn create_stress_tests() -> Vec<StressTest> {
         vec![
             StressTest {
                 name: "HTTP Flood Attack".to_string(),
@@ -504,11 +504,11 @@ impl MassiveProtocolTester {
         ]
     }
 
-    pub async fn run_massive_torture_test(&self) -> MassiveTestResults {
-        let mut results = MassiveTestResults::default();
+    pub async fn run_integration_tests(&self) -> IntegrationTestResults {
+        let mut results = IntegrationTestResults::default();
         let start_time = Instant::now();
 
-        info!("🔥 STARTING MASSIVE PROTOCOL TORTURE TEST 🔥");
+        info!("Starting protocol integration test");
         info!("Running {} stress tests and {} adversarial payloads", 
               self.stress_tests.len(), self.adversarial_payloads.len());
 
@@ -551,7 +551,8 @@ impl MassiveProtocolTester {
         ];
 
         for (name, payload, expected) in legitimate_payloads {
-            let (detected, bytes) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (detected, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
             let correct = std::mem::discriminant(&detected) == std::mem::discriminant(&expected);
             
             results.total_tests += 1;
@@ -575,7 +576,8 @@ impl MassiveProtocolTester {
         ];
 
         for (name, payload) in malformed_payloads {
-            let (detected, _) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (detected, _) = (detection_result.protocol, detection_result.bytes_consumed);
             results.total_tests += 1;
             
             if matches!(detected, Protocol::Unknown) {
@@ -594,14 +596,13 @@ impl MassiveProtocolTester {
         let start_time = Instant::now();
         let end_time = start_time + test.duration;
 
-        info!("⚡ Starting {} with {} concurrent connections for {:?}", 
-              test.name, test.concurrent_connections, test.duration);
+        info!("Starting stress test: {}", test.name);
 
         let mut handles = vec![];
 
-        for i in 0..test.concurrent_connections {
+        for _i in 0..test.concurrent_connections {
             let patterns = test.payload_patterns.clone();
-            let detector = PatriciaDetector::new();
+            let detector = ProtocolDetector::new();
             
             let handle = tokio::spawn(async move {
                 let mut connection_stats = ConnectionStats::default();
@@ -612,7 +613,8 @@ impl MassiveProtocolTester {
                         let test_start = Instant::now();
                         
                         // Test protocol detection
-                        let (protocol, bytes) = detector.detect_with_length(pattern);
+                        let detection_result = detector.detect(pattern);
+                        let (protocol, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
                         
                         let test_duration = test_start.elapsed();
                         connection_stats.total_tests += 1;
@@ -673,7 +675,8 @@ impl MassiveProtocolTester {
         let start_time = Instant::now();
         
         // Test with protocol detector
-        let (detected_protocol, bytes_consumed) = self.detector.detect_with_length(&payload.payload);
+        let detection_result = self.detector.detect(&payload.payload);
+        let (detected_protocol, bytes_consumed) = (detection_result.protocol, detection_result.bytes_consumed);
         
         let processing_time = start_time.elapsed();
         
@@ -714,7 +717,8 @@ impl MassiveProtocolTester {
             let payload: Vec<u8> = (0..payload_size).map(|_| (fast_random() % 256) as u8).collect();
             
             let test_start = Instant::now();
-            let (protocol, bytes) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (protocol, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
             let test_duration = test_start.elapsed();
             
             results.total_tests += 1;
@@ -743,7 +747,7 @@ impl MassiveProtocolTester {
         results
     }
 
-    pub fn print_massive_results(&self, results: &MassiveTestResults) {
+    pub fn print_integration_results(&self, results: &IntegrationTestResults) {
         println!("\n🔥🔥🔥 MASSIVE PROTOCOL TORTURE TEST RESULTS 🔥🔥🔥");
         println!("Total Duration: {:?}", results.total_duration);
         
@@ -808,7 +812,7 @@ impl MassiveProtocolTester {
 
 // Result structures
 #[derive(Default)]
-pub struct MassiveTestResults {
+pub struct IntegrationTestResults {
     pub protocol_detection: ProtocolDetectionResults,
     pub stress_tests: HashMap<String, StressTestResult>,
     pub adversarial_tests: Vec<AdversarialTestResult>,
@@ -876,13 +880,13 @@ pub struct FuzzingResults {
 
 // Legacy compatibility for existing tests
 pub struct ProtocolMocker {
-    tester: MassiveProtocolTester,
+    tester: ProtocolIntegrationTester,
 }
 
 impl ProtocolMocker {
     pub fn new() -> Self {
         Self {
-            tester: MassiveProtocolTester::new(),
+            tester: ProtocolIntegrationTester::new(),
         }
     }
 
@@ -899,7 +903,8 @@ impl ProtocolMocker {
         ];
 
         for (name, payload) in test_cases {
-            let (protocol, bytes_read) = self.tester.detector.detect_with_length(&payload);
+            let detection_result = self.tester.detector.detect(&payload);
+            let (protocol, bytes_read) = (detection_result.protocol, detection_result.bytes_consumed);
             results.add_test(name, payload.len(), protocol, bytes_read);
         }
 
@@ -971,8 +976,8 @@ fn fast_random() -> usize {
 
 // Fuzzing harness for continuous testing
 pub fn fuzz_protocol_detector(data: &[u8]) {
-    let detector = PatriciaDetector::new();
-    let _ = detector.detect_with_length(data);
+    let detector = ProtocolDetector::new();
+    let _ = detector.detect(data);
     // If it doesn't panic, we're good
 }
 
@@ -982,9 +987,9 @@ mod tests {
     
     #[tokio::test]
     async fn test_massive_protocol_torture() {
-        let tester = MassiveProtocolTester::create_comprehensive_mocks();
-        let results = tester.run_massive_torture_test().await;
-        tester.print_massive_results(&results);
+        let tester = ProtocolIntegrationTester::create_comprehensive_mocks();
+        let results = tester.run_integration_tests().await;
+        // tester.print_massive_results(&results);
         
         // Basic sanity checks
         assert!(results.protocol_detection.total_tests > 0);

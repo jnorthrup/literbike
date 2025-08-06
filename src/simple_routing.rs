@@ -19,7 +19,6 @@ pub struct RouteConfig {
 }
 
 impl RouteConfig {
-    /// Default configuration: swlan0:8888,0.0.0.0:all
     pub fn default() -> Self {
         Self {
             interface: "swlan0".to_string(),

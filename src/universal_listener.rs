@@ -290,7 +290,6 @@ pub async fn handle_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncWriteExt;
 
     #[tokio::test]
     async fn test_detect_http_get() {

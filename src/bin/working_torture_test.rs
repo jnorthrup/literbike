@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 use env_logger;
 use log::{info, warn, error};
-use litebike::patricia_detector::{PatriciaDetector, Protocol};
+use litebike::protocol_detector::{Protocol, ProtocolDetector};
 use litebike::protocol_mocks::ProtocolMocker;
 
 #[tokio::main]
@@ -65,7 +65,7 @@ async fn run_original_mock_tests() {
 async fn run_comprehensive_detection_tests() {
     info!("Running comprehensive protocol detection validation");
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     let mut total_tests = 0;
     let mut passed = 0;
     let mut failed = 0;
@@ -97,14 +97,14 @@ async fn run_comprehensive_detection_tests() {
     for (name, payload, expected) in legitimate_cases {
         total_tests += 1;
         let start = Instant::now();
-        let (detected, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
         let duration = start.elapsed();
         
-        if std::mem::discriminant(&detected) == std::mem::discriminant(&expected) {
-            println!("  ✅ {}: {:?} in {} bytes ({:?})", name, detected, bytes, duration);
+        if result.protocol == expected {
+            println!("  ✅ {}: {:?} in {} bytes ({:?})", name, result.protocol, result.bytes_consumed, duration);
             passed += 1;
         } else {
-            println!("  ❌ {}: Expected {:?}, got {:?}", name, expected, detected);
+            println!("  ❌ {}: Expected {:?}, got {:?}", name, expected, result.protocol);
             failed += 1;
         }
     }
@@ -142,14 +142,14 @@ async fn run_comprehensive_detection_tests() {
     for (name, payload) in malformed_cases {
         total_tests += 1;
         let start = Instant::now();
-        let (detected, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
         let duration = start.elapsed();
         
-        if matches!(detected, Protocol::Unknown) {
+        if result.protocol == Protocol::Unknown {
             println!("  ✅ {}: Correctly rejected ({:?})", name, duration);
             passed += 1;
         } else {
-            println!("  ❌ {}: Incorrectly detected as {:?}", name, detected);
+            println!("  ❌ {}: Incorrectly detected as {:?}", name, result.protocol);
             failed += 1;
         }
     }
@@ -171,7 +171,7 @@ async fn run_comprehensive_detection_tests() {
 async fn run_adversarial_tests() {
     info!("Running adversarial and attack simulation tests");
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     let mut tests_run = 0;
     let mut slow_tests = 0;
     let mut very_slow_tests = 0;
@@ -218,7 +218,9 @@ async fn run_adversarial_tests() {
         let start = Instant::now();
         
         // Test should not crash, hang, or take excessive time
-        let (protocol, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         let duration = start.elapsed();
         
         if duration > Duration::from_millis(1000) {
@@ -265,7 +267,9 @@ async fn run_adversarial_tests() {
     for (name, payload) in confusion_tests {
         tests_run += 1;
         let start = Instant::now();
-        let (protocol, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         let duration = start.elapsed();
         
         println!("  ✅ {}: {:?} (consumed {} of {} bytes in {:?})", 
@@ -296,7 +300,9 @@ async fn run_adversarial_tests() {
     for (name, payload) in injection_tests {
         tests_run += 1;
         let start = Instant::now();
-        let (protocol, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         let duration = start.elapsed();
         
         println!("  ✅ {}: {:?} (consumed {} bytes in {:?})", 
@@ -323,7 +329,7 @@ async fn run_adversarial_tests() {
 async fn run_performance_tests() {
     info!("Running performance and scalability tests");
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     
     // Throughput test
     println!("\n🚀 Throughput Test:");
@@ -339,7 +345,7 @@ async fn run_performance_tests() {
     
     for i in 0..iterations {
         let payload = &test_payloads[i % test_payloads.len()];
-        let _ = detector.detect_with_length(payload);
+        let _ = detector.detect(payload);
     }
     
     let duration = start.elapsed();
@@ -365,7 +371,9 @@ async fn run_performance_tests() {
     for size in sizes {
         let payload = vec![0x47; size]; // 'G' repeated
         let start = Instant::now();
-        let (protocol, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         let duration = start.elapsed();
         
         let efficiency = if duration < Duration::from_millis((size / 10000 + 10) as u64) {
@@ -386,7 +394,7 @@ async fn run_performance_tests() {
     let mut handles = vec![];
     
     for i in 0..concurrent_tasks {
-        let detector_clone = PatriciaDetector::new();
+        let detector_clone = ProtocolDetector::new();
         let handle = tokio::spawn(async move {
             let mut detections = 0;
             let test_payloads = vec![
@@ -397,7 +405,7 @@ async fn run_performance_tests() {
             
             for _ in 0..1000 {
                 for payload in &test_payloads {
-                    let _ = detector_clone.detect_with_length(payload);
+                    let _ = detector_clone.detect(payload);
                     detections += 1;
                 }
             }
@@ -434,7 +442,7 @@ async fn run_performance_tests() {
 async fn run_chaos_fuzzing_tests() {
     info!("Running chaos fuzzing tests");
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     let test_duration = Duration::from_secs(30); // 30 second chaos test
     let start_time = Instant::now();
     let end_time = start_time + test_duration;
@@ -453,7 +461,7 @@ async fn run_chaos_fuzzing_tests() {
         let payload: Vec<u8> = (0..payload_size).map(|_| (fast_random() % 256) as u8).collect();
         
         let test_start = Instant::now();
-        let (protocol, _bytes) = detector.detect_with_length(&payload);
+        let (protocol, _bytes) = (detector.detect(&payload).protocol, detector.detect(&payload).bytes_consumed);
         let test_duration = test_start.elapsed();
         
         total_tests += 1;

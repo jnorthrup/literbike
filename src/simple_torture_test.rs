@@ -3,20 +3,20 @@
 
 use std::time::{Duration, Instant};
 use log::{info, warn};
-use crate::patricia_detector::{PatriciaDetector, Protocol};
+use crate::protocol_detector::{ProtocolDetector, Protocol};
 
-pub struct SimpleTortureTest {
-    detector: PatriciaDetector,
+pub struct ProtocolTestRunner {
+    detector: ProtocolDetector,
 }
 
-impl SimpleTortureTest {
+impl ProtocolTestRunner {
     pub fn new() -> Self {
         Self {
-            detector: PatriciaDetector::new(),
+            detector: ProtocolDetector::new(),
         }
     }
 
-    pub async fn run_comprehensive_test_suite(&self) -> ComprehensiveTestResults {
+    pub async fn run_all_tests(&self) -> ComprehensiveTestResults {
         let mut results = ComprehensiveTestResults::default();
         let start_time = Instant::now();
 
@@ -64,7 +64,8 @@ impl SimpleTortureTest {
 
         for (name, payload, expected) in test_cases {
             let start = Instant::now();
-            let (detected, _bytes) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (detected, _bytes) = (detection_result.protocol, detection_result.bytes_consumed);
             let duration = start.elapsed();
 
             results.total_tests += 1;
@@ -140,7 +141,9 @@ impl SimpleTortureTest {
 
         for (name, payload) in adversarial_payloads {
             let start = Instant::now();
-            let (protocol, bytes) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (protocol, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
+
             let duration = start.elapsed();
 
             results.total_tests += 1;
@@ -186,7 +189,8 @@ impl SimpleTortureTest {
 
         for i in 0..iterations {
             let payload = &test_payloads[i % test_payloads.len()];
-            let _ = self.detector.detect_with_length(payload);
+            let _ = self.detector.detect(payload);
+
         }
 
         let duration = start.elapsed();
@@ -201,7 +205,8 @@ impl SimpleTortureTest {
 
         let memory_start = Instant::now();
         for payload in &large_payloads {
-            let _ = self.detector.detect_with_length(payload);
+            let _ = self.detector.detect(payload);
+
         }
         results.memory_test_duration = memory_start.elapsed();
 
@@ -221,7 +226,8 @@ impl SimpleTortureTest {
             let payload: Vec<u8> = (0..payload_size).map(|_| (fast_random() % 256) as u8).collect();
 
             let test_start = Instant::now();
-            let (protocol, _bytes) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (protocol, _bytes) = (detection_result.protocol, detection_result.bytes_consumed);
             let test_duration = test_start.elapsed();
 
             results.total_tests += 1;
@@ -255,7 +261,9 @@ impl SimpleTortureTest {
         for &size in &sizes {
             let payload = vec![0x47; size]; // 'G' repeated
             let start = Instant::now();
-            let (protocol, bytes) = self.detector.detect_with_length(&payload);
+            let detection_result = self.detector.detect(&payload);
+            let (protocol, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
+
             let duration = start.elapsed();
 
             results.size_tests.push(MemorySizeTest {
@@ -276,7 +284,7 @@ impl SimpleTortureTest {
         let fragmentation_start = Instant::now();
         for i in 0..10000 {
             let small_payload = vec![0x48 + (i % 10) as u8; 10 + (i % 100)];
-            let _ = self.detector.detect_with_length(&small_payload);
+            let _ = self.detector.detect(&small_payload);
         }
         results.fragmentation_test_duration = fragmentation_start.elapsed();
 

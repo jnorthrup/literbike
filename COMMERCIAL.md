@@ -4,7 +4,7 @@
 
 ### Performance Metrics
 - **Throughput**: 1-2 Gbps (realistic proxy throughput with TLS)
-- **Latency**: < 0.1ms protocol detection via Patricia Trie
+- **Latency**: < 1ms protocol detection
 - **Concurrent Connections**: 10,000+ (limited by file descriptors)
 - **Memory Usage**: ~20MB base + 100KB per 1000 connections
 - **Binary Size**: 1.2MB stripped (ideal for edge deployment)
@@ -13,10 +13,10 @@
 - **HTTP/1.1** with CONNECT tunneling
 - **SOCKS5** basic implementation
 - **TLS** with SNI extraction
-- **Protocol detection** via Patricia Trie
+- **Protocol detection**
 
 ### Implemented Features
-- **Patricia Trie Detection**: Protocol identification
+- **Protocol Detection**: Protocol identification
 - **DNS-over-HTTPS**: Via trust-dns-resolver
 - **UPnP**: Via igd-next (main binary only)
 - **Binary size**: 1.2MB
@@ -48,7 +48,7 @@
 **Problem**: Offer multiple proxy protocols efficiently
 **Solution**: Single binary, multiple protocols
 - Reduce operational complexity
-- Patricia Trie ensures fast routing
+- Fast routing
 - Commercial license for proprietary extensions
 
 ### 5. Content Delivery Networks
@@ -61,7 +61,7 @@
 ## Performance Characteristics
 
 Based on actual binary (1.2MB release build):
-- Protocol detection: Patricia Trie byte matching
+- Protocol detection: Byte matching
 - Memory usage: Tokio runtime + connection buffers
 - Throughput: Limited by network and system resources
 - No benchmarks have been performed
@@ -165,4 +165,4 @@ Contact for pricing and terms.
 
 ---
 
-*LiteBike is a registered trademark. Patent pending on Patricia Trie protocol detection method.*
+*LiteBike is a registered trademark.*

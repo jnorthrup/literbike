@@ -1,7 +1,4 @@
-pub mod patricia_detector;
-pub mod patricia_detector_simd;
-#[cfg(target_arch = "aarch64")]
-pub mod patricia_detector_simd_arm64;
+
 #[cfg(feature = "auto-discovery")]
 pub mod pac;
 #[cfg(feature = "auto-discovery")]
@@ -40,3 +37,7 @@ pub mod reentrant_dsl;
 pub mod syscall_netops;
 // SSH client functionality
 pub mod ssh_client;
+// Multi-egress backoff logic
+pub mod egress_backoff;
+pub mod egress_connector;
+pub mod protocol_detector;

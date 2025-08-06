@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use crate::pac::{PacConfig, PacServer};
 use crate::bonjour::BonjourServer;
 use crate::upnp::UpnpServer;
-use crate::patricia_detector::PatriciaDetector;
+
 use crate::types::StandardPort;
 
 #[cfg(feature = "doh")]
@@ -23,7 +23,7 @@ pub struct AutoDiscovery {
     pac_server: Arc<RwLock<PacServer>>,
     bonjour_server: Arc<RwLock<BonjourServer>>,
     upnp_server: Arc<RwLock<UpnpServer>>,
-    detector: Arc<PatriciaDetector>,
+    
 }
 
 impl AutoDiscovery {
@@ -66,7 +66,7 @@ impl AutoDiscovery {
         ));
         
         let upnp_server = Arc::new(RwLock::new(UpnpServer::new(local_ip)));
-        let detector = Arc::new(PatriciaDetector::new());
+        
 
         Self {
             local_ip,
@@ -74,7 +74,7 @@ impl AutoDiscovery {
             pac_server,
             bonjour_server,
             upnp_server,
-            detector,
+            
         }
     }
 
@@ -102,7 +102,6 @@ impl AutoDiscovery {
     /// Start WPAD HTTP server
     async fn start_wpad_server(&self) -> std::io::Result<()> {
         let pac_server = self.pac_server.clone();
-        let detector = self.detector.clone();
         
         // Try port 80 first for true WPAD, fall back to 8888
         let port = if cfg!(target_os = "android") { 8888 } else { 80 };
@@ -125,23 +124,16 @@ impl AutoDiscovery {
             loop {
                 if let Ok((mut stream, _)) = listener.accept().await {
                     let pac_server = pac_server.clone();
-                    let detector = detector.clone();
                     
                     tokio::spawn(async move {
                         // Read request
                         let mut buffer = [0u8; 1024];
                         match stream.read(&mut buffer).await {
                             Ok(n) if n > 0 => {
-                                // Use Patricia detector for protocol detection
-                                let (protocol, _) = detector.detect_with_length(&buffer[..n]);
-                                
-                                // Only handle HTTP requests for PAC/WPAD
-                                if matches!(protocol, crate::patricia_detector::Protocol::Http) {
-                                    let request = String::from_utf8_lossy(&buffer[..n]);
+                                let request = String::from_utf8_lossy(&buffer[..n]);
                                     if let Err(e) = pac_server.write().await.handle_request(stream, &request).await {
                                         debug!("PAC server error: {}", e);
                                     }
-                                }
                             }
                             _ => {}
                         }

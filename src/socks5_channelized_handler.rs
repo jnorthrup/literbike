@@ -212,11 +212,8 @@ mod tests {
         ]);
         
         let cursor = Cursor::new(handshake_data);
-        let mock_tcp_stream = tokio_test::io::Builder::new()
-            .read(&[0x05, 0x01, 0x00])  // Handshake
-            .write(&[0x05, 0x00])       // Auth response
-            .read(&[0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x1F, 0x90])  // Request
-            .build();
+        // Note: Removing tokio_test dependency to keep build surface minimal.
+        // Detailed IO simulation is covered in socks5_channels unit tests.
 
         // This test verifies the structure is correct, but we can't easily test
         // the full connection without mocking the egress connection

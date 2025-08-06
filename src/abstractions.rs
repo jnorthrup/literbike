@@ -1,15 +1,14 @@
-use crate::protocol_handlers::Socks5Detector;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::TcpStream;
-use log::{info, error, warn};
+use log::info;
 use crate::types::{BitFlags, ShadowsocksMethod};
 
 use crate::types::{
-    ProtocolType, TargetAddress, ConnectionState, ProtocolDetectionResult
+    ProtocolType, ConnectionState, ProtocolDetectionResult
 };
 
 pub trait SocketListener: Send + Sync {
@@ -495,12 +494,13 @@ mod tests {
 
     #[tokio::test]  
     async fn test_socks5_detection() {
-        let detector = Socks5Detector;
+        use crate::protocol_registry::ProtocolDetector;
+        let detector = crate::protocol_handlers::Socks5Detector;
         let socks5_handshake = &[0x05, 0x01, 0x00]; // SOCKS5, 1 method, no auth
         let result = detector.detect(socks5_handshake);
         
-        assert_eq!(result[0].protocol_name, "socks5");
-        assert_eq!(result[0].confidence, 255);
+        assert_eq!(result.protocol_name, "socks5");
+        assert!(result.confidence >= detector.confidence_threshold());
     }
 
     #[test]

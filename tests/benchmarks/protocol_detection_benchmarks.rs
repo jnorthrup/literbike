@@ -9,9 +9,7 @@ use litebike::protocol_handlers::{
     HttpDetector, Socks5Detector, TlsDetector, DohDetector
 };
 
-#[cfg(feature = "simd")]
-use litebike::patricia_detector_simd::PatriciaDetectorSIMD;
-use litebike::patricia_detector::PatriciaDetector;
+
 
 use crate::utils::{
     HttpTestData, Socks5TestData, TlsTestData, DohTestData, FuzzGenerator,
@@ -121,63 +119,7 @@ fn bench_individual_detectors(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark SIMD vs scalar implementations
-#[cfg(feature = "simd")]
-fn bench_simd_vs_scalar(c: &mut Criterion) {
-    let mut group = c.benchmark_group("simd_vs_scalar");
-    group.measurement_time(Duration::from_secs(15));
-    
-    let simd_detector = PatriciaDetectorSIMD::new();
-    let scalar_detector = PatriciaDetector::new();
-    
-    // Generate test data with different patterns
-    let fuzzer = FuzzGenerator;
-    let test_datasets = vec![
-        ("random_small", fuzzer.generate_random_data(16, 128, 1000)),
-        ("random_medium", fuzzer.generate_random_data(512, 2048, 500)),
-        ("random_large", fuzzer.generate_random_data(4096, 8192, 100)),
-        ("protocol_mixed", {
-            let mut mixed = Vec::new();
-            mixed.extend(HttpTestData.valid_requests());
-            mixed.extend(Socks5TestData.valid_requests());
-            mixed.extend(TlsTestData.valid_requests());
-            mixed.extend(DohTestData.valid_requests());
-            mixed
-        }),
-    ];
-    
-    for (dataset_name, data) in test_datasets {
-        group.throughput(Throughput::Elements(data.len() as u64));
-        
-        // Benchmark SIMD implementation
-        group.bench_with_input(
-            BenchmarkId::new("simd", dataset_name),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    for sample in data.iter() {
-                        let _ = simd_detector.detect(sample);
-                    }
-                });
-            },
-        );
-        
-        // Benchmark scalar implementation
-        group.bench_with_input(
-            BenchmarkId::new("scalar", dataset_name),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    for sample in data.iter() {
-                        let _ = scalar_detector.detect(sample);
-                    }
-                });
-            },
-        );
-    }
-    
-    group.finish();
-}
+
 
 /// Benchmark detection with varying input sizes
 fn bench_input_size_scaling(c: &mut Criterion) {
@@ -457,13 +399,7 @@ criterion_group!(
     bench_memory_usage,
 );
 
-#[cfg(feature = "simd")]
-criterion_group!(simd_benches, bench_simd_vs_scalar);
 
-#[cfg(feature = "simd")]
-criterion_main!(benches, simd_benches);
-
-#[cfg(not(feature = "simd"))]
 criterion_main!(benches);
 
 // Additional benchmark for running async tests

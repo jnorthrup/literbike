@@ -1,12 +1,12 @@
 // Mock the shit out of protocols - comprehensive stress testing
 
-use litebike::patricia_detector::{PatriciaDetector, Protocol};
+use litebike::protocol_detector::{Protocol, ProtocolDetector};
 use std::time::Instant;
 
 fn main() {
     println!("=== PROTOCOL MOCKING STRESS TEST ===\n");
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     let mut total_tests = 0;
     let mut passed = 0;
     let mut failed = 0;
@@ -26,12 +26,12 @@ fn main() {
     
     for (name, payload, expected) in legit_tests {
         total_tests += 1;
-        let (detected, bytes) = detector.detect_with_length(payload);
-        if matches!(detected, ref p if std::mem::discriminant(p) == std::mem::discriminant(&expected)) {
-            println!("✓ {}: {:?} in {} bytes", name, detected, bytes);
+        let result = detector.detect(payload);
+        if result.protocol == expected {
+            println!("✓ {}: {:?} in {} bytes", name, result.protocol, result.bytes_consumed);
             passed += 1;
         } else {
-            println!("✗ {}: Expected {:?}, got {:?}", name, expected, detected);
+            println!("✗ {}: Expected {:?}, got {:?}", name, expected, result.protocol);
             failed += 1;
         }
     }
@@ -55,12 +55,12 @@ fn main() {
     
     for (name, payload) in malformed {
         total_tests += 1;
-        let (detected, _) = detector.detect_with_length(payload);
-        if matches!(detected, Protocol::Unknown) {
+        let result = detector.detect(payload);
+        if result.protocol == Protocol::Unknown {
             println!("✓ {}: Correctly rejected", name);
             passed += 1;
         } else {
-            println!("✗ {}: Incorrectly detected as {:?}", name, detected);
+            println!("✗ {}: Incorrectly detected as {:?}", name, result.protocol);
             failed += 1;
         }
     }
@@ -83,9 +83,9 @@ fn main() {
     
     for (name, payload) in edge_cases {
         total_tests += 1;
-        let (detected, bytes) = detector.detect_with_length(&payload);
-        println!("{}: {:?} in {} bytes", name, detected, bytes);
-        if !matches!(detected, Protocol::Unknown) {
+        let result = detector.detect(&payload);
+        println!("{}: {:?} in {} bytes", name, result.protocol, result.bytes_consumed);
+        if result.protocol != Protocol::Unknown {
             passed += 1;
         } else {
             failed += 1;
@@ -107,7 +107,7 @@ fn main() {
             3 => vec![0xFF, 0xFE, 0xFD],  // Garbage
             _ => vec![],  // Empty
         };
-        let _ = detector.detect_with_length(&noise);
+        let _ = detector.detect(&noise);
     }
     
     let elapsed = start.elapsed();
@@ -136,9 +136,9 @@ fn main() {
     
     for (name, payload) in adversarial {
         total_tests += 1;
-        let (detected, bytes) = detector.detect_with_length(&payload.as_slice());
-        println!("{}: {:?} (consumed {} of {} bytes)", 
-                 name, detected, bytes, payload.len());
+        let result = detector.detect(&payload.as_slice());
+        println!("{}: {:?} (consumed {} of {} bytes)",
+                 name, result.protocol, result.bytes_consumed, payload.len());
         // These are adversarial, so any non-panic is success
         passed += 1;
     }

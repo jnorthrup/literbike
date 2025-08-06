@@ -22,12 +22,13 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
  // External DoH resolver removed to minimize cargo surface; system resolver is used instead
 
-use crate::patricia_detector::{PatriciaDetector, Protocol};
+use crate::protocol_detector::{ProtocolDetector, Protocol};
 use crate::protocol_handlers::{HttpHandler, Socks5Handler, TlsHandler};
 use crate::protocol_registry::ProtocolHandler;
 use crate::universal_listener::PrefixedStream;
 use crate::libc_socket_tune::{accept_with_options, TcpTuningOptions};
 use crate::repl_handler::ReplHandler;
+use crate::egress_connector::start_health_checker;
 
 mod types;
 mod abstractions;
@@ -48,7 +49,7 @@ mod pac;
 mod universal_listener;
 #[cfg(feature = "auto-discovery")]
 mod auto_discovery;
-mod patricia_detector;
+mod protocol_detector;
 mod unified_handler;
 mod protocol_registry;
 mod protocol_handlers;
@@ -57,6 +58,8 @@ mod libc_socket_tune;
 mod libc_listener;
 mod config;
 mod repl_handler;
+mod egress_backoff;
+mod egress_connector;
 
 // --- Configuration ---
 const HTTP_PORT: u16 = 8080;
@@ -66,7 +69,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const UPNP_LEASE_DURATION: u32 = 3600; // 1 hour
 
 
-/// Universal connection handler with Patricia Trie protocol detection
+/// Universal connection handler with protocol detection
 async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
     // PrefixedStream in this codebase expects an explicit prefix Vec<u8>
     let mut prefixed_stream = PrefixedStream::new(stream, Vec::new());
@@ -81,8 +84,8 @@ async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
     
     let data = &buffer[..n];
     
-    let detector = PatriciaDetector::new();
-    let (protocol, bytes_consumed) = detector.detect_with_length(data);
+    let detector = ProtocolDetector::new();
+    let (protocol, bytes_consumed) = detector.detect(data);
 
     // Preload the bytes that were used for detection into the prefix buffer
     prefixed_stream = PrefixedStream::new(prefixed_stream.inner, data[..bytes_consumed].to_vec());
@@ -96,11 +99,7 @@ async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
                 info!("Routing to PAC handler");
                 return pac::handle_pac_request(prefixed_stream).await;
             }
-            #[cfg(feature = "auto-discovery")]
-            if bonjour::is_bonjour_request(std::str::from_utf8(data).unwrap_or("")).await {
-                info!("Routing to Bonjour handler");
-                return bonjour::handle_bonjour(prefixed_stream).await;
-            }
+            
             #[cfg(feature = "upnp")]
             if upnp::is_upnp_request(std::str::from_utf8(data).unwrap_or("")).await {
                 info!("Routing to UPnP handler");
@@ -148,6 +147,10 @@ async fn main() {
     // Apply EGRESS_* env side effects for handlers (keeps current handler API unchanged)
     cfg.apply_env_side_effects();
 
+    // Start background health checker for egress paths
+    start_health_checker().await;
+    info!("Started egress health checker with backoff logic");
+
     // Build primary route from config overrides
     let primary = simple_routing::RouteConfig {
         interface: cfg.interface.clone(),
@@ -171,11 +174,29 @@ async fn main() {
         simple_routing::get_supported_protocols(&active_config)
     );
 
-    if active_config.interface == "lo" {
+    """    if active_config.interface == "lo" {
         warn!("Using fallback configuration - primary interface 'swlan0' was not available");
     }
 
-    let tcp_tuning = active_config.tcp_tuning.clone();
+    #[cfg(feature = "auto-discovery")]
+    tokio::spawn(async {
+        match bonjour::BonjourDiscovery::new() {
+            Ok(bonjour) => {
+                if let Err(e) = bonjour.register_service() {
+                    error!("Failed to register Bonjour service: {}", e);
+                }
+
+                for service in bonjour.discover_peers() {
+                    info!("Discovered LiteBike peer: {:?}", service);
+                }
+            }
+            Err(e) => {
+                error!("Failed to initialize Bonjour discovery: {}", e);
+            }
+        }
+    });
+
+    let tcp_tuning = active_config.tcp_tuning.clone();""
     
     loop {
         if let Ok((stream, addr)) = accept_with_options(&universal_listener, &tcp_tuning).await {
@@ -198,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http_detection() {
-        let detector = PatriciaDetector::new();
+        let detector = ProtocolDetector::new();
         
         assert!(matches!(detector.detect(b"GET / HTTP/1.1\r\n"), Protocol::Http));
         assert!(matches!(detector.detect(b"POST /api"), Protocol::Http));
@@ -207,14 +228,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_socks5_detection() {
-        let detector = PatriciaDetector::new();
+        let detector = ProtocolDetector::new();
         
         assert!(matches!(detector.detect(&[0x05, 0x01, 0x00]), Protocol::Socks5));
     }
 
     #[tokio::test]
     async fn test_tls_detection() {
-        let detector = PatriciaDetector::new();
+        let detector = ProtocolDetector::new();
         
         assert!(matches!(detector.detect(&[0x16, 0x03, 0x01]), Protocol::Tls));
         assert!(matches!(detector.detect(&[0x16, 0x03, 0x03]), Protocol::Tls));

@@ -1,6 +1,6 @@
 # LiteBike Network Utility
 
-A comprehensive network utility bootloader that acts like a BIOS for network operations - detecting the environment and choosing optimal execution pathways to survive network lockdowns and restrictions. Also includes a high-performance proxy server with intelligent protocol detection using Patricia Trie-based pattern matching.
+A comprehensive network utility bootloader that acts like a BIOS for network operations - detecting the environment and choosing optimal execution pathways to survive network lockdowns and restrictions. Also includes a high-performance proxy server with intelligent protocol detection and peer-to-peer discovery.
 
 ## Command Structure
 
@@ -38,6 +38,7 @@ digraph litebike_commands {
     
     // Discover subcommands
     discover_hosts [label="hosts\n-r, --range CIDR\n-t, --timeout MS"];
+    discover_peers [label="peers\n-t, --timeout MS"];
     
     // Proxy subcommands
     proxy_server [label="server\n-p, --port PORT\n-b, --bind ADDRESS\n-d, --daemon"];
@@ -87,6 +88,7 @@ digraph litebike_commands {
     net_stats -> stats_connections;
     
     net_discover -> discover_hosts;
+    net_discover -> discover_peers;
     
     proxy -> proxy_server;
     proxy -> proxy_client;
@@ -114,6 +116,7 @@ digraph litebike_commands {
 ## Features
 
 - **Multi-Pathway Execution**: Direct syscalls, legacy binary execution, network REPL, SSH tunneling, shell fallback
+- **P2P Discovery**: Automatically discovers and connects to other LiteBike instances on the local network.
 - **Environment Detection**: Automatically adapts to constraints (no /proc, no root, Android/Termux, containers)
 - **Legacy Compatibility**: Drop-in replacement for `ifconfig`, `netstat`, `route`, `ip`
 - **Integrated Bash Completion**: Self-generating completion scripts with context-aware suggestions
@@ -129,6 +132,7 @@ export PATH="$(pwd)/target/release:$PATH"  # Add to PATH
 ## Usage Examples
 
 ### Modern Interface
+
 ```bash
 # Network management
 litebike net interfaces list
@@ -136,6 +140,7 @@ litebike net interfaces list --all --format json
 litebike net routes list --ipv4
 litebike net stats connections --listening
 litebike net discover hosts --range 192.168.1.0/24
+litebike net discover peers
 
 # Proxy operations
 litebike proxy server --port 8080 --bind 0.0.0.0
@@ -149,6 +154,7 @@ litebike connect test 8.8.8.8 --port 53
 ```
 
 ### Legacy Compatibility
+
 ```bash
 # These work exactly like traditional utilities
 ifconfig -a
@@ -158,6 +164,7 @@ ip addr show
 ```
 
 ### Bash Completion
+
 ```bash
 # Generate completion script
 litebike completion generate --shell bash
@@ -188,15 +195,16 @@ Perfect for lockdown scenarios:
 ### Environment Detection
 
 Automatically detects and adapts to:
+
 - No /proc filesystem (Android/Termux)
 - No root privileges
 - Container environments
 - Network restrictions
 - Missing system utilities
 
-## Patricia Trie Protocol Detection
+## Protocol Detection
 
-LiteBike uses an optimized Patricia Trie (radix tree) for ultra-fast protocol detection on port 8080. This enables single-port universal proxy support with minimal overhead.
+LiteBike uses an optimized method for ultra-fast protocol detection on port 8080. This enables single-port universal proxy support with minimal overhead.
 
 ### Protocol Detection Map
 
@@ -242,11 +250,11 @@ graph TD
     Root -->|0x50 'P'| P[P]
     P -->|0x41 'A'| PA[PA...]
     PA -->|...| PATCH[PATCH<br/>6 bytes]
-    P -->|0x4F 'O'| PO[PO]
-    PO -->|0x53 'S'| POS[POS]
-    POS -->|0x54 'T'| POST[POST<br/>5 bytes]
-    P -->|0x55 'U'| PU[PU]
-    PU -->|0x54 'T'| PUT[PUT<br/>4 bytes]
+P -->|0x4F 'O'| PO[PO]
+PO -->|0x53 'S'| POS[POS]
+POS -->|0x54 'T'| POST[POST<br/>5 bytes]
+P -->|0x55 'U'| PU[PU]
+PU -->|0x54 'T'| PUT[PUT<br/>4 bytes]
     
     Root -->|0x54 'T'| T[T]
     T -->|0x52 'R'| TR[TR...]
@@ -288,7 +296,7 @@ graph TD
 
 ### Extended Protocol Support
 
-The Patricia Trie can be extended for additional protocols:
+The protocol detection can be extended for additional protocols:
 
 ```
 Future Extensions:
@@ -310,26 +318,26 @@ Future Extensions:
 
 ### Memory Efficiency
 
-The Patricia Trie structure uses approximately:
+The protocol detection structure uses approximately:
 
-- **Base overhead**: ~200 bytes for the trie skeleton
-- **Per node**: 24 bytes (HashMap entry + protocol enum)
+- **Base overhead**: ~200 bytes for the detection skeleton
+- **Per protocol**: 24 bytes (HashMap entry + protocol enum)
 - **Total for current protocols**: ~1KB
 - **Lookup performance**: O(k) where k = protocol prefix length
 
 ### Implementation Details
 
 ```rust
-// Trie node structure
-struct TrieNode {
-    children: HashMap<u8, Box<TrieNode>>,  // 24 bytes base
-    protocol: Option<Protocol>,             // 2 bytes enum
-    prefix_len: usize,                      // 8 bytes
+// Detection node structure
+struct DetectionNode {
+    children: HashMap<u8, Box<DetectionNode>>,
+    protocol: Option<Protocol>,
+    prefix_len: usize,
 }
 
 // Protocol detection flow
 1. Read first packet (up to 4096 bytes)
-2. Traverse trie byte-by-byte
+2. Traverse detection structure byte-by-byte
 3. Return longest matching protocol
 4. Fallback to bitwise quick detection
 5. Route to appropriate handler
@@ -436,15 +444,15 @@ All HTTP methods end with space (0x20):
 flowchart TD
     Start([Client Connection<br/>Port 8080])
     Read[Read Initial Bytes<br/>up to 4096]
-    Patricia[Patricia Trie<br/>Traversal]
+    Detect[Protocol<br/>Detection]
     
     Start --> Read
-    Read --> Patricia
+    Read --> Detect
     
-    Patricia -->|0x05| SOCKS5Handler[SOCKS5 Handler]
-    Patricia -->|0x16 0x03| TLSHandler[TLS Handler]
-    Patricia -->|GET/POST/etc| HTTPHandler[HTTP Handler]
-    Patricia -->|Unknown| DefaultHTTP[Default to HTTP] 
+    Detect -->|0x05| SOCKS5Handler[SOCKS5 Handler]
+    Detect -->|0x16 0x03| TLSHandler[TLS Handler]
+    Detect -->|GET/POST/etc| HTTPHandler[HTTP Handler]
+    Detect -->|Unknown| DefaultHTTP[Default to HTTP] 
     
     SOCKS5Handler --> SOCKS5Auth[Parse Auth Methods]
     SOCKS5Auth --> SOCKS5Cmd[Parse CONNECT Command]
@@ -472,12 +480,17 @@ flowchart TD
     Error --> End
     
     style Start fill:#f9f,stroke:#333,stroke-width:2px
-    style Patricia fill:#ff9,stroke:#333,stroke-width:2px
+    style Detect fill:#ff9,stroke:#333,stroke-width:2px
     style SNIParse fill:#9ff,stroke:#333,stroke-width:2px
     style Relay fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
 ## Core Components
+
+### P2P Discovery (Bonjour/mDNS)
+
+- **Service Type**: `_litebike._tcp.local`
+- **Functionality**: Allows LiteBike instances to discover each other on the local network without a central server.
 
 ### PAC Server (Port 8888)
 
@@ -505,6 +518,7 @@ Individual protocol ports for strict compliance requirements:
 🌐 **INTENTIONAL DESIGN**: This proxy is designed to share network access across interfaces:
 
 ### Network Binding Options
+
 ```bash
 # EXTERNAL ACCESS (default): Share with other devices on network/internet
 BIND_IP=0.0.0.0 litebike-proxy  # ✅ FEATURE: External device access
@@ -519,12 +533,14 @@ BIND_IP=192.168.1.100 litebike-proxy  # Specific local network IP
 ### Discovery Protocol Features
 
 #### UPnP/SSDP Port Forwarding (Port 1900)
+
 - **Automatic NAT traversal** for external device access
 - **Mobile data sharing** through WiFi hotspot routing
 - **Remote proxy discovery** via UPnP protocol
 - **Disable in untrusted environments** if security is a concern
 
 #### Bonjour/mDNS Service Discovery (Port 5353)
+
 - **Automatic proxy discovery** on local networks
 - **Zero-configuration networking** for seamless setup
 - **Service announcement** via multicast DNS
@@ -533,6 +549,7 @@ BIND_IP=192.168.1.100 litebike-proxy  # Specific local network IP
 ### Deployment Scenarios
 
 #### ✅ **Mobile Data Sharing (Primary Use Case)**
+
 ```bash
 # Termux on Android - Share mobile data via WiFi
 BIND_IP=0.0.0.0 litebike-proxy
@@ -540,6 +557,7 @@ BIND_IP=0.0.0.0 litebike-proxy
 ```
 
 #### ✅ **Home Network Proxy**
+
 ```bash
 # Share internet connection with devices on home network
 BIND_IP=0.0.0.0 litebike-proxy  
@@ -547,6 +565,7 @@ BIND_IP=0.0.0.0 litebike-proxy
 ```
 
 #### ⚠️ **Restricted/Corporate Networks**
+
 ```bash
 # Disable external access features in sensitive environments
 export BIND_IP="127.0.0.1"     # Local only
@@ -555,6 +574,7 @@ litebike-proxy
 ```
 
 ### Security vs Functionality Trade-offs
+
 - **Default configuration prioritizes functionality** (external access)
 - **Security restrictions available** when needed
 - **Firewall rules can add additional protection**
@@ -630,12 +650,14 @@ cargo build --release
 **Licensed under AGPL-3.0** with commercial licensing available.
 
 ### 🔓 AGPL-3.0 (Default)
+
 - **✅ FREE** for personal, educational, and research use
 - **✅ FREE** for commercial use **IF** you open source your entire application  
 - **⚠️ NETWORK COPYLEFT**: SaaS/hosting **REQUIRES** making source code available
 - **⚠️ MODIFICATIONS**: Must be released under AGPL-3.0
 
 ### 💼 Commercial License Alternative
+
 - **🔓 Proprietary use** without open source requirements
 - **🚀 SaaS/hosting** without source code disclosure  
 - **🏢 Enterprise deployment** with full commercial rights

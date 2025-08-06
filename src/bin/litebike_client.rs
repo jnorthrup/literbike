@@ -11,6 +11,9 @@ use std::io::{self, Write, BufRead, BufReader, Read};
 use std::process::Command;
 use std::collections::HashMap;
 
+#[cfg(feature = "auto-discovery")]
+use litebike::bonjour::BonjourClient;
+
 // Platform-specific ioctl constants
 #[cfg(target_os = "linux")]
 mod ioctl_consts {
@@ -41,7 +44,7 @@ use ioctl_consts::*;
 #[repr(C)]
 struct ifreq {
     ifr_name: [c_char; 16],
-    ifr_addr: sockaddr_in,
+    ifr_data: [u8; 24], // Union for different address types
 }
 
 #[repr(C)]
@@ -132,7 +135,7 @@ impl LitebikeClient {
             libc::strcpy(addr_ifr.ifr_name.as_mut_ptr(), ifr.ifr_name.as_ptr());
             
             let addr = if libc::ioctl(sock, SIOCGIFADDR as _, &mut addr_ifr as *mut _ as *mut c_void) == 0 {
-                let sin = &addr_ifr.ifr_addr;
+                let sin: &sockaddr_in = unsafe { &*(addr_ifr.ifr_data.as_ptr() as *const sockaddr_in) };
                 let ip_bytes = sin.sin_addr.s_addr.to_ne_bytes();
                 Some(Ipv4Addr::new(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]))
             } else {
@@ -144,8 +147,9 @@ impl LitebikeClient {
             libc::strcpy(flags_ifr.ifr_name.as_mut_ptr(), ifr.ifr_name.as_ptr());
             
             let flags = if libc::ioctl(sock, SIOCGIFFLAGS as _, &mut flags_ifr as *mut _ as *mut c_void) == 0 {
-                // flags are in the addr field for SIOCGIFFLAGS
-                flags_ifr.ifr_addr.sin_addr.s_addr
+                // flags are in a union, so we need to cast
+                let flags_val: u16 = unsafe { *(flags_ifr.ifr_data.as_ptr() as *const u16) };
+                flags_val as u32
             } else {
                 0
             };
@@ -223,33 +227,21 @@ impl LitebikeClient {
         Ok(())
     }
     
-    /// Auto-discover litebike host by probing common addresses
-    fn discover_litebike_host(&mut self) -> io::Result<Ipv4Addr> {
-        // Priority order for host discovery
-        let candidates = vec![
-            // Use discovered gateway first
-            self.target_host,
-            // Common gateway addresses
-            Some(Ipv4Addr::new(192, 168, 1, 1)),
-            Some(Ipv4Addr::new(192, 168, 0, 1)),
-            Some(Ipv4Addr::new(10, 0, 0, 1)),
-            // Local interfaces
-            Some(Ipv4Addr::new(127, 0, 0, 1)),
-        ];
-        
-        for candidate in candidates.into_iter().flatten() {
-            println!("Probing litebike at {}:8888...", candidate);
-            
-            if self.test_litebike_connection(candidate, 8888) {
-                println!("✓ Found litebike server at {}", candidate);
-                self.target_host = Some(candidate);
-                return Ok(candidate);
+    /// Auto-discover litebike peers using Bonjour/mDNS
+    #[cfg(feature = "auto-discovery")]
+    async fn discover_peers(&mut self) -> io::Result<Ipv4Addr> {
+        let peers = BonjourClient::discover_peers().await?;
+        if let Some(peer) = peers.first() {
+            if let Some(addr) = peer.ipv4_addr {
+                println!("✓ Found litebike peer at {}", addr);
+                self.target_host = Some(addr);
+                return Ok(addr);
             }
         }
         
         Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "No litebike server found on network"
+            "No litebike peers found on network"
         ))
     }
     
@@ -522,11 +514,12 @@ impl LitebikeClient {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = std::env::args().collect();
     
     if args.len() > 1 && args[1] == "/client" {
-        println!("LiteBike Symmetric Client - Route Discovery Mode");
+        println!("LiteBike Symmetric Client - P2P Discovery Mode");
         
         // Create client with network discovery
         let mut client = unsafe {
@@ -539,14 +532,11 @@ fn main() {
         // Print discovery results
         client.print_network_info();
         
-        // Discover litebike host
-        let host = client.discover_litebike_host().unwrap_or_else(|e| {
-            eprintln!("Host discovery failed: {}", e);
-            eprintln!("Using default gateway if available");
-            client.target_host.unwrap_or_else(|| {
-                eprintln!("No target host available");
-                std::process::exit(1);
-            })
+        // Discover litebike peers
+        #[cfg(feature = "auto-discovery")]
+        let host = client.discover_peers().await.unwrap_or_else(|e| {
+            eprintln!("Peer discovery failed: {}", e);
+            std::process::exit(1);
         });
         
         println!("\n=== Connection Attempts ===");

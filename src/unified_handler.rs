@@ -6,8 +6,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use log::{debug, info};
 
-use crate::patricia_detector::PatriciaDetector;
-use crate::patricia_detector::Protocol;
+use crate::protocol_detector::ProtocolDetector;
+use crate::protocol_detector::Protocol;
 
 /// Buffer pool for reducing allocations
 const BUFFER_POOL_SIZE: usize = 8;
@@ -44,7 +44,7 @@ fn return_buffer(mut buffer: Vec<u8>) {
 }
 
 /// Optimized unified handler with zero-copy where possible
-pub async fn handle_unified_optimized<S>(mut stream: S) -> io::Result<()>
+pub async fn handle_unified<S>(mut stream: S) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -64,21 +64,21 @@ where
         }
     };
 
-    // Use Patricia Trie detection for all architectures
+    // Use protocol detection for all architectures
     let protocol = {
-        let detector = PatriciaDetector::new();
+        let detector = ProtocolDetector::new();
         detector.detect(&buffer[..n])
     };
 
     debug!("Detected protocol: {:?} from {} bytes", protocol, n);
 
     // Protocol-specific handling with optimizations
-    let result = match protocol {
+    let result = match protocol.protocol {
         Protocol::Socks5 => {
-            handle_socks5_optimized(&buffer[..n], stream).await
+            handle_socks5(&buffer[..n], stream).await
         }
         Protocol::Http | Protocol::WebSocket => {
-            handle_http_optimized(&buffer[..n], stream).await
+            handle_http(&buffer[..n], stream).await
         }
         Protocol::Tls => {
             handle_tls_passthrough(&buffer[..n], stream).await
@@ -87,11 +87,15 @@ where
             handle_proxy_protocol(&buffer[..n], stream).await
         }
         Protocol::Http2 => {
-            handle_http2_optimized(&buffer[..n], stream).await
+            handle_http2(&buffer[..n], stream).await
         }
         Protocol::Unknown => {
             // Default to HTTP for unknown protocols
-            handle_http_optimized(&buffer[..n], stream).await
+            handle_http(&buffer[..n], stream).await
+        }
+        _ => {
+            debug!("Universal port: Unhandled protocol");
+            Err(io::Error::new(io::ErrorKind::Other, "Unhandled protocol"))
         }
     };
 
@@ -100,9 +104,9 @@ where
 }
 
 /// Optimized HTTP handler with zero-copy forwarding
-async fn handle_http_optimized<S>(initial_data: &[u8], stream: S) -> io::Result<()>
+async fn handle_http<S>(initial_data: &[u8], stream: S) -> io::Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static, 
 {
     // Parse HTTP request efficiently
     let request_str = std::str::from_utf8(initial_data).unwrap_or("");
@@ -144,9 +148,9 @@ where
 }
 
 /// Optimized SOCKS5 handler
-async fn handle_socks5_optimized<S>(initial_data: &[u8], mut stream: S) -> io::Result<()>
+async fn handle_socks5<S>(initial_data: &[u8], mut stream: S) -> io::Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static
 {
     // SOCKS5 handshake already started
     if initial_data.len() >= 2 && initial_data[0] == 0x05 {
@@ -202,10 +206,10 @@ where
             // Process the actual request after the PROXY header
             if !remaining.is_empty() {
                 // For now, handle remaining data as HTTP since we can't easily chain streams
-                handle_http_optimized(remaining, stream).await
+                handle_http(remaining, stream).await
             } else {
                 // Need to read more data
-                handle_unified_optimized(stream).await
+                handle_unified(stream).await
             }
         } else {
             Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid PROXY protocol header"))
@@ -216,14 +220,14 @@ where
 }
 
 /// Optimized HTTP/2 handler
-async fn handle_http2_optimized<S>(initial_data: &[u8], stream: S) -> io::Result<()>
+async fn handle_http2<S>(initial_data: &[u8], stream: S) -> io::Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static
 {
     // For now, treat as HTTP/1.x
     // TODO: Implement proper HTTP/2 handling
     info!("HTTP/2 connection detected, falling back to HTTP/1.x");
-    handle_http_optimized(initial_data, stream).await
+    handle_http(initial_data, stream).await
 }
 
 // Helper functions
@@ -236,7 +240,7 @@ where
         Ok(remote) => {
             info!("CONNECT tunnel to {}", target);
             stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
-            relay_optimized(stream, remote).await
+            relay(stream, remote).await
         }
         Err(e) => {
             send_error_response(stream, 502, "Bad Gateway").await?;
@@ -253,7 +257,7 @@ where
         Ok(mut remote) => {
             info!("HTTP forward to {}", target);
             remote.write_all(request).await?;
-            relay_optimized(stream, remote).await
+            relay(stream, remote).await
         }
         Err(e) => {
             send_error_response(stream, 502, "Bad Gateway").await?;
@@ -269,7 +273,7 @@ where
     match TcpStream::connect(target).await {
         Ok(mut remote) => {
             remote.write_all(initial_data).await?;
-            relay_optimized(stream, remote).await
+            relay(stream, remote).await
         }
         Err(e) => {
             Err(e)
@@ -301,7 +305,7 @@ where
             info!("SOCKS5 connect to {}", target);
             // Send success response
             stream.write_all(&[0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]).await?;
-            relay_optimized(stream, remote).await
+            relay(stream, remote).await
         }
         Err(e) => {
             // Send failure response
@@ -375,10 +379,10 @@ fn extract_sni_from_tls(data: &[u8]) -> Option<String> {
 }
 
 /// Optimized relay using splice/sendfile when available
-async fn relay_optimized<S1, S2>(client: S1, server: S2) -> io::Result<()>
+async fn relay<S1, S2>(client: S1, server: S2) -> io::Result<()>
 where
     S1: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    S2: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S2: AsyncRead + AsyncWrite + Unpin + Send + 'static
 {
     // Use larger buffers for better throughput on mobile
     let (client_reader, client_writer) = tokio::io::split(client);

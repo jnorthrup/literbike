@@ -1,20 +1,20 @@
-// MASSIVE PROTOCOL TORTURE TEST RUNNER
-// The most comprehensive protocol fuzzing and stress testing suite ever created
+// Comprehensive Protocol Test Runner
+// A comprehensive protocol fuzzing and stress testing suite.
 
 use std::time::Duration;
 use tokio;
 use env_logger;
 use log::{info, warn, error};
 use litebike::protocol_mocks::ProtocolMocker;
-use litebike::simple_torture_test::SimpleTortureTest;
+use litebike::simple_torture_test::ProtocolTestRunner;
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
     
-    println!("🔥🔥🔥 LITEBIKE MASSIVE PROTOCOL TORTURE TEST 🔥🔥🔥");
+    println!("Comprehensive Protocol Test");
     println!("WARNING: This test suite is extremely aggressive and will");
-    println!("stress test the protocol detection system to its limits.");
+    println!("stress test the protocol detection system.");
     println!("Expected duration: 10-30 minutes depending on system performance");
     println!("=========================================================\n");
 
@@ -24,9 +24,9 @@ async fn main() {
     run_legacy_mock_tests().await;
 
     // Phase 2: Massive Protocol Torture Tests  
-    println!("\n💀 PHASE 2: MASSIVE PROTOCOL TORTURE TESTS");
+    println!("\n💀 PHASE 2: COMPREHENSIVE PROTOCOL TESTS");
     println!("===========================================");
-    run_massive_torture_tests().await;
+    run_comprehensive_tests().await;
 
     // Phase 3: Advanced Fuzzing with Mutation Strategies
     println!("\n🌪️ PHASE 3: ADVANCED MUTATION FUZZING");
@@ -63,9 +63,9 @@ async fn run_legacy_mock_tests() {
 }
 
 async fn test_edge_cases() {
-    use litebike::patricia_detector::{PatriciaDetector, Protocol};
+    use litebike::protocol_detector::{Protocol, ProtocolDetector};
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     let mut passed = 0;
     let mut failed = 0;
     
@@ -100,7 +100,9 @@ async fn test_edge_cases() {
 
     for (name, payload) in edge_cases {
         let start = std::time::Instant::now();
-        let (protocol, bytes) = detector.detect_with_length(&payload);
+        let result = detector.detect(&payload);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         let duration = start.elapsed();
         
         if duration > Duration::from_millis(100) {
@@ -115,22 +117,22 @@ async fn test_edge_cases() {
     println!("Edge case tests: {} passed, {} failed", passed, failed);
 }
 
-async fn run_massive_torture_tests() {
-    info!("Initializing massive protocol torture test engine");
+async fn run_comprehensive_tests() {
+    info!("Initializing comprehensive protocol test engine");
     
-    let tester = SimpleTortureTest::new();
+    let tester = ProtocolTestRunner::new();
     
-    println!("🚀 Launching massive torture test suite...");
+    println!("🚀 Launching comprehensive test suite...");
     println!("This may take several minutes. Grab some coffee ☕");
     
-    let results = tester.run_comprehensive_test_suite().await;
+    let results = tester.run_all_tests().await;
     tester.print_comprehensive_results(&results);
     
     // Analyze results for potential issues
-    analyze_simple_torture_results(&results);
+    analyze_test_results(&results);
 }
 
-fn analyze_simple_torture_results(results: &litebike::simple_torture_test::ComprehensiveTestResults) {
+fn analyze_test_results(results: &litebike::simple_torture_test::ComprehensiveTestResults) {
     println!("\n🔍 ANALYZING TORTURE TEST RESULTS");
     println!("==================================");
     
@@ -180,9 +182,9 @@ async fn run_advanced_fuzzing_tests() {
 async fn run_performance_tests() {
     info!("Running performance and scalability tests");
     
-    use litebike::patricia_detector::{PatriciaDetector, Protocol};
+    use litebike::protocol_detector::{Protocol, ProtocolDetector};
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     
     // Test 1: Throughput test
     println!("\n🚀 THROUGHPUT TEST");
@@ -199,7 +201,7 @@ async fn run_performance_tests() {
     
     for i in 0..iterations {
         let payload = &test_payloads[i % test_payloads.len()];
-        let _ = detector.detect_with_length(payload);
+        let _ = detector.detect(payload);
     }
     
     let duration = start.elapsed();
@@ -225,7 +227,9 @@ async fn run_performance_tests() {
     
     let start = std::time::Instant::now();
     for (i, payload) in large_payloads.iter().enumerate() {
-        let (protocol, bytes) = detector.detect_with_length(payload);
+        let result = detector.detect(payload);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         if i % 100 == 0 {
             println!("  Processed {} large payloads", i);
         }
@@ -243,7 +247,7 @@ async fn run_performance_tests() {
     let mut handles = vec![];
     
     for i in 0..concurrent_tasks {
-        let detector_clone = PatriciaDetector::new();
+        let detector_clone = ProtocolDetector::new();
         let handle = tokio::spawn(async move {
             let mut detections = 0;
             let test_data = vec![
@@ -255,7 +259,7 @@ async fn run_performance_tests() {
             
             for _ in 0..1000 {
                 for payload in &test_data {
-                    let _ = detector_clone.detect_with_length(payload);
+                    let _ = detector_clone.detect(payload);
                     detections += 1;
                 }
             }
@@ -285,9 +289,9 @@ async fn run_performance_tests() {
 async fn run_security_tests() {
     info!("Running security and adversarial attack tests");
     
-    use litebike::patricia_detector::{PatriciaDetector, Protocol};
+    use litebike::protocol_detector::{Protocol, ProtocolDetector};
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     
     // Test 1: Buffer overflow attempts
     println!("\n🛡️  BUFFER OVERFLOW PROTECTION TEST");
@@ -300,7 +304,9 @@ async fn run_security_tests() {
         for &pattern in &overflow_patterns {
             let payload = vec![pattern; size];
             let start = std::time::Instant::now();
-            let (protocol, bytes) = detector.detect_with_length(&payload);
+            let result = detector.detect(&payload);
+            let protocol = result.protocol;
+            let bytes = result.bytes_consumed;
             let duration = start.elapsed();
             
             if duration > Duration::from_millis(100) {
@@ -325,7 +331,9 @@ async fn run_security_tests() {
     ];
     
     for (i, attack) in format_attacks.iter().enumerate() {
-        let (protocol, bytes) = detector.detect_with_length(attack);
+        let result = detector.detect(attack);
+        let protocol = result.protocol;
+        let bytes = result.bytes_consumed;
         println!("  ✅ Format string attack {}: {:?}", i + 1, protocol);
     }
     
@@ -365,9 +373,9 @@ async fn run_security_tests() {
     ];
     
     for (i, attack) in confusion_attacks.iter().enumerate() {
-        let (protocol, bytes) = detector.detect_with_length(attack);
-        println!("  ✅ Protocol confusion attack {}: {:?} (consumed {} bytes)", 
-                 i + 1, protocol, bytes);
+        let result = detector.detect(attack);
+        println!("  ✅ Protocol confusion attack {}: {:?} (consumed {} bytes)",
+                 i + 1, result.protocol, result.bytes_consumed);
     }
     
     // Test 4: Timing attacks
@@ -391,7 +399,7 @@ async fn run_security_tests() {
         // Run multiple times to get average
         for _ in 0..1000 {
             let start = std::time::Instant::now();
-            let _ = detector.detect_with_length(payload);
+            let _ = detector.detect(payload);
             durations.push(start.elapsed());
         }
         

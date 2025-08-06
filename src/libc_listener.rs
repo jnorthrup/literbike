@@ -5,7 +5,7 @@ use libc::{
     SOL_SOCKET, SO_REUSEADDR, SO_REUSEPORT,
     c_int, c_void, socklen_t,
 };
-use std::io::{Error, Result};
+use std::io::Result;
 use std::net::SocketAddr;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use tokio::net::TcpListener;

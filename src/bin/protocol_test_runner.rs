@@ -1,88 +1,21 @@
-// MINIMAL PROTOCOL TORTURE TEST RUNNER
-// Tests only the core patricia_detector without problematic abstractions
+// Protocol Test Runner
 
 use std::time::{Duration, Instant};
 use env_logger;
 use log::{info, warn, error};
 
 // We'll define the detector locally to avoid import issues
-use patricia_detector::{PatriciaDetector, Protocol};
-
-// Inline the patricia detector code for this test to avoid module issues
-mod patricia_detector {
-    #[derive(Debug, Clone, PartialEq)]
-    pub enum Protocol {
-        Http,
-        Socks5,
-        Tls,
-        Unknown,
-    }
-
-    pub struct PatriciaDetector;
-
-    impl PatriciaDetector {
-        pub fn new() -> Self {
-            Self
-        }
-
-        pub fn detect_with_length(&self, buffer: &[u8]) -> (Protocol, usize) {
-            if buffer.is_empty() {
-                return (Protocol::Unknown, 0);
-            }
-
-            // HTTP detection
-            if buffer.len() >= 3 {
-                if buffer.starts_with(b"GET") || 
-                   buffer.starts_with(b"POST") || 
-                   buffer.starts_with(b"HEAD") || 
-                   buffer.starts_with(b"PUT") || 
-                   buffer.starts_with(b"DELETE") || 
-                   buffer.starts_with(b"OPTIONS") || 
-                   buffer.starts_with(b"CONNECT") || 
-                   buffer.starts_with(b"TRACE") || 
-                   buffer.starts_with(b"PATCH") {
-                    
-                    // Look for HTTP version
-                    if let Some(pos) = buffer.windows(8).position(|w| w == b"HTTP/1.1" || w == b"HTTP/1.0") {
-                        return (Protocol::Http, pos + 8);
-                    } else {
-                        // Method found but no HTTP version yet
-                        return (Protocol::Http, std::cmp::min(buffer.len(), 100));
-                    }
-                }
-            }
-
-            // SOCKS5 detection
-            if buffer.len() >= 3 && buffer[0] == 0x05 {
-                let nmethods = buffer[1] as usize;
-                if nmethods > 0 && nmethods <= 255 && buffer.len() >= 2 + nmethods {
-                    return (Protocol::Socks5, 2 + nmethods);
-                }
-            }
-
-            // TLS detection
-            if buffer.len() >= 5 && buffer[0] == 0x16 {
-                let version = ((buffer[1] as u16) << 8) | (buffer[2] as u16);
-                if matches!(version, 0x0301 | 0x0302 | 0x0303 | 0x0304) {
-                    let length = ((buffer[3] as usize) << 8) | (buffer[4] as usize);
-                    return (Protocol::Tls, std::cmp::min(5 + length, buffer.len()));
-                }
-            }
-
-            (Protocol::Unknown, 0)
-        }
-    }
-}
+use litebike::protocol_detector::{ProtocolDetector, Protocol, DetectionResult};
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
     
-    println!("🔥🔥🔥 MINIMAL PROTOCOL TORTURE TEST 🔥🔥🔥");
-    println!("Comprehensive testing of core protocol detection");
+    println!("Protocol detection test suite");
+    println!("Protocol detection test suite");
     println!("============================================\n");
 
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     
     // Run all test phases
     run_basic_tests(&detector);
@@ -91,10 +24,10 @@ async fn main() {
     run_chaos_fuzzing(&detector);
     
     println!("\n✅ ALL MINIMAL TORTURE TESTS COMPLETED ✅");
-    println!("Core protocol detection is robust and ready!");
+    println!("Protocol detection test suite");
 }
 
-fn run_basic_tests(detector: &PatriciaDetector) {
+fn run_basic_tests(detector: &ProtocolDetector) {
     println!("📋 BASIC PROTOCOL TESTS");
     println!("======================");
     
@@ -123,7 +56,8 @@ fn run_basic_tests(detector: &PatriciaDetector) {
     
     for (name, payload, expected) in tests {
         total += 1;
-        let (detected, bytes) = detector.detect_with_length(&payload);
+        let detection_result = detector.detect(&payload);
+        let (detected, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
         
         if std::mem::discriminant(&detected) == std::mem::discriminant(&expected) {
             println!("  ✅ {}: {:?} ({} bytes)", name, detected, bytes);
@@ -136,7 +70,7 @@ fn run_basic_tests(detector: &PatriciaDetector) {
     println!("\nBasic Tests: {}/{} passed ({:.1}%)", passed, total, (passed as f64 / total as f64) * 100.0);
 }
 
-fn run_adversarial_tests(detector: &PatriciaDetector) {
+fn run_adversarial_tests(detector: &ProtocolDetector) {
     println!("\n💀 ADVERSARIAL TESTS");
     println!("===================");
     
@@ -172,7 +106,8 @@ fn run_adversarial_tests(detector: &PatriciaDetector) {
     
     for (name, payload) in tests {
         let start = Instant::now();
-        let (protocol, bytes) = detector.detect_with_length(&payload);
+        let detection_result = detector.detect(&payload);
+        let (protocol, bytes) = (detection_result.protocol, detection_result.bytes_consumed);
         let duration = start.elapsed();
         
         if duration > Duration::from_millis(100) {
@@ -190,7 +125,7 @@ fn run_adversarial_tests(detector: &PatriciaDetector) {
     println!("\nAdversarial Tests: {} slow, {} very slow", slow_tests, very_slow_tests);
 }
 
-fn run_performance_tests(detector: &PatriciaDetector) {
+fn run_performance_tests(detector: &ProtocolDetector) {
     println!("\n⚡ PERFORMANCE TESTS");
     println!("==================");
     
@@ -206,7 +141,8 @@ fn run_performance_tests(detector: &PatriciaDetector) {
     
     for i in 0..iterations {
         let payload = &payloads[i % payloads.len()];
-        let _ = detector.detect_with_length(payload);
+        let detection_result = detector.detect(payload);
+        let _ = (detection_result.protocol, detection_result.bytes_consumed);
     }
     
     let duration = start.elapsed();
@@ -224,7 +160,7 @@ fn run_performance_tests(detector: &PatriciaDetector) {
     }
 }
 
-fn run_chaos_fuzzing(detector: &PatriciaDetector) {
+fn run_chaos_fuzzing(detector: &ProtocolDetector) {
     println!("\n🌪️ CHAOS FUZZING (10 seconds)");
     println!("=============================");
     
@@ -243,7 +179,8 @@ fn run_chaos_fuzzing(detector: &PatriciaDetector) {
         let payload: Vec<u8> = (0..size).map(|_| (fast_random() % 256) as u8).collect();
         
         let test_start = Instant::now();
-        let (protocol, _) = detector.detect_with_length(&payload);
+        let detection_result = detector.detect(&payload);
+        let (protocol, _) = (detection_result.protocol, detection_result.bytes_consumed);
         let test_duration = test_start.elapsed();
         
         total += 1;

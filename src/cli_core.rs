@@ -3,7 +3,7 @@
 
 use crate::cli_dsl::{CommandDef, CompletionHint, CompletionRegistry};
 use crate::syscall_netops::SyscallNetOps;
-use crate::ssh_client::{SshClient, SshConfig, SshTunnel, SshTunnelManager, create_ssh_config, test_ssh_connection};
+use crate::ssh_client::{SshClient, SshConfig, SshTunnel, create_ssh_config, test_ssh_connection};
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -740,8 +740,6 @@ impl CliApp {
         ssh_tunnel: bool,
         ssh_local_port: Option<u16>,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        use std::net::Ipv4Addr;
-        use std::str::FromStr;
 
         // Step 1: Discover local network interfaces using syscalls
         let interfaces = self.discover_network_interfaces()?;
@@ -862,7 +860,7 @@ impl CliApp {
             println!("Using SSH tunnel for proxy connection: {}", tunnel);
             
             // Extract local port from tunnel info
-            if let Some(colon_pos) = tunnel.find(':') {
+            if let Some(_colon_pos) = tunnel.find(':') {
                 if let Some(arrow_pos) = tunnel.find(" -> ") {
                     let local_part = &tunnel[..arrow_pos];
                     if let Some(port_str) = local_part.split(':').nth(1) {

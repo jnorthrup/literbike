@@ -1,7 +1,7 @@
 # Protocol Mocking Test Results
 
 ## Summary
-The Patricia Trie protocol detector successfully handles both legitimate and malicious inputs.
+The protocol detector successfully handles both legitimate and malicious inputs.
 
 ## Test Results
 
@@ -41,7 +41,7 @@ The Patricia Trie protocol detector successfully handles both legitimate and mal
 4. **Protocol confusion resistant** - Clear detection boundaries
 
 ## Production Readiness
-The Patricia Trie implementation is production-ready for protocol detection.
+The protocol detection implementation is production-ready for protocol detection.
 Missing for full production use:
 - Rate limiting
 - Connection limits  

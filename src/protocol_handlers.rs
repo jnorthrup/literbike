@@ -1,3 +1,4 @@
+// Health and small HTTP service additions
 use base64::Engine;
 // Protocol Handlers implementing the registry interface
 // Provides concrete implementations of detectors and handlers for all supported protocols
@@ -18,6 +19,7 @@ use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetect
 // Removed async-trait to minimize dependencies; keep trait methods sync by returning boxed futures if needed
 use crate::universal_listener::PrefixedStream;
 use crate::repl_handler::ReplHandler;
+use crate::egress_connector::{connect_with_backoff, start_health_checker};
 #[cfg(feature = "auto-discovery")]
 use crate::{pac, bonjour};
 #[cfg(feature = "upnp")]
@@ -35,6 +37,7 @@ use base64::engine::general_purpose;
 /// 1) If EGRESS_INTERFACE is set, attempt SO_BINDTODEVICE(iface)
 /// 2) Else if EGRESS_BIND_IP is set, bind(2) to that local IP (port 0)
 /// 3) Else connect normally
+/// Legacy connection function - prefer connect_with_backoff for new code
 pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
     // Parse "host:port"
     let (host, port_str) = target.rsplit_once(':')
@@ -219,12 +222,32 @@ impl ProtocolDetector for HttpDetector {
 
 pub struct HttpHandler;
 
+#[derive(Clone, Debug)]
+struct HealthReport {
+    port: u16,
+    protocols: &'static [&'static str],
+}
+
+// Render minimal JSON without pulling serde
+fn render_health_json(report: &HealthReport) -> String {
+    let protos = report
+        .protocols
+        .iter()
+        .map(|p| format!("\"{}\"", p))
+        .collect::<Vec<String>>()
+        .join(",");
+    format!(
+        "{{\"port\":{},\"protocols\":[{}],\"status\":\"ok\"}}",
+        report.port, protos
+    )
+}
+
 impl HttpHandler {
     pub fn new() -> Self {
         Self
     }
     
-    /// Handle REPL requests for symmetric proxy functionality  
+    /// Handle REPL requests for symmetric proxy functionality and small HTTP API
     async fn handle_repl_request(mut stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
         debug!("Processing REPL request");
         
@@ -279,50 +302,66 @@ impl HttpHandler {
         repl_handler.handle_repl_request(stream, &request_body).await
     }
     
-    /// Handle regular HTTP proxy requests
-    async fn handle_regular_http(&self, stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
-        debug!("Handling regular HTTP request");
-        
-        // Parse the first line
-        if let Some(first_line) = request.lines().next() {
-            let parts: Vec<&str> = first_line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let method = parts[0];
-                let target = parts[1];
-                
-                match method {
-                    "CONNECT" => {
-                        // HTTPS tunnel
-                        let target_addr = if target.contains(':') {
-                            target.to_string()
-                        } else {
-                            format!("{}:443", target)
-                        };
-                        
-                        info!("HTTP CONNECT tunnel to {}", target_addr);
-                        self.handle_connect_tunnel(stream, &target_addr).await
-                    }
-                    _ => {
-                        // Regular HTTP proxy
-                        if let Some(host) = self.extract_host_from_headers(request) {
-                            let target_addr = format!("{}:80", host);
-                            info!("HTTP proxy request to {}", target_addr);
-                            self.handle_http_forward(stream, request.as_bytes(), &target_addr).await
-                        } else {
-                            self.send_error_response(stream, 400, "Bad Request").await
-                        }
-                    }
-                }
-            } else {
-                self.send_error_response(stream, 400, "Bad Request").await
+    /// Handle regular HTTP proxy requests and built-in control endpoints
+    async fn handle_regular_http(&self, mut stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
+        debug!("Handling HTTP request");
+        // Parse start line and path
+        let first_line = match request.lines().next() {
+            Some(l) => l,
+            None => return self.send_error_response(stream, 400, "Bad Request").await,
+        };
+        let parts: Vec<&str> = first_line.split_whitespace().collect();
+        if parts.len() < 2 {
+            return self.send_error_response(stream, 400, "Bad Request").await;
+        }
+        let method = parts[0];
+        let path_or_target = parts[1];
+
+        // Small built-in API: /health and /repl
+        if path_or_target.starts_with("/health") && method == "GET" {
+            let report = HealthReport {
+                port: std::env::var("LITEBIKE_BIND_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8888),
+                protocols: &["http","socks5","tls","doh","pac","wpad","bonjour","upnp"],
+            };
+            let body = render_health_json(&report);
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            return stream.write_all(resp.as_bytes()).await;
+        }
+
+        if path_or_target.starts_with("/repl") {
+            return Self::handle_repl_request(stream, request).await;
+        }
+
+        // Proxy logic
+        match method {
+            "CONNECT" => {
+                let target = path_or_target;
+                let target_addr = if target.contains(':') {
+                    target.to_string()
+                } else {
+                    format!("{}:443", target)
+                };
+                info!("HTTP CONNECT tunnel to {}", target_addr);
+                self.handle_connect_tunnel(stream, &target_addr).await
             }
-        } else {
-            self.send_error_response(stream, 400, "Bad Request").await
+            _ => {
+                if let Some(host) = self.extract_host_from_headers(request) {
+                    let target_addr = format!("{}:80", host);
+                    info!("HTTP proxy request to {}", target_addr);
+                    self.handle_http_forward(stream, request.as_bytes(), &target_addr).await
+                } else {
+                    self.send_error_response(stream, 400, "Bad Request").await
+                }
+            }
         }
     }
     
     async fn handle_connect_tunnel(&self, mut stream: PrefixedStream<TcpStream>, target: &str) -> io::Result<()> {
-        match connect_via_egress_sys(target).await {
+        match connect_with_backoff(target).await {
             Ok(remote) => {
                 stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
                 self.relay_streams(stream, remote).await
@@ -335,7 +374,7 @@ impl HttpHandler {
     }
     
     async fn handle_http_forward(&self, stream: PrefixedStream<TcpStream>, request: &[u8], target: &str) -> io::Result<()> {
-        match connect_via_egress_sys(target).await {
+        match connect_with_backoff(target).await {
             Ok(mut remote) => {
                 remote.write_all(request).await?;
                 self.relay_streams(stream, remote).await
@@ -495,6 +534,7 @@ impl ProtocolDetector for Socks5Detector {
 
 // ===== SOCKS5 Protocol Handler =====
 
+#[derive(Clone)]
 pub struct Socks5Handler;
 
 impl Socks5Handler {
@@ -585,7 +625,7 @@ impl Socks5Handler {
         let atyp = buf[3];
         let target = self.read_socks_address(&mut stream, atyp).await?;
 
-        match connect_via_egress_sys(&target).await {
+        match connect_with_backoff(&target).await {
             Ok(remote) => {
                 info!("SOCKS5 connection to {}", target);
                 let local_addr = remote.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));

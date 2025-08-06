@@ -867,7 +867,7 @@ impl CommandDef {
 
     /// Generate bash completion script
     pub fn generate_bash_completion() -> String {
-        let root = Self::root();
+        let _root = Self::root();
         format!(
             r#"#!/bin/bash
 # LiteBike bash completion script

@@ -48,7 +48,7 @@ use tokio::time::timeout;
 use litebike::simple_routing::{SimpleRouter, RouteConfig};
 use litebike::libc_socket_tune::{accept_with_options, TcpTuningOptions};
 use litebike::libc_listener::{bind_with_options, ListenerOptions};
-use litebike::patricia_detector::{PatriciaDetector, Protocol};
+use litebike::protocol_detector::{ProtocolDetector, Protocol};
 use litebike::universal_listener::PrefixedStream;
 use litebike::protocol_handlers::Socks5Handler;
 
@@ -112,15 +112,16 @@ async fn test_socks5_on_8888_with_mocks() {
     let proxy_addr = listener.local_addr().unwrap();
     
     let tcp_tuning = TcpTuningOptions::default();
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     let socks5_handler = Socks5Handler::new();
     
     // Proxy server task
     tokio::spawn(async move {
         loop {
             if let Ok((stream, addr)) = accept_with_options(&listener, &tcp_tuning).await {
-                let detector = detector.clone();
-                let handler = socks5_handler.clone();
+                // Recreate per-connection; no Clone required
+                let detector = ProtocolDetector::new();
+                let handler = Socks5Handler::new();
                 
                 tokio::spawn(async move {
                     println!("Connection from {} on port {}", addr, proxy_addr.port());
@@ -135,12 +136,14 @@ async fn test_socks5_on_8888_with_mocks() {
                             let protocol = detector.detect(&buffer);
                             
                             match protocol {
-                                Protocol::Socks5 => {
+                                result if result.protocol == Protocol::Socks5 => {
                                     println!("SOCKS5 detected from {}", addr);
                                     let prefixed = PrefixedStream::new(stream, vec![]);
-                                    let _ = handler.handle(prefixed).await;
+                                    use litebike::protocol_registry::ProtocolHandler;
+                                    // Ensure trait methods are in scope once (avoid duplicate imports)
+                                    let _ = litebike::protocol_registry::ProtocolHandler::handle(&handler, prefixed).await;
                                 },
-                                Protocol::Http => {
+                                result if result.protocol == Protocol::Http => {
                                     println!("HTTP detected from {}", addr);
                                     // Could be PAC/WPAD request
                                     if let Ok(request) = std::str::from_utf8(&buffer) {
@@ -188,27 +191,23 @@ async fn test_socks5_on_8888_with_mocks() {
                     Ok(Ok(n)) if n > 0 => {
                         response.truncate(n);
                         println!("Got {} bytes response for {}", n, name);
-                        
-                        // Verify response based on packet type
                         match name {
                             "direct_socks5" => {
-                                // Should get SOCKS5 response
                                 if response.len() >= 2 && response[0] == 0x05 {
                                     println!("✓ Valid SOCKS5 response");
                                 }
-                            },
+                            }
                             "pac_request" | "wpad_request" => {
-                                // Should get PAC file
                                 if let Ok(resp_str) = std::str::from_utf8(&response) {
                                     if resp_str.contains("FindProxyForURL") {
                                         println!("✓ Valid PAC response");
                                     }
                                 }
-                            },
+                            }
                             _ => {}
                         }
-                    },
-                    Ok(Ok(0)) => println!("Connection closed for {}", name),
+                    }
+                    Ok(Ok(_)) => { /* not enough bytes yet */ }
                     Ok(Err(e)) => println!("Read error for {}: {}", name, e),
                     Err(_) => println!("Timeout for {} (may be expected)", name),
                 }
@@ -284,11 +283,12 @@ async fn test_defective_packets_handling() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy_addr = listener.local_addr().unwrap();
     
-    let detector = PatriciaDetector::new();
+    let detector = ProtocolDetector::new();
     
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
-            let detector = detector.clone();
+            // Re-initialize in this task scope; avoid Clone on detector
+            let detector = ProtocolDetector::new();
             
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 1024];
@@ -300,7 +300,7 @@ async fn test_defective_packets_handling() {
                         
                         // Should handle defects gracefully
                         match protocol {
-                            Protocol::Socks5 => {
+                            result if result.protocol == Protocol::Socks5 => {
                                 // Even defective SOCKS5 should not crash
                                 let _ = stream.write_all(&[0x05, 0xFF]).await; // No acceptable methods
                             },

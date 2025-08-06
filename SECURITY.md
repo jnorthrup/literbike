@@ -49,8 +49,8 @@ BIND_IP=127.0.0.1 litebike-proxy
 DISABLE_UPNP=true litebike-proxy
 ```
 
-### Patricia Trie Timing
-The Patricia Trie provides O(k) protocol detection but may leak protocol type via timing. This is acceptable for a proxy but should be considered in high-security environments.
+### Protocol Detection Timing
+The protocol detection provides O(k) protocol detection but may leak protocol type via timing. This is acceptable for a proxy but should be considered in high-security environments.
 
 ### Resource Limits
 Configure appropriate limits:
