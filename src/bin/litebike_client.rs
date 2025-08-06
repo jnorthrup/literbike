@@ -11,11 +11,10 @@ use std::io::{self, Write, BufRead, BufReader, Read};
 use std::process::Command;
 use std::collections::HashMap;
 
-#[cfg(feature = "auto-discovery")]
+
 use litebike::bonjour::BonjourClient;
 
 // Platform-specific ioctl constants
-#[cfg(target_os = "linux")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -23,7 +22,6 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0x891b;
 }
 
-#[cfg(target_os = "macos")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0xc00c6924;
     pub const SIOCGIFADDR: u64 = 0xc0206921;
@@ -31,7 +29,6 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0xc0206925;
 }
 
-#[cfg(target_os = "android")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -228,7 +225,7 @@ impl LitebikeClient {
     }
     
     /// Auto-discover litebike peers using Bonjour/mDNS
-    #[cfg(feature = "auto-discovery")]
+    
     async fn discover_peers(&mut self) -> io::Result<Ipv4Addr> {
         let peers = BonjourClient::discover_peers().await?;
         if let Some(peer) = peers.first() {
@@ -533,11 +530,21 @@ async fn main() {
         client.print_network_info();
         
         // Discover litebike peers
-        #[cfg(feature = "auto-discovery")]
-        let host = client.discover_peers().await.unwrap_or_else(|e| {
-            eprintln!("Peer discovery failed: {}", e);
-            std::process::exit(1);
-        });
+        let host = {
+            
+            {
+                client.discover_peers().await.unwrap_or_else(|e| {
+                    eprintln!("Peer discovery failed: {}", e);
+                    std::process::exit(1);
+                })
+            }
+            {
+                client.target_host.unwrap_or_else(|| {
+                    eprintln!("No target host discovered and auto-discovery is disabled.");
+                    std::process::exit(1);
+                })
+            }
+        };
         
         println!("\n=== Connection Attempts ===");
         

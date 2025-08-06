@@ -485,7 +485,6 @@ impl ViolentFuzzer {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

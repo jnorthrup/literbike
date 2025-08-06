@@ -173,7 +173,6 @@ pub fn create_channelized_socks5_handler() -> Box<dyn Fn(PrefixedStream<TcpStrea
     })
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Cursor;

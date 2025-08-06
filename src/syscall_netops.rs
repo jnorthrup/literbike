@@ -9,7 +9,6 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::time::Duration;
 
 // Platform-specific ioctl constants
-#[cfg(target_os = "linux")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -17,7 +16,6 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0x891b;
 }
 
-#[cfg(target_os = "macos")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0xc00c6924;
     pub const SIOCGIFADDR: u64 = 0xc0206921;
@@ -25,7 +23,6 @@ mod ioctl_consts {
     pub const SIOCGIFNETMASK: u64 = 0xc0206925;
 }
 
-#[cfg(target_os = "android")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -167,7 +164,6 @@ impl SyscallNetOps {
     }
 
     /// Discover default gateway using routing table syscalls (Linux only)
-    #[cfg(target_os = "linux")]
     pub fn discover_default_gateway() -> Result<Ipv4Addr, String> {
         unsafe {
             // Create netlink socket for route discovery
@@ -207,7 +203,6 @@ impl SyscallNetOps {
     }
 
     /// Discover default gateway (non-Linux fallback)
-    #[cfg(not(target_os = "linux"))]
     pub fn discover_default_gateway() -> Result<Ipv4Addr, String> {
         // On macOS/other systems, try multiple approaches
         

@@ -1,4 +1,3 @@
-#[cfg(any(target_os = "linux", target_os = "android"))]
 use libc::{
     socket, setsockopt, bind, listen, close,
     AF_INET, AF_INET6, SOCK_STREAM, SOCK_CLOEXEC, SOCK_NONBLOCK,
@@ -27,7 +26,6 @@ impl Default for ListenerOptions {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 unsafe fn set_socket_option<T>(fd: RawFd, level: c_int, name: c_int, value: &T) -> Result<()> {
     let ret = setsockopt(
         fd,
@@ -42,7 +40,6 @@ unsafe fn set_socket_option<T>(fd: RawFd, level: c_int, name: c_int, value: &T) 
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 pub async fn bind_with_options(addr: SocketAddr, options: &ListenerOptions) -> Result<TcpListener> {
     unsafe {
         let domain = match addr {
@@ -116,7 +113,6 @@ pub async fn bind_with_options(addr: SocketAddr, options: &ListenerOptions) -> R
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub async fn bind_with_options(addr: SocketAddr, _options: &ListenerOptions) -> Result<TcpListener> {
     TcpListener::bind(addr).await
 }

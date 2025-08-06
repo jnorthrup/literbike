@@ -324,7 +324,6 @@ impl UpnpMaskScenarios {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

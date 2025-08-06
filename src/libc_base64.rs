@@ -137,7 +137,6 @@ pub fn decode_bytes(input: &[u8]) -> io::Result<Vec<u8>> {
     Ok(output)
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

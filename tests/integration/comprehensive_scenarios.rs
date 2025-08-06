@@ -316,11 +316,9 @@ async fn test_performance_under_load() {
 }
 
 // Helper to add external crate dependencies for testing
-#[cfg(test)]
 mod test_dependencies {
     // Add any additional test-specific dependencies here
     // For example: use futures for join_all
 }
 
-#[cfg(test)]
 use futures;

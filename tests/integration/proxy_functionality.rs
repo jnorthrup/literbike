@@ -88,7 +88,6 @@ async fn setup_registry() -> ProtocolRegistry {
     registry
 }
 
-#[cfg(test)]
 mod http_proxy_tests {
     use super::*;
 
@@ -249,7 +248,6 @@ mod http_proxy_tests {
     }
 }
 
-#[cfg(test)]
 mod socks5_proxy_tests {
     use super::*;
 
@@ -409,7 +407,6 @@ mod socks5_proxy_tests {
     }
 }
 
-#[cfg(test)]
 mod multi_protocol_tests {
     use super::*;
 
@@ -531,7 +528,6 @@ mod multi_protocol_tests {
     }
 }
 
-#[cfg(test)]
 mod error_handling_tests {
     use super::*;
 
@@ -640,7 +636,6 @@ mod error_handling_tests {
     }
 }
 
-#[cfg(test)]
 mod performance_tests {
     use super::*;
 

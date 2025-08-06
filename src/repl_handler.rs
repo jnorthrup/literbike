@@ -212,7 +212,6 @@ impl Default for ReplHandler {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

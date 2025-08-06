@@ -167,7 +167,6 @@ impl<'a> PropertyBasedTester<'a> {
     }
 }
 
-#[cfg(test)]
 mod property_based_tests {
     use super::*;
 
@@ -224,14 +223,12 @@ mod property_based_tests {
     }
 }
 
-#[cfg(test)]
 mod simd_validation_tests {
     use super::*;
 
     
 }
 
-#[cfg(test)]
 mod comprehensive_edge_case_tests {
     use super::*;
 
@@ -383,7 +380,6 @@ mod comprehensive_edge_case_tests {
     }
 }
 
-#[cfg(test)]
 mod detection_accuracy_tests {
     use super::*;
     

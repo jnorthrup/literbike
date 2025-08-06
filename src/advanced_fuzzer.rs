@@ -609,7 +609,6 @@ impl UniversalPortAbuser {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

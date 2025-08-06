@@ -72,11 +72,8 @@ impl SshClient {
 
             if result < 0 {
                 // Platform-specific errno access
-                #[cfg(target_os = "linux")]
                 let errno = *libc::__errno_location();
-                #[cfg(target_os = "macos")]  
                 let errno = *libc::__error();
-                #[cfg(target_os = "android")]
                 let errno = *libc::__errno_location();
                 
                 return Err(format!("Failed to connect to SSH server: errno {}", errno).into());

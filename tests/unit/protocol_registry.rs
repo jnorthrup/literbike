@@ -94,7 +94,6 @@ impl ProtocolHandler for TestHandler {
     fn protocol_name(&self) -> &str { &self.name }
 }
 
-#[cfg(test)]
 mod registry_creation_tests {
     use super::*;
 
@@ -131,7 +130,6 @@ mod registry_creation_tests {
     }
 }
 
-#[cfg(test)]
 mod protocol_registration_tests {
     use super::*;
 
@@ -204,7 +202,6 @@ mod protocol_registration_tests {
     }
 }
 
-#[cfg(test)]
 mod protocol_detection_routing_tests {
     use super::*;
     use tokio_test;
@@ -256,7 +253,6 @@ mod protocol_detection_routing_tests {
     }
 }
 
-#[cfg(test)]
 mod detection_result_tests {
     use super::*;
 
@@ -293,7 +289,6 @@ mod detection_result_tests {
     }
 }
 
-#[cfg(test)]
 mod registry_stats_tests {
     use super::*;
 
@@ -334,7 +329,6 @@ mod registry_stats_tests {
     }
 }
 
-#[cfg(test)]
 mod error_handling_tests {
     use super::*;
 
@@ -366,7 +360,6 @@ mod error_handling_tests {
     }
 }
 
-#[cfg(test)]
 mod concurrency_tests {
     use super::*;
     use std::sync::Arc;
@@ -403,7 +396,6 @@ mod concurrency_tests {
     }
 }
 
-#[cfg(test)]
 mod memory_management_tests {
     use super::*;
 
@@ -433,7 +425,6 @@ mod memory_management_tests {
     }
 }
 
-#[cfg(test)]
 mod integration_with_handlers_tests {
     use super::*;
 
@@ -455,7 +446,6 @@ mod integration_with_handlers_tests {
     }
 }
 
-#[cfg(test)]
 mod edge_case_tests {
     use super::*;
 

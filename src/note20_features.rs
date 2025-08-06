@@ -309,7 +309,6 @@ pub fn configure_power_optimization(aggressive: bool) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

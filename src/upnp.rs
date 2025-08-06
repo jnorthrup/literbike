@@ -4,9 +4,7 @@ use std::collections::HashMap;
 use log::{debug, info, warn};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::UdpSocket;
-#[cfg(feature = "upnp")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "upnp")]
 use chrono;
 
 use crate::types::{UpnpAction, StandardPort};
@@ -18,7 +16,6 @@ const SSDP_ALIVE: &str = "ssdp:alive";
 const SSDP_BYEBYE: &str = "ssdp:byebye";
 const SSDP_DISCOVER: &str = "ssdp:discover";
 
-#[cfg(feature = "upnp")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpnpDevice {
     pub uuid: String,
@@ -129,11 +126,9 @@ impl UpnpServer {
                      USN: {}::{}\r\n\
                      \r\n",
                     {
-                        #[cfg(feature = "upnp")]
                         {
                             chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
                         }
-                        #[cfg(not(feature = "upnp"))]
                         {
                             "Thu, 01 Jan 1970 00:00:00 GMT".to_string()
                         }
@@ -369,7 +364,6 @@ pub async fn is_upnp_request(request: &str) -> bool {
     ))
 }
 
-#[cfg(feature = "upnp")]
 pub async fn setup_upnp_gateway(local_ip: Ipv4Addr) -> io::Result<()> {
     info!("Setting up UPnP gateway with IP {}", local_ip);
     
@@ -418,7 +412,6 @@ pub async fn setup_upnp_gateway(local_ip: Ipv4Addr) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(feature = "upnp"))]
 pub async fn setup_upnp_gateway(_local_ip: Ipv4Addr) -> io::Result<()> {
     debug!("UPnP support disabled - compile with 'upnp' feature to enable");
     Ok(())
@@ -447,7 +440,6 @@ pub async fn handle_upnp_request(mut stream: PrefixedStream<TcpStream>) -> std::
     upnp_server.handle_ssdp_request(stream, &request).await
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

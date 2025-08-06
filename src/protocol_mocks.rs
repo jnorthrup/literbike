@@ -981,7 +981,6 @@ pub fn fuzz_protocol_detector(data: &[u8]) {
     // If it doesn't panic, we're good
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

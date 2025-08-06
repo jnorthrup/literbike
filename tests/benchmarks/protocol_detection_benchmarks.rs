@@ -403,7 +403,6 @@ criterion_group!(
 criterion_main!(benches);
 
 // Additional benchmark for running async tests
-#[cfg(test)]
 mod async_benchmark_tests {
     use super::*;
 
@@ -414,7 +413,6 @@ mod async_benchmark_tests {
 }
 
 // Regression testing benchmarks
-#[cfg(test)]
 mod regression_benchmarks {
     use super::*;
     use std::collections::HashMap;

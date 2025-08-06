@@ -33,11 +33,11 @@ use crate::egress_connector::start_health_checker;
 mod types;
 mod abstractions;
 // mod doh; // DoH functionality is now in protocol_handlers
-#[cfg(feature = "upnp")]
+
 mod upnp;
-#[cfg(feature = "auto-discovery")]
+
 mod bonjour;
-#[cfg(feature = "auto-discovery")]
+
 mod pac;
 // Temporarily disabled problematic modules for testing
 // mod extended_protocols;
@@ -47,7 +47,7 @@ mod pac;
 // mod violent_fuzzer;
 // mod stubs;
 mod universal_listener;
-#[cfg(feature = "auto-discovery")]
+
 mod auto_discovery;
 mod protocol_detector;
 mod unified_handler;
@@ -94,13 +94,13 @@ async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
         Protocol::Http => {
             debug!("Universal port: HTTP detected");
             // Check for special HTTP-based protocols
-            #[cfg(feature = "auto-discovery")]
+            
             if pac::is_pac_request(std::str::from_utf8(data).unwrap_or("")).await {
                 info!("Routing to PAC handler");
                 return pac::handle_pac_request(prefixed_stream).await;
             }
             
-            #[cfg(feature = "upnp")]
+            
             if upnp::is_upnp_request(std::str::from_utf8(data).unwrap_or("")).await {
                 info!("Routing to UPnP handler");
                 return upnp::handle_upnp_request(prefixed_stream).await;
@@ -178,7 +178,7 @@ async fn main() {
         warn!("Using fallback configuration - primary interface 'swlan0' was not available");
     }
 
-    #[cfg(feature = "auto-discovery")]
+    
     tokio::spawn(async {
         match bonjour::BonjourDiscovery::new() {
             Ok(bonjour) => {
@@ -211,7 +211,6 @@ async fn main() {
 }
 
 // --- Tests ---
-#[cfg(test)]
 mod tests {
     use super::*;
     use tokio::io::ReadBuf;

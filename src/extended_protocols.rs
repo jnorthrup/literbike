@@ -373,7 +373,6 @@ impl ProtocolDetector for RtspDetector {
     fn required_bytes(&self) -> usize { 8 }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

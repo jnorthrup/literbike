@@ -14,23 +14,21 @@ fn main() {
     
     let iterations = 1_000_000;
     
-    // Benchmark Patricia Trie
-    let mut patricia_count = 0;
+    // Benchmark ProtocolDetector
+    let mut detector_count = 0;
     let start = Instant::now();
     for _ in 0..iterations {
         for data in &test_data {
             match patricia.detect(data).protocol {
-                Protocol::Http => patricia_count += 1,
-                Protocol::Socks5 => patricia_count += 2,
-                Protocol::Tls => patricia_count += 3,
-                _ => patricia_count += 4,
+                Protocol::Http => detector_count += 1,
+                Protocol::Socks5 => detector_count += 2,
+                Protocol::Tls => detector_count += 3,
+                _ => detector_count += 4,
             }
         }
     }
-    let patricia_time = start.elapsed();
-    
-    // SIMD and quick_detect benchmarks removed.
+    let detector_time = start.elapsed();
     
     println!("Benchmark Results ({} iterations x {} protocols):", iterations, test_data.len());
-    println!("ProtocolDetector: {:?} ({} ns/op) [sum: {}]", patricia_time, patricia_time.as_nanos() / (iterations as u128 * test_data.len() as u128), patricia_count);
+    println!("ProtocolDetector: {:?} ({} ns/op) [sum: {}]", detector_time, detector_time.as_nanos() / (iterations as u128 * test_data.len() as u128), detector_count);
 }

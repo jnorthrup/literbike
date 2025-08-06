@@ -478,7 +478,6 @@ impl UniversalProxy {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -208,7 +208,6 @@ pub fn create_shared_registry() -> Arc<ProtocolRegistry> {
     Arc::new(ProtocolRegistry::new())
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

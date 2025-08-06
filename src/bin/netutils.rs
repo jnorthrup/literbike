@@ -8,7 +8,6 @@ use std::mem;
 use std::ptr;
 
 // Basic ioctl constants (platform specific)
-#[cfg(any(target_os = "linux", target_os = "android"))]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0x8912;
     pub const SIOCGIFADDR: u64 = 0x8915;
@@ -17,7 +16,6 @@ mod ioctl_consts {
     pub const SIOCGIFHWADDR: u64 = 0x8927;
 }
 
-#[cfg(target_os = "macos")]
 mod ioctl_consts {
     pub const SIOCGIFCONF: u64 = 0xc00c6924;
     pub const SIOCGIFADDR: u64 = 0xc0206921;
@@ -39,7 +37,6 @@ const IFF_PROMISC: u16 = 0x100;
 const IFF_MULTICAST: u16 = 0x1000;
 
 // Netlink constants for Linux/Android
-#[cfg(any(target_os = "linux", target_os = "android"))]
 mod netlink {
     pub const AF_NETLINK: i32 = 16;
     pub const NETLINK_ROUTE: i32 = 0;
@@ -63,7 +60,6 @@ mod netlink {
     pub const RTA_OIF: u16 = 4;
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 use netlink::*;
 
 #[repr(C)]
@@ -85,7 +81,6 @@ struct ifconf {
 }
 
 // Netlink structures
-#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct nlmsghdr {
     nlmsg_len: u32,
@@ -95,7 +90,6 @@ struct nlmsghdr {
     nlmsg_pid: u32,
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct ifinfomsg {
     ifi_family: u8,
@@ -106,7 +100,6 @@ struct ifinfomsg {
     ifi_change: u32,
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct ifaddrmsg {
     ifa_family: u8,
@@ -116,7 +109,6 @@ struct ifaddrmsg {
     ifa_index: u32,
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct rtmsg {
     rtm_family: u8,
@@ -130,14 +122,12 @@ struct rtmsg {
     rtm_flags: u32,
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct rtattr {
     rta_len: u16,
     rta_type: u16,
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct sockaddr_nl {
     nl_family: sa_family_t,
@@ -235,7 +225,6 @@ unsafe fn netstat() {
 unsafe fn route() {
     libc::printf(b"Kernel IP routing table\n\0".as_ptr() as *const c_char);
     libc::printf(b"Destination     Gateway         Genmask         Flags Metric Ref    Use Iface\n\0".as_ptr() as *const c_char);
-    #[cfg(target_os = "linux")]
     {
         // Try netlink on Linux
         let sock = libc::socket(16, libc::SOCK_RAW, 0); // AF_NETLINK = 16
@@ -246,7 +235,6 @@ unsafe fn route() {
             libc::printf(b"(netlink requires root/CAP_NET_ADMIN)\n\0".as_ptr() as *const c_char);
         }
     }
-    #[cfg(not(target_os = "linux"))]
     {
         libc::printf(b"(route listing not supported on this platform via syscalls)\n\0".as_ptr() as *const c_char);
     }

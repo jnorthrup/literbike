@@ -1,10 +1,8 @@
-#[cfg(any(target_os = "linux", target_os = "android"))]
 use libc::{getrandom, GRND_NONBLOCK};
 use libc::{open, read, close, O_RDONLY};
 use std::io::{self, Error};
 use std::ptr;
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
     let len = buf.len();
     if len == 0 {
@@ -28,7 +26,6 @@ pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
     random_bytes_urandom(buf)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
     random_bytes_urandom(buf)
 }

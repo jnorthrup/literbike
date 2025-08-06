@@ -9,9 +9,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
 
-#[cfg(target_os = "android")]
 use libc;
-#[cfg(any(target_os = "android", target_os = "linux"))]
 use std::os::fd::{FromRawFd, IntoRawFd};
 
 
@@ -20,15 +18,10 @@ use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetect
 use crate::universal_listener::PrefixedStream;
 use crate::repl_handler::ReplHandler;
 use crate::egress_connector::{connect_with_backoff, start_health_checker};
-#[cfg(feature = "auto-discovery")]
 use crate::{pac, bonjour};
-#[cfg(feature = "upnp")]
 use crate::upnp;
-#[cfg(feature = "doh")]
 use hickory_resolver::TokioAsyncResolver;
-#[cfg(feature = "doh")]
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-#[cfg(feature = "doh")]
 use base64::Engine as _; // bring the trait into scope so STANDARD.decode(...) is available
 use base64::engine::general_purpose;
 
@@ -54,14 +47,12 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
     let bind_ip_opt = std::env::var("EGRESS_BIND_IP").ok().and_then(|s| s.parse::<IpAddr>().ok());
 
     // Non-Android/Linux fallback: use Tokio connect directly
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
     {
         let _ = (iface_opt, bind_ip_opt);
         return TcpStream::connect(addr).await;
     }
 
     // Android/Linux path: libc socket + optional SO_BINDTODEVICE/bind + connect, then wrap fd into Tokio
-    #[cfg(any(target_os = "android", target_os = "linux"))]
     unsafe {
         // Choose domain by addr family
         let (domain, sockaddr_storage, socklen) = match addr {
@@ -458,25 +449,18 @@ impl ProtocolHandler for HttpHandler {
             }
             
             // Check for specialized protocol requests
-            #[cfg(feature = "auto-discovery")]
             if pac::is_pac_request(&request).await {
                 info!("Routing to PAC handler");
                 return pac::handle_pac_request(stream).await;
             }
             
-            #[cfg(feature = "auto-discovery")]
             if request.contains("/wpad.dat") {
                 info!("Routing to WPAD handler");
                 return pac::handle_wpad_request(stream).await;
             }
             
-            #[cfg(feature = "auto-discovery")]
-            if bonjour::is_bonjour_request(&request).await {
-                info!("Routing to Bonjour handler");
-                return bonjour::handle_bonjour(stream).await;
-            }
             
-            #[cfg(feature = "upnp")]
+            
             if upnp::is_upnp_request(&request).await {
                 info!("Routing to UPnP handler");
                 return upnp::handle_upnp_request(stream).await;
@@ -817,18 +801,15 @@ impl ProtocolDetector for DohDetector {
 
 // ===== DoH (DNS-over-HTTPS) Protocol Handler =====
 
-#[cfg(feature = "doh")]
 pub struct DohHandler {
     resolver: TokioAsyncResolver,
 }
 
-#[cfg(not(feature = "doh"))]
 pub struct DohHandler {
     _phantom: std::marker::PhantomData<()>,
 }
 
 impl DohHandler {
-    #[cfg(feature = "doh")]
     pub async fn new() -> Self {
         let config = ResolverConfig::cloudflare();
         let opts = ResolverOpts::default();
@@ -837,12 +818,10 @@ impl DohHandler {
         Self { resolver }
     }
     
-    #[cfg(not(feature = "doh"))]
     pub async fn new() -> Self {
         Self { _phantom: std::marker::PhantomData }
     }
     
-    #[cfg(feature = "doh")]
     pub async fn handle_doh_request(&self, stream: PrefixedStream<TcpStream>, request: &str) -> io::Result<()> {
         debug!("Handling DoH request");
         
@@ -1071,7 +1050,6 @@ impl ProtocolHandler for DohHandler {
     fn protocol_name(&self) -> &str { "DoH" }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

@@ -1,11 +1,11 @@
 
-#[cfg(feature = "auto-discovery")]
+
 pub mod pac;
-#[cfg(feature = "auto-discovery")]
+
 pub mod bonjour;
-#[cfg(feature = "upnp")]
+
 pub mod upnp;
-#[cfg(feature = "auto-discovery")]
+
 pub mod auto_discovery;
 pub mod types;
 pub mod note20_features;

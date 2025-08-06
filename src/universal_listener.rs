@@ -287,7 +287,6 @@ pub async fn handle_connection(
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

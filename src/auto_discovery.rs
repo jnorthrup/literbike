@@ -8,12 +8,12 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::RwLock;
 
 use crate::pac::{PacConfig, PacServer};
-use crate::bonjour::BonjourServer;
+use crate::bonjour::BonjourDiscovery;
 use crate::upnp::UpnpServer;
 
 use crate::types::StandardPort;
 
-#[cfg(feature = "doh")]
+
 use hickory_resolver::{TokioAsyncResolver, config::{ResolverConfig, ResolverOpts}};
 
 /// Unified auto-discovery service that cheaply coordinates all discovery protocols
@@ -48,19 +48,18 @@ impl AutoDiscovery {
         let pac_server = Arc::new(RwLock::new(PacServer::new(local_ip, pac_config)));
         
         // Create resolver for DOH-enabled services
-        #[cfg(feature = "doh")]
+        
         let resolver = {
             let config = ResolverConfig::cloudflare();
             let opts = ResolverOpts::default();
             TokioAsyncResolver::tokio(config, opts)
         };
         
-        #[cfg(feature = "doh")]
+        
         let bonjour_server = Arc::new(RwLock::new(
             BonjourServer::new(local_ip, hostname.clone(), resolver)
         ));
         
-        #[cfg(not(feature = "doh"))]
         let bonjour_server = Arc::new(RwLock::new(
             BonjourServer::new(local_ip, hostname.clone())
         ));

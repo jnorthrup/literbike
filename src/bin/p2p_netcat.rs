@@ -1,21 +1,15 @@
 
-// P2P Netcat with Auto-Discovery
-// Listens on localhost:8888 and forwards to a discovered peer
-
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use log::{info, debug, error};
 use std::io;
 use tokio::time::timeout;
 use std::time::Duration;
+use litebike::bonjour::BonjourDiscovery;
 
 const LOCAL_PORT: u16 = 8888;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-// A simplified mDNS discovery client would go here.
-// For now, we'll simulate a discovered peer.
 
 /// Connects to a target address with timeout
 async fn connect_to_target(target_addr: SocketAddr) -> io::Result<TcpStream> {
@@ -58,10 +52,30 @@ async fn main() {
 
     info!("🚀 P2P Netcat with Auto-Discovery");
 
-    // 1. Discover the peer's address (simulated for now)
-    let peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 8888); // Example address
-    info!("Discovered peer at {}", peer_addr);
-
+    // 1. Discover the peer's address
+    let bonjour = BonjourDiscovery::new().expect("Failed to initialize Bonjour");
+    let peer_addr = loop {
+        info!("Discovering LiteBike peers...");
+        let mut found_peer = None;
+        for service in bonjour.discover_peers() {
+            if let Some(ipv4) = service.get_addresses().iter().find_map(|addr| {
+                match addr {
+                    IpAddr::V4(ipv4) => Some(ipv4),
+                    _ => None,
+                }
+            }) {
+                found_peer = Some(SocketAddr::new(IpAddr::V4(ipv4), service.get_port()));
+                info!("Discovered LiteBike peer at {}", found_peer.unwrap());
+                break;
+            }
+        }
+        if let Some(addr) = found_peer {
+            break addr;
+        } else {
+            info!("No LiteBike peers found, retrying in 5 seconds...");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    };
 
     // 2. Listen for local connections on localhost:8888
     let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), LOCAL_PORT))

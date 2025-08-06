@@ -456,7 +456,6 @@ impl StressTester {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

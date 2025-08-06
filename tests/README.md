@@ -250,7 +250,6 @@ echo "=== All tests passed! ==="
 ### Test Structure Guidelines
 ```rust
 // Follow this pattern for new tests
-#[cfg(test)]
 mod new_test_module {
     use super::*;
     use crate::utils::*;

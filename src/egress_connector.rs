@@ -7,9 +7,7 @@ use log::{debug, warn};
 
 use crate::egress_backoff::{EgressManager, handle_with_backoff};
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
 use std::os::fd::{FromRawFd, IntoRawFd};
-#[cfg(any(target_os = "android", target_os = "linux"))]
 use libc;
 
 /// Global egress manager instance
@@ -57,12 +55,10 @@ async fn connect_via_specific_egress(target: &str, egress_name: &str) -> io::Res
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No address resolved"))?;
 
     // Platform-specific connection
-    #[cfg(any(target_os = "android", target_os = "linux"))]
     {
         connect_via_egress_linux(addr, egress_name).await
     }
     
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
     {
         // Fallback for other platforms
         let _ = egress_name;
@@ -70,7 +66,6 @@ async fn connect_via_specific_egress(target: &str, egress_name: &str) -> io::Res
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
 async fn connect_via_egress_linux(addr: SocketAddr, egress_name: &str) -> io::Result<TcpStream> {
     unsafe {
         // Create socket
@@ -146,7 +141,6 @@ async fn connect_via_egress_linux(addr: SocketAddr, egress_name: &str) -> io::Re
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
 fn configure_socket_for_egress(fd: i32, egress_name: &str, addr: &SocketAddr) -> io::Result<()> {
     unsafe {
         // Try to bind to specific interface
@@ -196,7 +190,6 @@ fn configure_socket_for_egress(fd: i32, egress_name: &str, addr: &SocketAddr) ->
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
 fn bind_to_ip(fd: i32, ip: IpAddr, target_addr: &SocketAddr) -> io::Result<()> {
     unsafe {
         match (ip, target_addr) {
@@ -246,7 +239,6 @@ fn bind_to_ip(fd: i32, ip: IpAddr, target_addr: &SocketAddr) -> io::Result<()> {
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
 fn set_performance_options(fd: i32) -> io::Result<()> {
     unsafe {
         // Enable TCP keepalive
@@ -317,7 +309,6 @@ pub async fn start_health_checker() {
     });
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

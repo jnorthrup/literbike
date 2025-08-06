@@ -1,6 +1,4 @@
-#[cfg(any(target_os = "linux", target_os = "android"))]
 use libc::{accept4, setsockopt, c_int, c_void, socklen_t};
-#[cfg(any(target_os = "linux", target_os = "android"))]
 use libc::{
     SOCK_CLOEXEC, SOCK_NONBLOCK,
     SOL_SOCKET, SO_KEEPALIVE, SO_RCVBUF, SO_SNDBUF,
@@ -35,7 +33,6 @@ impl Default for TcpTuningOptions {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 unsafe fn set_socket_option<T>(fd: RawFd, level: c_int, name: c_int, value: &T) -> Result<()> {
     let ret = setsockopt(
         fd,
@@ -50,7 +47,6 @@ unsafe fn set_socket_option<T>(fd: RawFd, level: c_int, name: c_int, value: &T) 
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 pub async fn accept_with_options(
     listener: &TcpListener,
     options: &TcpTuningOptions,
@@ -67,7 +63,6 @@ pub async fn accept_with_options(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 pub unsafe fn apply_socket_options(fd: RawFd, options: &TcpTuningOptions) -> Result<()> {
     if options.nodelay {
         let val: c_int = 1;
@@ -102,7 +97,6 @@ pub unsafe fn apply_socket_options(fd: RawFd, options: &TcpTuningOptions) -> Res
     Ok(())
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub async fn accept_with_options(
     listener: &TcpListener,
     _options: &TcpTuningOptions,
@@ -115,7 +109,6 @@ pub fn apply_stream_options(stream: &TcpStream, options: &TcpTuningOptions) -> R
         stream.set_nodelay(true)?;
     }
     
-    #[cfg(any(target_os = "linux", target_os = "android"))]
     unsafe {
         let fd = stream.as_raw_fd();
         

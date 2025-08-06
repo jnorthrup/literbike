@@ -176,7 +176,6 @@ pub fn get_supported_protocols(config: &RouteConfig) -> Vec<String> {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

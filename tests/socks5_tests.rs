@@ -65,7 +65,6 @@ impl Socks5TestData {
     }
 }
 
-#[cfg(test)]
 mod socks5_detection_tests {
     use super::*;
     
@@ -104,7 +103,6 @@ mod socks5_detection_tests {
     }
 }
 
-#[cfg(test)]
 mod socks5_handler_tests {
     use super::*;
     
@@ -244,7 +242,6 @@ mod socks5_handler_tests {
     }
 }
 
-#[cfg(test)]
 mod socks5_universal_port_tests {
     use super::*;
     use litebike::simple_routing::SimpleRouter;
@@ -375,7 +372,6 @@ mod socks5_universal_port_tests {
     }
 }
 
-#[cfg(test)]
 mod socks5_edge_cases {
     use super::*;
     
@@ -401,7 +397,6 @@ mod socks5_edge_cases {
     }
 }
 
-#[cfg(all(test, not(debug_assertions)))]
 mod socks5_benchmarks {
     use super::*;
     use std::time::Instant;

@@ -511,7 +511,6 @@ pub fn create_socks5_success_response(local_addr: std::net::SocketAddr) -> Vec<u
     response
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

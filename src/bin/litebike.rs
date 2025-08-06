@@ -286,7 +286,6 @@ fi
     )
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

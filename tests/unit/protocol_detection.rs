@@ -6,7 +6,6 @@ use litebike::protocol_handlers::{
     HttpDetector, Socks5Detector, TlsDetector, DohDetector
 };
 
-#[cfg(test)]
 mod http_detection_tests {
     use super::*;
 
@@ -121,7 +120,6 @@ mod http_detection_tests {
     }
 }
 
-#[cfg(test)]
 mod socks5_detection_tests {
     use super::*;
 
@@ -199,7 +197,6 @@ mod socks5_detection_tests {
     }
 }
 
-#[cfg(test)]
 mod tls_detection_tests {
     use super::*;
 
@@ -249,7 +246,6 @@ mod tls_detection_tests {
     }
 }
 
-#[cfg(test)]
 mod doh_detection_tests {
     use super::*;
 
@@ -319,7 +315,6 @@ mod doh_detection_tests {
     }
 }
 
-#[cfg(test)]
 mod protocol_detection_performance {
     use super::*;
     use std::time::Instant;
@@ -395,7 +390,6 @@ mod protocol_detection_performance {
     }
 }
 
-#[cfg(test)]
 mod confidence_scoring_tests {
     use super::*;
 
@@ -445,7 +439,6 @@ mod confidence_scoring_tests {
     }
 }
 
-#[cfg(test)]
 mod bytes_consumed_tests {
     use super::*;
 

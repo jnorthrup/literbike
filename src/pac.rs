@@ -2,14 +2,14 @@ use std::io;
 use std::net::Ipv4Addr;
 use log::{debug, info};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-#[cfg(feature = "auto-discovery")]
+
 use serde::{Deserialize, Serialize};
 
 use crate::types::StandardPort;
 use crate::universal_listener::PrefixedStream;
 use tokio::net::TcpStream;
 
-#[cfg(feature = "auto-discovery")]
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PacConfig {
     pub proxy_host: String,
@@ -21,7 +21,7 @@ pub struct PacConfig {
     pub bypass_local: bool,
 }
 
-#[cfg(feature = "auto-discovery")]
+
 impl Default for PacConfig {
     fn default() -> Self {
         Self {
@@ -397,7 +397,6 @@ pub async fn handle_wpad_request(mut stream: PrefixedStream<TcpStream>) -> std::
     pac_server.handle_request(stream, &wpad_request).await
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
 

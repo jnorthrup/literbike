@@ -97,7 +97,6 @@ impl UnifiedProtocolManager {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     

@@ -347,7 +347,6 @@ fn validate_http2(buffer: &[u8], pos: usize) -> Option<DetectionResult> {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     
