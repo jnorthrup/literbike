@@ -36,6 +36,7 @@ pub mod reentrant_dsl;
 // Syscall-based network operations
 pub mod syscall_netops;
 pub mod syscall_parse_combinators;
+pub mod auto_peering_bridge;
 // SSH client functionality
 pub mod ssh_client;
 // Multi-egress backoff logic

@@ -3,6 +3,7 @@
 
 use std::os::unix::io::RawFd;
 use libc::{self, sockaddr, sockaddr_in, socklen_t, c_int, c_void};
+use crate::auto_peering_bridge::AutoPeeringBridge;
 
 /// Fast protocol identification using bit flags
 #[repr(u8)]
@@ -231,6 +232,7 @@ impl SyscallParser {
 pub struct OverlappingListener {
     port: u16,
     main_fd: RawFd,
+    peering_bridge: Option<AutoPeeringBridge>,
 }
 
 impl OverlappingListener {
@@ -281,7 +283,19 @@ impl OverlappingListener {
         Ok(Self {
             port,
             main_fd,
+            peering_bridge: None,
         })
+    }
+
+    /// Enable auto-peering bridge to restore PAC/WPAD functionality
+    pub fn enable_auto_peering(&mut self, hostname: String) -> Result<(), std::io::Error> {
+        use std::net::SocketAddr;
+        
+        let local_addr: SocketAddr = format!("127.0.0.1:{}", self.port).parse()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            
+        self.peering_bridge = Some(AutoPeeringBridge::new(local_addr, hostname));
+        Ok(())
     }
 
     /// Accept connection and perform immediate protocol recognition
@@ -305,8 +319,58 @@ impl OverlappingListener {
         
         // Immediate protocol recognition
         let mut parser = SyscallParser::new(client_fd);
+        
+        // First peek to check if this should bypass syscall detection for auto-peering
+        let should_bypass = if let Some(ref bridge) = self.peering_bridge {
+            match parser.peek_bytes(32) {
+                Ok(bytes) => bridge.should_bypass_syscall(bytes),
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+        
+        if should_bypass {
+            // For PAC/WPAD/mDNS/UPnP, return Unknown to let universal listener handle it
+            return Ok((client_fd, ProtocolId::Unknown));
+        }
+        
         match parser.recognize_protocol() {
-            Ok(result) => Ok((client_fd, result.protocol)),
+            Ok(result) => {
+                // Register with peering bridge if available
+                if let Some(ref bridge) = self.peering_bridge {
+                    let peer_addr = unsafe {
+                        let mut peer_addr: sockaddr_in = std::mem::zeroed();
+                        let mut addr_len = std::mem::size_of::<sockaddr_in>() as socklen_t;
+                        
+                        if libc::getpeername(
+                            client_fd,
+                            &mut peer_addr as *mut sockaddr_in as *mut libc::sockaddr,
+                            &mut addr_len,
+                        ) == 0 {
+                            Some(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+                                std::net::Ipv4Addr::from(peer_addr.sin_addr.s_addr.to_be()),
+                                peer_addr.sin_port.to_be(),
+                            )))
+                        } else {
+                            None
+                        }
+                    };
+                    
+                    if let Some(addr) = peer_addr {
+                        // Handle peer protocol registration in background (non-blocking)
+                        let bridge_clone = bridge.clone(); // Clone the Arc
+                        let protocol = result.protocol;
+                        tokio::spawn(async move {
+                            if let Err(e) = bridge_clone.handle_peer_protocol(addr, protocol).await {
+                                eprintln!("Failed to handle peer protocol: {}", e);
+                            }
+                        });
+                    }
+                }
+                
+                Ok((client_fd, result.protocol))
+            },
             Err(e) => {
                 unsafe { libc::close(client_fd); }
                 Err(e)

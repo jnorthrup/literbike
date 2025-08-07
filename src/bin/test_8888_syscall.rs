@@ -13,8 +13,16 @@ fn main() -> io::Result<()> {
     // Test 1: Create overlapping listener on port 8888
     println!("\n📡 Test 1: Creating overlapping listener on port 8888...");
     let mut listener = match OverlappingListener::bind(8888) {
-        Ok(listener) => {
+        Ok(mut listener) => {
             println!("✅ Successfully bound to port 8888");
+            
+            // Enable auto-peering to restore PAC/WPAD functionality
+            if let Err(e) = listener.enable_auto_peering("litebike-test".to_string()) {
+                println!("⚠️  Failed to enable auto-peering: {}", e);
+            } else {
+                println!("🔗 Auto-peering bridge enabled (PAC/WPAD restored)");
+            }
+            
             listener
         }
         Err(e) => {
@@ -25,8 +33,16 @@ fn main() -> io::Result<()> {
             for port in [18888, 28888, 38888] {
                 println!("🔄 Trying alternative port {}...", port);
                 match OverlappingListener::bind(port) {
-                    Ok(listener) => {
+                    Ok(mut listener) => {
                         println!("✅ Successfully bound to port {}", port);
+                        
+                        // Enable auto-peering on alternative port too
+                        if let Err(e) = listener.enable_auto_peering("litebike-test".to_string()) {
+                            println!("⚠️  Failed to enable auto-peering: {}", e);
+                        } else {
+                            println!("🔗 Auto-peering bridge enabled (PAC/WPAD restored)");
+                        }
+                        
                         run_protocol_tests(listener, port)?;
                         return Ok(());
                     }
@@ -134,6 +150,9 @@ fn spawn_test_clients(port: u16) {
         let test_protocols = vec![
             ("SOCKS5", vec![0x05, 0x01, 0x00]),
             ("HTTP", b"GET / HTTP/1.1\r\n\r\n".to_vec()),
+            ("PAC", b"GET /proxy.pac HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec()),
+            ("WPAD", b"GET /wpad.dat HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec()),
+            ("UPnP", b"M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\n\r\n".to_vec()),
             ("TLS", vec![0x16, 0x03, 0x03, 0x00, 0x01, 0x02]),
             ("SSH", b"SSH-2.0-Test\r\n".to_vec()),
         ];
