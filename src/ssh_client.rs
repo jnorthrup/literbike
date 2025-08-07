@@ -147,7 +147,7 @@ impl SshClient {
         };
 
         println!("SSH tunnel request: {}:{} -> {}:{}", 
-                 "localhost", tunnel.local_port,
+                 "localhost", tunnel.local_port, 
                  tunnel.remote_host, tunnel.remote_port);
 
         Ok(SshTunnelHandle {
@@ -342,7 +342,7 @@ impl SshTunnelManager {
 
         let tunnel = &mut self.tunnels[tunnel_id];
         if tunnel.active {
-            return Ok(());
+            return Ok(())
         }
 
         // Create socket for this tunnel
@@ -372,7 +372,7 @@ impl SshTunnelManager {
 
         let tunnel = &mut self.tunnels[tunnel_id];
         if !tunnel.active {
-            return Ok(());
+            return Ok(())
         }
 
         unsafe {
@@ -476,4 +476,24 @@ pub fn test_ssh_connection(host: Ipv4Addr, port: u16) -> Result<bool, Box<dyn st
             Ok(false)
         }
     }
+}
+
+/// Scan for SSH servers on a local network (simplified)
+pub fn scan_for_ssh_servers(network: Ipv4Addr, netmask: Ipv4Addr) -> Vec<Ipv4Addr> {
+    let mut found_servers = Vec::new();
+    let network_addr = u32::from(network);
+    let netmask_addr = u32::from(netmask);
+    let start_ip = (network_addr & netmask_addr) + 1;
+    let end_ip = (network_addr | !netmask_addr) - 1;
+
+    println!("Scanning for SSH servers on network {}/{}", network, netmask);
+
+    for ip_addr in start_ip..=end_ip {
+        let current_ip = Ipv4Addr::from(ip_addr);
+        if let Ok(true) = test_ssh_connection(current_ip, 22) {
+            found_servers.push(current_ip);
+        }
+    }
+
+    found_servers
 }

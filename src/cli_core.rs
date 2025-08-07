@@ -4,6 +4,7 @@
 use crate::cli_dsl::{CommandDef, CompletionHint, CompletionRegistry};
 use crate::syscall_netops::SyscallNetOps;
 use crate::ssh_client::{SshClient, SshConfig, SshTunnel, create_ssh_config, test_ssh_connection};
+use crate::secure_knock;
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -25,6 +26,52 @@ impl CliApp {
         
         // Register symlink mappings to their corresponding command paths
         app.register_symlink_mappings();
+
+        // Define the CLI structure
+        app.root_command = CommandDef::new("litebike")
+            .description("A versatile network tool for proxying, tunneling, and network diagnostics.")
+            .add_subcommand(
+                CommandDef::new("knock")
+                    .description("Sends a secure knock to a host and port.")
+                    .add_argument("host", "The host to knock.", true)
+                    .add_argument("port", "The port to knock on.", true)
+                    .handler(|args| {
+                        let host = args.get_one::<String>("host").unwrap();
+                        let port = args.get_one::<String>("port").unwrap().parse::<u16>()?;
+                        let psk = std::env::var("LITEBIKE_PSK").expect("LITEBIKE_PSK not set");
+
+                        let knock_packet = litebike::secure_knock::create_knock(psk.as_bytes());
+
+                        let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+                        socket.send_to(&knock_packet, (host.as_str(), port))?;
+
+                        println!("Sent secure knock to {}:{}", host, port);
+                        Ok(())
+                    }),
+            )
+            .add_subcommand(
+                CommandDef::new("listen")
+                    .description("Listens for secure knocks on a port.")
+                    .add_argument("port", "The port to listen on.", true)
+                    .handler(|args| {
+                        let port = args.get_one::<String>("port").unwrap().parse::<u16>()?;
+                        let psk = std::env::var("LITEBIKE_PSK").expect("LITEBIKE_PSK not set");
+
+                        let listen_addr = format!("0.0.0.0:{}", port);
+                        let socket = std::net::UdpSocket::bind(&listen_addr)?;
+                        println!("Listening for secure knocks on {}", listen_addr);
+
+                        let mut buf = [0; litebike::secure_knock::KNOCK_PACKET_SIZE];
+                        loop {
+                            let (amt, src) = socket.recv_from(&mut buf)?;
+                            if litebike::secure_knock::verify_knock(psk.as_bytes(), &buf[..amt]) {
+                                println!("Received valid knock from {}", src);
+                            } else {
+                                println!("Received invalid knock from {}", src);
+                            }
+                        }
+                    }),
+            );
         app
     }
 

@@ -5,12 +5,46 @@ use litebike::cli_core::CliApp;
 use litebike::reentrant_dsl::ReentrantDSL;
 use std::env;
 use std::path::Path;
+use std::net::UdpSocket;
+use litebike::secure_knock;
+use log::{info, warn};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     
     // Initialize logging
     env_logger::init();
+
+    // Start the secure knock listener in a separate thread
+    if let Ok(port_str) = env::var("LITEBIKE_KNOCK_PORT") {
+        if let Ok(port) = port_str.parse::<u16>() {
+            if let Ok(psk) = env::var("LITEBIKE_KNOCK_PSK") {
+                std::thread::spawn(move || {
+                    let listen_addr = format!("0.0.0.0:{}", port);
+                    let socket = UdpSocket::bind(&listen_addr).expect("Failed to bind UDP socket");
+                    info!("Secure knock listener started on {}", listen_addr);
+                    let mut buf = [0; secure_knock::KNOCK_PACKET_SIZE];
+                    loop {
+                        match socket.recv_from(&mut buf) {
+                            Ok((amt, src)) => {
+                                if secure_knock::verify_knock(psk.as_bytes(), &buf[..amt]) {
+                                    info!("Received valid secure knock from {}", src);
+                                } else {
+                                    warn!("Received invalid knock from {}", src);
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Error receiving knock packet: {}", e);
+                            }
+                        }
+                    }
+                });
+            } else {
+                warn!("LITEBIKE_KNOCK_PORT is set, but LITEBIKE_KNOCK_PSK is not. Knock listener not started.");
+            }
+        }
+    }
+
 
     // Determine how we were invoked
     let program_name = Path::new(&args[0])
@@ -39,6 +73,14 @@ fn main() {
             "--install-completions" => {
                 if let Err(e) = install_all_completions() {
                     eprintln!("Failed to install completions: {}", e);
+                    std::process::exit(1);
+                }
+                return;
+            }
+            "knock" | "listen" => {
+                // Handle knock and listen commands directly
+                if let Err(e) = cli_app.run(args) {
+                    eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
                 return;
