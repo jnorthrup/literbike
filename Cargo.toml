@@ -23,20 +23,8 @@ chrono = ["dep:chrono"]
 # doh = ["hickory-resolver"]
 
 [[bin]]
-name = "netutils"
-path = "src/bin/netutils.rs"
-
-[[bin]]
-name = "litebike_client"
-path = "src/bin/litebike_client.rs"
-
-[[bin]]
 name = "litebike"
 path = "src/bin/litebike.rs"
-
-[[bin]]
-name = "p2p_netcat"
-path = "src/bin/p2p_netcat.rs"
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "io-util", "rt-multi-thread", "macros", "time", "sync", "process"] }
