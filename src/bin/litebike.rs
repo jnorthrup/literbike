@@ -6,6 +6,7 @@ use litebike::reentrant_dsl::ReentrantDSL;
 use std::env;
 use std::path::Path;
 use std::net::UdpSocket;
+use std::os::unix::process::CommandExt;
 use litebike::secure_knock;
 use log::{info, warn};
 
@@ -14,6 +15,30 @@ fn main() {
     
     // Initialize logging
     env_logger::init();
+    
+    // Check for default port 8888 mode
+    if args.len() == 1 || (args.len() == 2 && args[1] == "--default") {
+        println!("🚀 Starting LiteBike unified listeners on port 8888");
+        
+        // Start unified listeners
+        let config = litebike::unified_listener::UnifiedConfig::default();
+        
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("Failed to create tokio runtime: {}", e);
+                std::process::exit(1);
+            }
+        };
+        
+        let listener = litebike::unified_listener::UnifiedListener::new(config);
+        if let Err(e) = rt.block_on(listener.start()) {
+            eprintln!("Listener error: {}", e);
+            std::process::exit(1);
+        }
+        
+        return; // Don't continue to CLI processing
+    }
 
     // Start the secure knock listener in a separate thread
     if let Ok(port_str) = env::var("LITEBIKE_KNOCK_PORT") {

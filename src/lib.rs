@@ -41,4 +41,6 @@ pub mod ssh_client;
 pub mod egress_backoff;
 pub mod egress_connector;
 pub mod protocol_detector;
+pub mod proxy_server;
+pub mod unified_listener;
 pub mod secure_knock;
