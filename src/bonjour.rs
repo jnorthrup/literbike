@@ -62,7 +62,7 @@ impl BonjourDiscovery {
 }
 
 mod tests {
-    
+    use super::BonjourDiscovery;
 
     #[test]
     fn test_bonjour_discovery_creation() {

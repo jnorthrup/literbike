@@ -41,3 +41,12 @@ pub mod ssh_client;
 pub mod egress_backoff;
 pub mod egress_connector;
 pub mod protocol_detector;
+
+// Re-exports for public API convenience
+pub use protocol_handlers::{
+    HttpDetector, Socks5Detector, TlsDetector, DohDetector,
+    HttpHandler, Socks5Handler, TlsHandler, DohHandler,
+};
+pub use abstractions::BitBangProcessor;
+pub use bonjour::BonjourDiscovery;
+pub use egress_backoff::{CircuitBreaker, CircuitState};pub mod syscall_parse_combinators;

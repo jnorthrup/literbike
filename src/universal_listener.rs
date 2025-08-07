@@ -288,7 +288,8 @@ pub async fn handle_connection(
 }
 
 mod tests {
-    
+    use super::{detect_protocol, Protocol, PrefixedStream};
+    use tokio::io::AsyncReadExt;
 
     #[tokio::test]
     async fn test_detect_http_get() {

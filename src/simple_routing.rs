@@ -177,7 +177,8 @@ pub fn get_supported_protocols(config: &RouteConfig) -> Vec<String> {
 }
 
 mod tests {
-    
+    use super::{RouteConfig, SimpleRouter, get_supported_protocols};
+    use std::net::IpAddr;
     
     #[test]
     fn test_default_config() {

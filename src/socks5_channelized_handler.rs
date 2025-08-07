@@ -6,6 +6,7 @@
 
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use std::io::Cursor;
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
 
@@ -172,8 +173,10 @@ pub fn create_channelized_socks5_handler() -> Box<dyn Fn(PrefixedStream<TcpStrea
         })
     })
 }
-
 mod tests {
+    use super::ChannelizedSocks5Handler;
+    use crate::protocol_registry::ProtocolDetectionResult;
+    use crate::protocol_registry::ProtocolHandler as _;
     
     
     

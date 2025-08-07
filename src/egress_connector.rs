@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 use log::{debug, warn, info};
 use std::net::{SocketAddr, IpAddr};
 
-use crate::egress_backoff::{EgressManager, handle_with_backoff};
+use crate::egress_backoff::EgressManager;
 
 use std::os::fd::FromRawFd;
 use libc;
@@ -31,12 +31,10 @@ pub async fn connect_with_backoff(target: &str) -> io::Result<TcpStream> {
 
     let owned_target = Arc::new(target.to_string()); // Use Arc to share ownership
 
-    handle_with_backoff(&*manager, |egress_name| {
+    manager.handle_with_backoff(|egress_name| {
         let target_for_future = owned_target.clone();
         let egress_name_owned = egress_name.to_string();
-        async move {
-            connect_via_specific_egress(&target_for_future, &egress_name_owned).await
-        }
+        async move { connect_via_specific_egress(&target_for_future, &egress_name_owned).await }
     }).await
 }
 

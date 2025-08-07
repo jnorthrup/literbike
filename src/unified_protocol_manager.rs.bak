@@ -7,8 +7,7 @@ use log::info;
 
 use crate::detection_orchestrator::DetectionOrchestrator;
 use crate::protocol_registry::ProtocolHandler;
-use crate::protocol_handlers::{HttpHandler, Socks5Handler, DohHandler, TlsHandler};
-use crate::abstractions::{HttpDetector, TlsDetector};
+use crate::protocol_handlers::{HttpHandler, Socks5Handler, DohHandler, TlsHandler, HttpDetector, TlsDetector};
 use crate::abstractions::ProtocolDetector as AbstractionsProtocolDetector;
 
 /// Manager for all protocols on the unified port 8888

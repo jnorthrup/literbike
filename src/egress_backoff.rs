@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
+use std::io;
 
 /// Error tracking window size
 const ERROR_WINDOW_SECS: u64 = 60;
@@ -220,6 +221,56 @@ pub struct EgressManager {
 }
 
 impl EgressManager {
+    /// Execute an async operation with backoff/circuit handling selecting an available egress.
+    /// The operation closure receives the egress name to use.
+    pub async fn handle_with_backoff<F, Fut, T>(&self, mut op: F) -> io::Result<T>
+    where
+        F: FnMut(&str) -> Fut + Send,
+        Fut: std::future::Future<Output = io::Result<T>> + Send,
+        T: Send,
+    {
+        use tokio::time::sleep;
+        loop {
+            if let Some((egress_name, circuit)) = self.get_available_egress() {
+                match op(&egress_name).await {
+                    Ok(val) => {
+                        self.record_success(&egress_name);
+                        return Ok(val);
+                    }
+                    Err(_err) => {
+                        self.record_error(&egress_name);
+                        let dur = circuit.get_backoff_duration();
+                        sleep(dur).await;
+                        continue;
+                    }
+                }
+            } else {
+                sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+
+    /// Simple stats DTO for logging
+    pub fn get_stats(&self) -> HashMap<String, EgressStats> {
+        let circuits = self.circuits.read().unwrap();
+        let mut out = HashMap::new();
+        for (name, circuit) in circuits.iter() {
+            let state = *circuit.state.read().unwrap();
+            let window = circuit.error_window.read().unwrap();
+            let error_rate = window.error_rate();
+            let total = window.total_requests();
+            let consecutive = window.consecutive_errors.load(Ordering::Relaxed);
+            let current_backoff_ms = circuit.current_backoff_ms.load(Ordering::Relaxed);
+            out.insert(name.clone(), EgressStats {
+                state,
+                error_rate,
+                total_requests: total,
+                consecutive_errors: consecutive,
+                current_backoff_ms,
+            });
+        }
+        out
+    }
     pub fn new() -> Self {
         Self {
             circuits: Arc::new(RwLock::new(HashMap::new())),
@@ -303,26 +354,6 @@ impl EgressManager {
                 });
             }
         }
-    }
-
-    pub fn get_stats(&self) -> HashMap<String, EgressStats> {
-        let circuits = self.circuits.read().unwrap();
-        let mut stats = HashMap::new();
-
-        for (name, circuit) in circuits.iter() {
-            let window = circuit.error_window.read().unwrap();
-            let state = circuit.state.read().unwrap();
-            
-            stats.insert(name.clone(), EgressStats {
-                state: *state,
-                error_rate: window.error_rate(),
-                total_requests: window.total_requests(),
-                consecutive_errors: window.consecutive_errors.load(Ordering::Relaxed),
-                current_backoff_ms: circuit.current_backoff_ms.load(Ordering::Relaxed),
-            });
-        }
-
-        stats
     }
 }
 

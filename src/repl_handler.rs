@@ -213,7 +213,7 @@ impl Default for ReplHandler {
 }
 
 mod tests {
-    
+    use super::ReplHandler;
     
     #[test]
     fn test_parse_command_request() {
