@@ -8,7 +8,7 @@ use std::net::{SocketAddr, IpAddr};
 
 use crate::egress_backoff::{EgressManager, handle_with_backoff};
 
-use std::os::fd::{FromRawFd, IntoRawFd};
+use std::os::fd::FromRawFd;
 use libc;
 
 /// Global egress manager instance
@@ -312,7 +312,7 @@ pub async fn start_health_checker() {
 }
 
 mod tests {
-    use super::*;
+    
 
     #[tokio::test]
     async fn test_connection_with_backoff() {

@@ -410,7 +410,7 @@ where
 }
 
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_circuit_breaker_opens_on_errors() {

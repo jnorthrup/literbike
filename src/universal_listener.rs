@@ -288,7 +288,7 @@ pub async fn handle_connection(
 }
 
 mod tests {
-    use super::*;
+    
 
     #[tokio::test]
     async fn test_detect_http_get() {

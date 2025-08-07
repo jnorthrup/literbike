@@ -4,10 +4,8 @@
 // Unlike the monolithic approach in protocol_handlers.rs, this creates discrete testable stages
 // where buffer data flows through continuation points that can suspend/resume at any decode step.
 
-use std::io;
 use std::collections::VecDeque;
 use tokio::sync::mpsc;
-use log::{debug, warn};
 
 /// SOCKS5 Protocol State Machine with Continuation Points
 #[derive(Debug, Clone, PartialEq)]
@@ -512,7 +510,7 @@ pub fn create_socks5_success_response(local_addr: std::net::SocketAddr) -> Vec<u
 }
 
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_handshake_decode() {

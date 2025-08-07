@@ -14,7 +14,7 @@ const SOCK_CLOEXEC: c_int = 0;
 #[cfg(not(target_os = "linux"))]
 const SOCK_NONBLOCK: c_int = 0;
 use std::net::SocketAddr;
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::io::{FromRawFd, RawFd};
 use tokio::net::TcpListener;
 
 #[derive(Clone, Debug)]

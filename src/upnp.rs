@@ -5,7 +5,6 @@ use log::{debug, info, warn};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use serde::{Deserialize, Serialize};
-use chrono;
 
 use crate::types::{UpnpAction, StandardPort};
 use crate::universal_listener::PrefixedStream;
@@ -439,7 +438,7 @@ pub async fn handle_upnp_request(mut stream: PrefixedStream<TcpStream>) -> std::
 }
 
 mod tests {
-    use super::*;
+    
 
     #[tokio::test]
     async fn test_is_upnp_request() {

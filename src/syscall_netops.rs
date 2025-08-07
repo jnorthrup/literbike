@@ -4,9 +4,7 @@
 
 use libc::{c_char, c_int, c_void, sockaddr, sockaddr_in, socklen_t, AF_INET, SOCK_STREAM, SOCK_DGRAM};
 use std::mem;
-use std::ffi::CStr;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::time::Duration;
 
 
 #[cfg(target_os = "macos")]

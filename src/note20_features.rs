@@ -310,7 +310,7 @@ pub fn configure_power_optimization(aggressive: bool) -> io::Result<()> {
 }
 
 mod tests {
-    use super::*;
+    
     
     #[test]
     fn test_network_detection() {

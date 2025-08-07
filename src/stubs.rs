@@ -2,7 +2,7 @@ use std::io;
 use log::{debug, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
 use crate::types::{ProtocolType, ProtocolDetectionResult};
-use crate::abstractions::{ProtocolDetector, ProtocolHandler, CryptoAbstraction};
+use crate::abstractions::{ProtocolHandler, CryptoAbstraction};
 use crate::types::ShadowsocksMethod;
 
 // Helper function to extract SNI from TLS Client Hello
@@ -194,7 +194,7 @@ pub struct ShadowsocksCrypto;
 
 impl CryptoAbstraction for ShadowsocksCrypto {
     fn encrypt(&self, plaintext: &[u8], key: &[u8], nonce: &[u8]) -> io::Result<Vec<u8>> {
-        use std::convert::TryInto;
+        
         
         // Basic AES-256-GCM simulation (not cryptographically secure - for demo only)
         // In production, use a proper crypto library like ring or aes-gcm

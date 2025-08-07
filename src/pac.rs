@@ -398,7 +398,7 @@ pub async fn handle_wpad_request(mut stream: PrefixedStream<TcpStream>) -> std::
 }
 
 mod tests {
-    use super::*;
+    
 
     #[tokio::test]
     async fn test_is_pac_request() {

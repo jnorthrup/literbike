@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
-use log::{info, warn, error};
+use log::info;
 use crate::types::ProtocolType;
 use crate::protocol_detector::{ProtocolDetector, Protocol};
 
@@ -982,7 +982,7 @@ pub fn fuzz_protocol_detector(data: &[u8]) {
 }
 
 mod tests {
-    use super::*;
+    
     
     #[tokio::test]
     async fn test_massive_protocol_torture() {

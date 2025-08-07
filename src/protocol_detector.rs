@@ -2,7 +2,6 @@
 // Each protocol builds lookup tables, overlaps create penalties, rarest wins
 // Enhanced with static code generation for zero-overhead detection
 
-use std::io;
 
 // Import the static code generation system
 
@@ -348,7 +347,7 @@ fn validate_http2(buffer: &[u8], pos: usize) -> Option<DetectionResult> {
 }
 
 mod tests {
-    use super::*;
+    
     
     #[test]
     fn test_byte_ownership() {

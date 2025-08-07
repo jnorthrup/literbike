@@ -1,6 +1,5 @@
 use mdns_sd::{ServiceDaemon, ServiceInfo};
-use std::collections::HashMap;
-use log::{debug, info, error};
+use log::{debug, info};
 
 const SERVICE_TYPE: &str = "_litebike._tcp.local.";
 
@@ -63,7 +62,7 @@ impl BonjourDiscovery {
 }
 
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_bonjour_discovery_creation() {

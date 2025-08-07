@@ -138,7 +138,7 @@ pub fn decode_bytes(input: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 mod tests {
-    use super::*;
+    
     
     #[test]
     fn test_encode() {

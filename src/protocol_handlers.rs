@@ -9,16 +9,14 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use log::{debug, info, warn};
 
-use libc;
-use std::os::fd::{FromRawFd, IntoRawFd};
 
 
 use crate::protocol_registry::{ProtocolDetector, ProtocolHandler, ProtocolDetectionResult, ProtocolFut};
 // Removed async-trait to minimize dependencies; keep trait methods sync by returning boxed futures if needed
 use crate::universal_listener::PrefixedStream;
 use crate::repl_handler::ReplHandler;
-use crate::egress_connector::{connect_with_backoff, start_health_checker};
-use crate::{pac, bonjour};
+use crate::egress_connector::connect_with_backoff;
+use crate::pac;
 use crate::upnp;
 #[cfg(feature = "doh")]
 use hickory_resolver::TokioAsyncResolver;
@@ -1050,7 +1048,7 @@ impl ProtocolHandler for DohHandler {
 }
 
 mod tests {
-    use super::*;
+    
     
     #[test]
     fn test_http_detection() {

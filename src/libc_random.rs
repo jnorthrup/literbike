@@ -2,7 +2,6 @@
 use libc::{getrandom, GRND_NONBLOCK};
 use libc::{open, read, close, O_RDONLY};
 use std::io::{self, Error};
-use std::ptr;
 
 pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
     let len = buf.len();

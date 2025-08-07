@@ -12,7 +12,6 @@ use crate::protocol_handlers::{
 };
 use crate::abstractions::{
     HttpDetector, TlsDetector,
-    UpnpDetector, ShadowsocksDetector,
     ProtocolDetector as AbstractionsProtocolDetector,
 };
 
@@ -98,7 +97,7 @@ impl UnifiedProtocolManager {
 }
 
 mod tests {
-    use super::*;
+    
     
     #[tokio::test]
     async fn test_unified_manager_creation() {
