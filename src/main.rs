@@ -79,7 +79,7 @@ async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
     let n = prefixed_stream.inner.peek(&mut buffer).await?;
     
     if n == 0 {
-        return Ok(());
+        return Ok(())
     }
     
     let data = &buffer[..n];
@@ -174,7 +174,7 @@ async fn main() {
         simple_routing::get_supported_protocols(&active_config)
     );
 
-    """    if active_config.interface == "lo" {
+    if active_config.interface == "lo" {
         warn!("Using fallback configuration - primary interface 'swlan0' was not available");
     }
 
@@ -196,7 +196,7 @@ async fn main() {
         }
     });
 
-    let tcp_tuning = active_config.tcp_tuning.clone();""
+    let tcp_tuning = active_config.tcp_tuning.clone();
     
     loop {
         if let Ok((stream, addr)) = accept_with_options(&universal_listener, &tcp_tuning).await {

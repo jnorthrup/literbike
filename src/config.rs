@@ -15,7 +15,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            bind_addr: "127.0.0.1".parse().unwrap(),
+            bind_addr: "0.0.0.0".parse().unwrap(),
             bind_port: 8888,
             interface: "swlan0".to_string(),
             log_level: "info".to_string(),
