@@ -35,6 +35,8 @@ pub mod cli_core;
 pub mod reentrant_dsl;
 // Syscall-based network operations
 pub mod syscall_netops;
+pub mod syscall_parse_combinators;
+pub mod auto_peering_bridge;
 // SSH client functionality
 pub mod ssh_client;
 // Multi-egress backoff logic
@@ -49,4 +51,6 @@ pub use protocol_handlers::{
 };
 pub use abstractions::BitBangProcessor;
 pub use bonjour::BonjourDiscovery;
-pub use egress_backoff::{CircuitBreaker, CircuitState};pub mod syscall_parse_combinators;
+pub use egress_backoff::{CircuitBreaker, CircuitState};
+pub mod proxy_server;
+pub mod secure_knock;

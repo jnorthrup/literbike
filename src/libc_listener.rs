@@ -83,7 +83,7 @@ pub async fn bind_with_options(addr: SocketAddr, options: &ListenerOptions) -> R
         let (addr_ptr, addr_len) = match addr {
             SocketAddr::V4(v4) => {
                 let mut raw_addr: libc::sockaddr_in = std::mem::zeroed();
-                raw_addr.sin_family = AF_INET as u8;
+                raw_addr.sin_family = AF_INET as u16;
                 raw_addr.sin_port = v4.port().to_be();
                 raw_addr.sin_addr.s_addr = u32::from_ne_bytes(v4.ip().octets());
                 (
@@ -93,7 +93,7 @@ pub async fn bind_with_options(addr: SocketAddr, options: &ListenerOptions) -> R
             }
             SocketAddr::V6(v6) => {
                 let mut raw_addr: libc::sockaddr_in6 = std::mem::zeroed();
-                raw_addr.sin6_family = AF_INET6 as u8;
+                raw_addr.sin6_family = AF_INET6 as u16;
                 raw_addr.sin6_port = v6.port().to_be();
                 raw_addr.sin6_addr.s6_addr = v6.ip().octets();
                 raw_addr.sin6_flowinfo = v6.flowinfo();
@@ -117,7 +117,9 @@ pub async fn bind_with_options(addr: SocketAddr, options: &ListenerOptions) -> R
             return Err(err);
         }
         
-        Ok(TcpListener::from_std(std::net::TcpListener::from_raw_fd(fd))?)
+        let std_listener = std::net::TcpListener::from_raw_fd(fd);
+        std_listener.set_nonblocking(true)?;
+        Ok(TcpListener::from_std(std_listener)?)
     }
 }
 

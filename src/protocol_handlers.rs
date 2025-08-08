@@ -60,7 +60,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
         let (domain, sockaddr_storage, socklen) = match addr {
             SocketAddr::V4(v4) => {
                 let mut sa: libc::sockaddr_in = std::mem::zeroed();
-                sa.sin_family = libc::AF_INET as u8;
+                sa.sin_family = libc::AF_INET as u16;
                 sa.sin_port = u16::to_be(v4.port());
                 sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(v4.ip().octets()) };
                 let mut storage: libc::sockaddr_storage = std::mem::zeroed();
@@ -69,7 +69,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
             }
             SocketAddr::V6(v6) => {
                 let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
-                sa.sin6_family = libc::AF_INET6 as u8;
+                sa.sin6_family = libc::AF_INET6 as u16;
                 sa.sin6_port = u16::to_be(v6.port());
                 sa.sin6_addr = libc::in6_addr { s6_addr: v6.ip().octets() };
                 sa.sin6_flowinfo = v6.flowinfo();
@@ -124,7 +124,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
             let (bind_ok, bind_ret) = match (ip, addr) {
                 (IpAddr::V4(ipv4), SocketAddr::V4(_)) => {
                     let mut sa: libc::sockaddr_in = std::mem::zeroed();
-                    sa.sin_family = libc::AF_INET as u8;
+                    sa.sin_family = libc::AF_INET as u16;
                     sa.sin_port = 0u16.to_be(); // ephemeral
                     sa.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(ipv4.octets()) };
                     let ret = libc::bind(fd,
@@ -134,7 +134,7 @@ pub async fn connect_via_egress_sys(target: &str) -> io::Result<TcpStream> {
                 }
                 (IpAddr::V6(ipv6), SocketAddr::V6(_)) => {
                     let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
-                    sa.sin6_family = libc::AF_INET6 as u8;
+                    sa.sin6_family = libc::AF_INET6 as u16;
                     sa.sin6_port = 0u16.to_be(); // ephemeral
                     sa.sin6_addr = libc::in6_addr { s6_addr: ipv6.octets() };
                     let ret = libc::bind(fd,

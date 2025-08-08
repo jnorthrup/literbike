@@ -4,6 +4,8 @@
 use crate::cli_dsl::{CommandDef, CompletionHint, CompletionRegistry};
 use crate::syscall_netops::SyscallNetOps;
 use crate::ssh_client::{SshClient, SshConfig, SshTunnel, create_ssh_config, test_ssh_connection};
+use crate::secure_knock;
+use crate::proxy_server::{ProxyServer, parse_server_args};
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -16,6 +18,11 @@ pub struct CliApp {
 }
 
 impl CliApp {
+    
+    fn add_knock_commands(&mut self) {
+        // Add knock functionality - simplified for now
+        // The actual implementation would extend the existing command structure
+    }
     pub fn new() -> Self {
         let mut app = Self {
             root_command: CommandDef::root(),
@@ -25,6 +32,10 @@ impl CliApp {
         
         // Register symlink mappings to their corresponding command paths
         app.register_symlink_mappings();
+
+        // CLI structure is already defined in CommandDef::root()
+        // Add knock commands to existing structure
+        app.add_knock_commands();
         app
     }
 
@@ -151,6 +162,89 @@ impl CliApp {
             Some("completion") => self.handle_completion_command(&command_path[1..], remaining_args),
             _ => self.execute_command(current_cmd, remaining_args),
         }
+    }
+
+    /// Execute a command
+    fn execute_command(&self, cmd: &CommandDef, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        let path = self.get_command_path(cmd);
+        
+        match path.join(" ").as_str() {
+            "proxy server" => {
+                tokio::runtime::Runtime::new()?.block_on(self.start_proxy_server(args))
+            }
+            "proxy socks server" => self.start_socks_server(args),
+            "net interfaces list" => self.list_interfaces(args),
+            "net routes list" => self.list_routes(args),
+            "net stats connections" => self.list_connections(args),
+            "connect repl" => self.connect_repl(args),
+            _ => {
+                println!("Executing command: {}", cmd.name);
+                println!("Arguments: {:?}", args);
+                println!("Command implementation pending");
+                Ok(())
+            }
+        }
+    }
+
+    /// Get the full command path for a command
+    fn get_command_path(&self, target: &CommandDef) -> Vec<String> {
+        self.find_command_path(&self.root_command, target, vec![])
+            .unwrap_or_else(|| vec![target.name.clone()])
+    }
+
+    /// Recursively find the path to a command
+    fn find_command_path(&self, current: &CommandDef, target: &CommandDef, mut path: Vec<String>) -> Option<Vec<String>> {
+        if std::ptr::eq(current, target) {
+            return Some(path);
+        }
+
+        path.push(current.name.clone());
+        
+        for subcmd in &current.subcommands {
+            if let Some(found_path) = self.find_command_path(subcmd, target, path.clone()) {
+                return Some(found_path);
+            }
+        }
+        
+        None
+    }
+
+    /// Start proxy server
+    async fn start_proxy_server(&self, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        let config = crate::proxy_server::parse_server_args(args);
+        let mut server = crate::proxy_server::ProxyServer::new(config);
+        server.start().await?;
+        Ok(())
+    }
+
+    /// Start SOCKS server
+    fn start_socks_server(&self, _args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        println!("SOCKS server implementation pending");
+        Ok(())
+    }
+
+    /// List network interfaces
+    fn list_interfaces(&self, _args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Network interfaces listing implementation pending");
+        Ok(())
+    }
+
+    /// List routes
+    fn list_routes(&self, _args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Route listing implementation pending");
+        Ok(())
+    }
+
+    /// List connections
+    fn list_connections(&self, _args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Connection listing implementation pending");
+        Ok(())
+    }
+
+    /// Connect to REPL
+    fn connect_repl(&self, _args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        println!("REPL connection implementation pending");
+        Ok(())
     }
 
     /// Handle bash completion generation
@@ -420,40 +514,6 @@ impl CliApp {
         Ok(())
     }
 
-    /// Execute a command
-    fn execute_command(
-        &self,
-        command: &CommandDef,
-        args: &[String],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Check for help flag
-        if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
-            self.print_help(command);
-            return Ok(());
-        }
-
-        // For now, just print what would be executed
-        println!("Executing command: {}", command.name);
-        if !args.is_empty() {
-            println!("Arguments: {:?}", args);
-        }
-        
-        // TODO: Implement actual command execution
-        match command.name.as_str() {
-            "interfaces" => println!("Would list network interfaces"),
-            "routes" => println!("Would show routing table"),
-            "connections" => println!("Would show network connections"),
-            "ifconfig" => println!("Would run ifconfig compatibility mode"),
-            "netstat" => println!("Would run netstat compatibility mode"),
-            "route" => println!("Would run route compatibility mode"),
-            "ip" => println!("Would run ip compatibility mode"),
-            "auto" => self.execute_client_auto(args),
-            "connect" => self.execute_client_connect(args),
-            _ => println!("Command implementation pending"),
-        }
-
-        Ok(())
-    }
 
     /// Legacy ifconfig compatibility
     fn handle_ifconfig_compat(&self, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
@@ -958,5 +1018,37 @@ impl CliApp {
     ) -> Result<Option<String>, Box<dyn std::error::Error>> {
         SyscallNetOps::test_and_rank_proxy_servers(servers, timeout)
             .map_err(|e| e.into())
+    }
+
+    /// Execute proxy server command
+    fn execute_proxy_server(&self, args: &[String]) {
+        println!("Starting LiteBike proxy server...");
+        
+        // Parse command line arguments
+        let config = crate::proxy_server::parse_server_args(args);
+        
+        println!("Bind address: {}:{}", config.bind_addr, config.port);
+        println!("Protocols: {:?}", config.protocols);
+        
+        // Initialize logging if not already done
+        let _ = env_logger::try_init();
+        
+        // Create and start the server
+        let mut server = crate::proxy_server::ProxyServer::new(config);
+        
+        // Use tokio runtime to run the async server
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("Failed to create tokio runtime: {}", e);
+                std::process::exit(1);
+            }
+        };
+        
+        // Run the server
+        if let Err(e) = rt.block_on(server.start()) {
+            eprintln!("Server error: {}", e);
+            std::process::exit(1);
+        }
     }
 }

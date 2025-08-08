@@ -97,7 +97,7 @@ async fn connect_via_egress_linux(addr: SocketAddr, egress_name: &str) -> io::Re
         let (sockaddr_ptr, socklen) = match addr {
             SocketAddr::V4(v4) => {
                 let mut sa: libc::sockaddr_in = std::mem::zeroed();
-                sa.sin_family = libc::AF_INET as u8;
+                sa.sin_family = libc::AF_INET as u16;
                 sa.sin_port = u16::to_be(v4.port());
                 sa.sin_addr = libc::in_addr { 
                     s_addr: u32::from_ne_bytes(v4.ip().octets()) 
@@ -109,7 +109,7 @@ async fn connect_via_egress_linux(addr: SocketAddr, egress_name: &str) -> io::Re
             }
             SocketAddr::V6(v6) => {
                 let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
-                sa.sin6_family = libc::AF_INET6 as u8;
+                sa.sin6_family = libc::AF_INET6 as u16;
                 sa.sin6_port = u16::to_be(v6.port());
                 sa.sin6_addr = libc::in6_addr { 
                     s6_addr: v6.ip().octets() 
@@ -195,7 +195,7 @@ fn bind_to_ip(fd: i32, ip: IpAddr, target_addr: &SocketAddr) -> io::Result<()> {
         match (ip, target_addr) {
             (IpAddr::V4(ipv4), SocketAddr::V4(_)) => {
                 let mut sa: libc::sockaddr_in = std::mem::zeroed();
-                sa.sin_family = libc::AF_INET as u8;
+                sa.sin_family = libc::AF_INET as u16;
                 sa.sin_port = 0; // Ephemeral port
                 sa.sin_addr = libc::in_addr { 
                     s_addr: u32::from_ne_bytes(ipv4.octets()) 
@@ -214,7 +214,7 @@ fn bind_to_ip(fd: i32, ip: IpAddr, target_addr: &SocketAddr) -> io::Result<()> {
             }
             (IpAddr::V6(ipv6), SocketAddr::V6(_)) => {
                 let mut sa: libc::sockaddr_in6 = std::mem::zeroed();
-                sa.sin6_family = libc::AF_INET6 as u8;
+                sa.sin6_family = libc::AF_INET6 as u16;
                 sa.sin6_port = 0; // Ephemeral port
                 sa.sin6_addr = libc::in6_addr { 
                     s6_addr: ipv6.octets() 
