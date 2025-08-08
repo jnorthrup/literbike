@@ -1,242 +1,155 @@
-extern crate env_logger;
-pub mod detection_orchestrator;
-// LiteBike Proxy - Universal Protocol Detection Proxy
-// Copyright (c) 2025 jnorthrup
-// 
-// Licensed under AGPL-3.0-or-later
-// Commercial licensing available - contact copyright holder
-//
-// Comprehensive proxy with taxonomical abstractions and protocol detection
-// Supports DoH, UPnP, Bonjour, and extensible protocol handling
+use std::env;
+use std::path::Path;
+use std::process::Command;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str;
-use std::time::Duration;
-use std::io;
-use std::sync::Arc;
+// Import the syscall functionality from our library crate.
+use litebike::syscall_net;
 
-use env_logger::Env;
-use log::{debug, error, info, warn};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::timeout;
- // External DoH resolver removed to minimize cargo surface; system resolver is used instead
+fn main() {
+    let arg0 = env::args().next().unwrap_or_default();
+    let command = Path::new(&arg0)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
 
-use crate::protocol_detector::{ProtocolDetector, Protocol};
-use crate::protocol_handlers::{HttpHandler, Socks5Handler, TlsHandler};
-use crate::protocol_registry::ProtocolHandler;
-use crate::universal_listener::PrefixedStream;
-use crate::libc_socket_tune::{accept_with_options, TcpTuningOptions};
-use crate::repl_handler::ReplHandler;
-use crate::egress_connector::start_health_checker;
-
-mod types;
-mod abstractions;
-// mod doh; // DoH functionality is now in protocol_handlers
-
-mod upnp;
-
-mod bonjour;
-
-mod pac;
-// Temporarily disabled problematic modules for testing
-// mod extended_protocols;
-// mod advanced_protocols;
-// mod fuzzer;
-// mod advanced_fuzzer;
-// mod violent_fuzzer;
-// mod stubs;
-mod universal_listener;
-
-mod auto_discovery;
-mod protocol_detector;
-mod unified_handler;
-mod protocol_registry;
-mod protocol_handlers;
-mod simple_routing;
-mod libc_socket_tune;
-mod libc_listener;
-mod config;
-mod repl_handler;
-mod egress_backoff;
-mod egress_connector;
-
-// --- Configuration ---
-const HTTP_PORT: u16 = 8080;
-const SOCKS_PORT: u16 = 1080;
-const UNIVERSAL_PORT: u16 = 8888;
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const UPNP_LEASE_DURATION: u32 = 3600; // 1 hour
-
-
-/// Universal connection handler with protocol detection
-async fn handle_universal_connection(stream: TcpStream) -> io::Result<()> {
-    // PrefixedStream in this codebase expects an explicit prefix Vec<u8>
-    let mut prefixed_stream = PrefixedStream::new(stream, Vec::new());
-    
-    // Peek at the first few bytes to detect protocol from the inner stream
-    let mut buffer = [0u8; 64];
-    let n = prefixed_stream.inner.peek(&mut buffer).await?;
-    
-    if n == 0 {
-        return Ok(())
-    }
-    
-    let data = &buffer[..n];
-    
-    let detector = ProtocolDetector::new();
-    let (protocol, bytes_consumed) = detector.detect(data);
-
-    // Preload the bytes that were used for detection into the prefix buffer
-    prefixed_stream = PrefixedStream::new(prefixed_stream.inner, data[..bytes_consumed].to_vec());
-
-    match protocol {
-        Protocol::Http => {
-            debug!("Universal port: HTTP detected");
-            // Check for special HTTP-based protocols
-            
-            if pac::is_pac_request(std::str::from_utf8(data).unwrap_or("")).await {
-                info!("Routing to PAC handler");
-                return pac::handle_pac_request(prefixed_stream).await;
-            }
-            
-            
-            if upnp::is_upnp_request(std::str::from_utf8(data).unwrap_or("")).await {
-                info!("Routing to UPnP handler");
-                return upnp::handle_upnp_request(prefixed_stream).await;
-            }
-            
-            HttpHandler::new().handle(prefixed_stream).await
-        },
-        Protocol::Socks5 => {
-            debug!("Universal port: SOCKS5 detected");
-            Socks5Handler::new().handle(prefixed_stream).await
-        },
-        Protocol::Tls => {
-            debug!("Universal port: TLS detected");
-            TlsHandler::new().handle(prefixed_stream).await
-        },
-        Protocol::ProxyProtocol => {
-            debug!("Universal port: PROXY protocol detected - not yet handled");
-            Err(io::Error::new(io::ErrorKind::Other, "PROXY protocol not yet handled"))
-        },
-        Protocol::Http2 => {
-            debug!("Universal port: HTTP/2 detected - not yet handled");
-            Err(io::Error::new(io::ErrorKind::Other, "HTTP/2 not yet handled"))
-        },
-        Protocol::WebSocket => {
-            debug!("Universal port: WebSocket detected - not yet handled");
-            Err(io::Error::new(io::ErrorKind::Other, "WebSocket not yet handled"))
-        },
-        Protocol::Unknown => {
-            debug!("Universal port: Unknown protocol, attempting HTTP as fallback");
-            HttpHandler::new().handle(prefixed_stream).await
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    // Load runtime configuration from environment
-    let cfg = config::Config::from_env();
-
-    // Initialize logging using configured level
-    let env = Env::default().default_filter_or(&cfg.log_level);
-    env_logger::Builder::from_env(env).init();
-
-    // Apply EGRESS_* env side effects for handlers (keeps current handler API unchanged)
-    cfg.apply_env_side_effects();
-
-    // Start background health checker for egress paths
-    start_health_checker().await;
-    info!("Started egress health checker with backoff logic");
-
-    // Build primary route from config overrides
-    let primary = simple_routing::RouteConfig {
-        interface: cfg.interface.clone(),
-        port: cfg.bind_port,
-        bind_addr: cfg.bind_addr,
-        protocols: vec!["all".to_string()],
-        tcp_tuning: Default::default(),
+    match command {
+        "ifconfig" => ifconfig_main(),
+        "ip" => ip_main(),
+        "route" => route_main(),
+        "netstat" => netstat_main(),
+        "lsof" => lsof_main(),
+        "setup-remote" => setup_remote_main(),
+        _ => litebike_main(),
     };
+}
 
-    // Universal listener using simple routing with swlan0 fallback
-    let router = simple_routing::SimpleRouter::with_primary(primary);
-    let (universal_listener, active_config) = router
-        .bind_with_fallback()
-        .await
-        .expect("Failed to bind universal listener");
-
-    info!(
-        "Universal proxy listening on {} (interface: {}) with protocols: {:?}",
-        active_config.socket_addr(),
-        active_config.interface,
-        simple_routing::get_supported_protocols(&active_config)
-    );
-
-    if active_config.interface == "lo" {
-        warn!("Using fallback configuration - primary interface 'swlan0' was not available");
-    }
-
-    
-    tokio::spawn(async {
-        match bonjour::BonjourDiscovery::new() {
-            Ok(bonjour) => {
-                if let Err(e) = bonjour.register_service() {
-                    error!("Failed to register Bonjour service: {}", e);
+/// Main function for `ifconfig` compatibility.
+fn ifconfig_main() {
+    println!("ifconfig command called");
+    // Implementation will go here.
+    match syscall_net::list_interfaces() {
+        Ok(interfaces) => {
+            for (_, iface) in interfaces {
+                println!("Interface: {}", iface.name);
+                for addr in iface.addrs {
+                    println!("  {:?}", addr);
                 }
-
-                for service in bonjour.discover_peers() {
-                    info!("Discovered LiteBike peer: {:?}", service);
-                }
-            }
-            Err(e) => {
-                error!("Failed to initialize Bonjour discovery: {}", e);
             }
         }
-    });
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
 
-    let tcp_tuning = active_config.tcp_tuning.clone();
-    
-    loop {
-        if let Ok((stream, addr)) = accept_with_options(&universal_listener, &tcp_tuning).await {
-            debug!("New connection from {} with TCP tuning applied", addr);
-            tokio::spawn(async move {
-                if let Err(e) = handle_universal_connection(stream).await {
-                    debug!("Universal handler error from {}: {}", addr, e);
-                }
-            });
+/// Main function for `ip` compatibility.
+fn ip_main() {
+    println!("ip command called");
+    // Implementation will go here.
+}
+
+/// Main function for `route` compatibility.
+fn route_main() {
+    println!("route command called");
+    // Implementation will go here.
+}
+
+/// Main function for `netstat` compatibility.
+fn netstat_main() {
+    println!("netstat command called");
+    // Implementation will go here.
+}
+
+/// Main function for `lsof` compatibility.
+fn lsof_main() {
+    println!("lsof command called");
+    // Implementation will go here.
+}
+
+/// Main function for `setup-remote` command.
+fn setup_remote_main() {
+    println!("Setting up remote repository...");
+
+    let gateway_ip = match syscall_net::get_default_gateway() {
+        Ok(ip) => ip,
+        Err(e) => {
+            eprintln!("Error getting default gateway: {}", e);
+            return;
+        }
+    };
+    println!("Default Gateway IP: {}", gateway_ip);
+
+    let cwd_name = match get_cwd_name() {
+        Ok(name) => name,
+        Err(e) => {
+            eprintln!("Error getting current directory name: {}", e);
+            return;
+        }
+    };
+    println!("Current directory name: {}", cwd_name);
+
+    let remote_url = format!("ssh://jim@{}/~/{}", gateway_ip, cwd_name);
+    println!("Remote URL: {}", remote_url);
+
+    // 1. Ensure bare repo exists on remote
+    let ssh_command = format!("mkdir -p ~/{0} && git init --bare ~/{0}", cwd_name);
+    println!("Executing remote command: ssh jim@{} '{}'", gateway_ip, ssh_command);
+
+    let output = Command::new("ssh")
+        .arg("-p").arg("8022")
+        .arg(format!("jim@{}", gateway_ip))
+        .arg(&ssh_command)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                println!("Remote repository initialized successfully.");
+            } else {
+                eprintln!("Error initializing remote repository:");
+                eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+                eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+                return;
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to execute SSH command: {}", e);
+            return;
+        }
+    }
+
+    // 2. Remove existing remote if it exists
+    let _ = Command::new("git").arg("remote").arg("remove").arg("temp_upstream").output();
+
+    // 3. Add new remote
+    let output = Command::new("git").arg("remote").arg("add").arg("temp_upstream").arg(&remote_url).output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                println!("Git remote 'temp_upstream' added successfully.");
+            } else {
+                eprintln!("Error adding git remote:");
+                eprintln!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+                eprintln!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to execute git remote add command: {}", e);
         }
     }
 }
 
-// --- Tests ---
-mod tests {
-    use super::*;
-    use tokio::io::ReadBuf;
+/// Gets the name of the current working directory.
+fn get_cwd_name() -> Result<String, std::io::Error> {
+    let current_dir = env::current_dir()?;
+    let name = current_dir.file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Could not get current directory name"))?;
+    Ok(name)
+}
 
-
-    #[tokio::test]
-    async fn test_http_detection() {
-        let detector = ProtocolDetector::new();
-        
-        assert!(matches!(detector.detect(b"GET / HTTP/1.1\r\n"), Protocol::Http));
-        assert!(matches!(detector.detect(b"POST /api"), Protocol::Http));
-        assert!(matches!(detector.detect(b"CONNECT example.com:443"), Protocol::Http));
-    }
-
-    #[tokio::test]
-    async fn test_socks5_detection() {
-        let detector = ProtocolDetector::new();
-        
-        assert!(matches!(detector.detect(&[0x05, 0x01, 0x00]), Protocol::Socks5));
-    }
-
-    #[tokio::test]
-    async fn test_tls_detection() {
-        let detector = ProtocolDetector::new();
-        
-        assert!(matches!(detector.detect(&[0x16, 0x03, 0x01]), Protocol::Tls));
-        assert!(matches!(detector.detect(&[0x16, 0x03, 0x03]), Protocol::Tls));
-    }
+/// Default main function for `litebike`.
+fn litebike_main() {
+    println!("LiteBike: A resilient, dependency-free network toolkit.");
+    println!("Usage: Call this binary via hardlinks named ifconfig, ip, route, netstat, lsof, or setup-remote.");
 }
