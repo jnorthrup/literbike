@@ -2,13 +2,15 @@
 
 LiteBike is a powerful network toolkit written in Rust. Its mission is to make complex proxying and network bridging as simple and automatic as adding a printer to your network. It's designed to "just work" in the background, handling intricate configurations for you.
 
+This includes intelligently managing network interfaces, with `s?wlan*` typically serving as the default ingress (listening) interface and `rmnet*` as the default egress (outgoing) interface, utilizing backoff logic for reliable mobile data routing.
+
 ## The Core Idea: Zero-Configuration Networking
 
 At the heart of LiteBike is **Bonjour (mDNS)**, the same technology that makes printers and file shares appear automatically on your network. This allows LiteBike to be a true zero-configuration tool:
 
 - **Auto-Discovery:** LiteBike instances automatically find each other on the local network. No need to manually enter IP addresses or hostnames.
 - **Bidirectional Tunneling:** Easily create a network bridge where your Mac can use your phone's mobile data, or your phone can use your Mac's connection—traffic flows wherever it's needed.
-- **Unified Proxy:** A single port (8888 by default) intelligently handles a wide array of protocols, including SOCKS5, HTTP, and DNS over HTTPS (DoH). By default, the proxy binds to `0.0.0.0` to allow connections from other devices on the network.
+- **Unified Proxy on Port 8888:** s?wlan* is default ingress rmnet* is egress with backoff
 - **Effortless Client Setup:** Automatically generates WPAD and PAC files, allowing devices like your Mac to configure themselves to use the proxy with zero clicks.
 
 ## Features
@@ -26,6 +28,8 @@ LiteBike is designed to intelligently manage network interfaces for optimal prox
 
 - **Default Ingress:** The proxy typically listens on WiFi interfaces, often matching patterns like `s?wlan*`.
 - **Default Egress:** Outgoing traffic is routed through mobile data interfaces, commonly `rmnet*`, with built-in backoff logic for reliable connectivity.
+
+s?wlan* is default ingress rmnet* is egress with backoff
 
 ## Installation
 
