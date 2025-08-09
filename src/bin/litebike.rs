@@ -13,7 +13,7 @@ fn main() {
 		"ifconfig" => run_ifconfig(&args[1..]),
 		"ip" => run_ip(&args[1..]),
 		"route" => run_route(),
-		"netstat" => run_netstat(),
+		"netstat" => run_netstat(&args[1..]),
 		_ => {
 			// Default: short help and a quick interfaces print
 			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat)\n");
@@ -105,31 +105,66 @@ fn run_route() {
 	}
 }
 
-fn run_netstat() {
-	println!("Active Internet connections (servers/established) - best-effort");
-	println!("Proto Recv-Q Send-Q Local Address           Foreign Address         State");
+fn run_netstat(args: &[String]) {
+	// Flags: -a (all), -t (tcp), -u (udp), -l (listening), -n (numeric)
+	let mut show_tcp = true;
+	let mut show_udp = true;
+	let mut listening_only = false;
+	let _numeric = true; // always numeric in our output
+	if !args.is_empty() {
+		// Default if filters present but neither -t nor -u provided: show both
+		for a in args {
+			match a.as_str() {
+				"-t" => { show_tcp = true; show_udp = false; },
+				"-u" => { show_udp = true; show_tcp = false; },
+				"-a" => { show_tcp = true; show_udp = true; },
+				"-l" => listening_only = true,
+				_ => {}
+			}
+		}
+	}
 
 	#[cfg(any(target_os = "linux", target_os = "android"))]
 	{
-		if print_proc_net_sockets() {
-			return;
+		use std::fs::File;
+		if File::open("/proc/net/tcp").is_ok() {
+			println!("Active Internet connections (servers/established) - best-effort");
+			println!("Proto Recv-Q Send-Q Local Address           Foreign Address         State");
+			if print_proc_net_sockets_filtered(show_tcp, show_udp, listening_only) { return; }
 		}
 		// Fallback to external tools if /proc is blocked
-		if print_external_netstat(&["ss", "-ant"]) { return; }
-		if print_external_netstat(&["netstat", "-ant"]) { return; }
-		if print_external_netstat(&["busybox", "netstat", "-ant"]) { return; }
+		let mut printed = false;
+		if show_tcp {
+			let tcp_cmd = if listening_only { ["ss", "-lnt"] } else { ["ss", "-ant"] };
+			printed |= print_external_netstat(&tcp_cmd);
+		}
+		if show_udp {
+			let udp_cmd = if listening_only { ["ss", "-lnu"] } else { ["ss", "-anu"] };
+			printed |= print_external_netstat(&udp_cmd);
+		}
+		if printed { return; }
+		if print_external_netstat(&["netstat", "-an"]) { return; }
+		if print_external_netstat(&["busybox", "netstat", "-an"]) { return; }
 		eprintln!("netstat: socket tables not accessible (permissions?)");
+		return;
 	}
 
 	#[cfg(target_os = "macos")]
 	{
-		if print_external_netstat(&["netstat", "-an"]) { return; }
+		// Map our flags to macOS netstat subsets
+		let mut args_vec = vec!["-an"]; // numeric
+		if listening_only { args_vec.push("-l"); }
+		// Note: macOS netstat lacks simple -t/-u, but we can filter via -ptcp/-pudp on some systems.
+		// Keep it simple and show all sockets.
+		if print_external_netstat(&["netstat", args_vec.join(" ").as_str()]) { return; }
 		eprintln!("netstat: external command not available");
+		let _ = (show_tcp, show_udp); // suppress unused warnings if compiled differently
+		return;
 	}
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn print_proc_net_sockets() -> bool {
+fn print_proc_net_sockets_filtered(show_tcp: bool, show_udp: bool, listening_only: bool) -> bool {
 	use std::fs;
 
 	fn parse_hex_ip_port(hex: &str, v6: bool) -> (String, u16) {
@@ -180,7 +215,7 @@ fn print_proc_net_sockets() -> bool {
 		}
 	}
 
-	fn print_file(path: &str, proto: &str, v6: bool) -> bool {
+	fn print_file(path: &str, proto: &str, v6: bool, listening_only: bool) -> bool {
 		let Ok(content) = fs::read_to_string(path) else { return false };
 		for (i, line) in content.lines().enumerate() {
 			if i == 0 { continue; }
@@ -191,7 +226,11 @@ fn print_proc_net_sockets() -> bool {
 			let st = state_str(cols[3]);
 			// Filter: show LISTEN/ESTABLISHED for TCP, and all for UDP
 			if proto.starts_with("TCP") {
-				if st != "LISTEN" && st != "ESTABLISHED" { continue; }
+				if listening_only {
+					if st != "LISTEN" { continue; }
+				} else if st != "LISTEN" && st != "ESTABLISHED" {
+					continue;
+				}
 			}
 			println!(
 				"{:<5} {:>5} {:>5} {:<22} {:<22} {}",
@@ -207,10 +246,14 @@ fn print_proc_net_sockets() -> bool {
 	}
 
 	let mut any = false;
-	any |= print_file("/proc/net/tcp", "TCP", false);
-	any |= print_file("/proc/net/tcp6", "TCP6", true);
-	any |= print_file("/proc/net/udp", "UDP", false);
-	any |= print_file("/proc/net/udp6", "UDP6", true);
+	if show_tcp {
+		any |= print_file("/proc/net/tcp", "TCP", false, listening_only);
+		any |= print_file("/proc/net/tcp6", "TCP6", true, listening_only);
+	}
+	if show_udp {
+		any |= print_file("/proc/net/udp", "UDP", false, false);
+		any |= print_file("/proc/net/udp6", "UDP6", true, false);
+	}
 	any
 }
 
