@@ -1,41 +1,106 @@
-# LiteBike: Resilient Network Toolkit
+# litebike
 
-This project is a ground-up rewrite focused on creating a maximally resilient, portable, and dependency-free set of network utilities. Our development is guided by the following core priorities.
+Low-level, cross-platform networking primitives and building blocks for proxying and tunnel tools. Focused on direct syscalls (via `libc`) for Linux/Android/macOS environments, including constrained/locked-down devices.
 
-## Core Priorities@
+## Highlights
 
-### 1. Stealth Command & Control on Port 8888
+- Universal listener target (port 8888) for multi-protocol frontends (HTTP/SOCKS5/TLS/DoH)
+- Auto-detection of TERMUX host from routing table (Android/Termux scenarios)
+- SSH localhost forwarding for easy access in remote-dev workflows
+- System proxy helpers (macOS), Git proxy wiring, and PAC/WPAD auto-configuration support (targets)
+- Bonjour/mDNS service advertisement and UPnP port mapping for NAT traversal (targets)
+- Rust + libc POSIX syscalls for portable, minimal dependencies
 
-*   **Goal:** Establish a   data tunneling channel which is harmless and lacks any security apis or claims, excepting what is proxied with libssl.when the host is a default port on 8888 we can optimize this to nc or ssh tunnelling from localhost 8888 
+Note: Some bullets above are project goals and/or test utilities; the crate currently exposes a syscall-oriented library (`syscall_net`) and foundational types/config for higher-level components.
 
-### 2. Foundational Network Tools on Direct Syscalls
+## Repo layout
 
-*   **Goal:** Build all network utilities directly on kernel-level syscalls for ultimate portability and resilience.
-*   **Implementation:**
-    *   All core logic for interface enumeration, address management, and socket operations will be implemented in `src/syscall_net.rs`.
-    *   We will bypass standard libraries where possible, interacting directly with the OS via the `libc` crate to avoid abstractions and potential points of failure or restriction.
+- `src/syscall_net.rs` — direct-syscall networking (sockets, interfaces, default route)
+- `src/types.rs` — enums and helpers for protocols, addresses, flags
+- `src/config.rs` — env-configurable runtime options
+- `tests/` — integration/unit/bench scaffolding (work in progress)
 
-### 3. Rigorous Interface Compatibility Testing
+## Quick start
 
-*   **Goal:** Ensure the network tools are reliable across a wide spectrum of real-world and virtual network configurations.
-*   **Implementation:**
-    *   **Legacy Interfaces:** Test against standard hardware interfaces (`en0`, `eth0`).
-    *   **Alternate Interfaces:** Validate functionality on virtual interfaces (VPNs, tunnels), aggregated links, and platform-specific interfaces (e.g., Android's `rmnet_data`, `swlan0`).
+Build:
 
-### 4. Self-Contained, Minimal TLS
+```bash
+cargo build
+```
 
-*   **Goal:** Implement the necessary TLS 1.3 components for the C2 channel without relying on external cryptographic libraries like OpenSSL.
-*   **Implementation:**
-    *   Develop a minimal, self-contained TLS handshake and record layer processing logic.
-    *   Source and integrate basic, audited cryptographic primitives for AES and ChaCha20 directly into the codebase, ensuring no external library dependencies are needed.
+Run tests:
 
-### 5. Zero-Dependency Binary
+```bash
+cargo test
+```
 
-*   **Goal:** Create a single, static, and highly portable binary with no external runtime dependencies.
-*   **Implementation:**
-    *   The only compile-time dependency is `libc`, the direct interface to the kernel.
-    *   The final compiled binary will be self-contained, requiring nothing more than a compatible kernel to run. This eliminates supply chain risks and maximizes portability.
+Use as a library (path dependency example):
 
-### 6. Temporary Git Remote Management
+```toml
+[dependencies]
+litebike = { path = "../litebike" }
+```
 
-#6 temporary git remote e.g. deploying to host using ssh and git
+### Minimal example: list interfaces and default gateway
+
+```rust
+use litebike::syscall_net::{list_interfaces, get_default_gateway};
+
+fn main() -> std::io::Result<()> {
+  let ifaces = list_interfaces()?;
+  for (name, iface) in ifaces {
+    println!("{}: {:?}", name, iface.addrs);
+  }
+
+  if let Ok(gw) = get_default_gateway() {
+    println!("Default gateway: {}", gw);
+  }
+  Ok(())
+}
+```
+
+## Configuration
+
+The `Config` struct reads from environment variables. Set any of the following to override defaults:
+
+- `LITEBIKE_BIND_PORT` (default `8888`)
+- `LITEBIKE_INTERFACE` (default `swlan0`)
+- `LITEBIKE_LOG` (default `info`)
+- `LITEBIKE_FEATURES` (comma-separated list)
+- `EGRESS_INTERFACE` (default iface route to 8.8.8.8)
+
+second choices
+
+- `EGRESS_BIND_IP` (default route to 8.8.8.8 IP)
+- `LITEBIKE_BIND_ADDR` ( TERMUX_HOST)
+Example:
+
+```bash
+   LITEBIKE_INTERFACE='SWLAN0:' \
+LITEBIKE_BIND_PORT=8888 \
+LITEBIKE_LOG=debug \
+cargo run --example your_app
+```
+
+## Remote development (Android/Termux)
+
+SSH into Termux and optionally forward the universal port 8888 back to your host:
+
+```bash
+ssh u0_a471@192.168.225.152 -p 8022 -L 8888:192.168.225.152:8888
+```
+
+This enables pushing to a temporary remote, running on the device, and iterating from the host. Adjust username/IP as needed.
+
+## macOS notes
+
+- Default-gateway detection uses `netstat` under the hood today.
+- System proxy/PAC helpers are roadmap items; some tests/utilities may reference them.
+
+## License
+
+See `LICENSE`, `COPYING`, `COMMERCIAL.md`, and `COMMERCIAL-LICENSE.md`. Some functionality may be dual-licensed for commercial use.
+
+## Security
+
+This crate exposes raw syscalls and socket operations. Review and test thoroughly before deploying to production or locked-down environments.

@@ -30,11 +30,6 @@ impl Config {
     pub fn from_env() -> Self {
         let mut cfg = Config::default();
 
-        if let Ok(v) = env::var("LITEBIKE_BIND_ADDR") {
-            if let Ok(ip) = v.parse() {
-                cfg.bind_addr = ip;
-            }
-        }
         if let Ok(v) = env::var("LITEBIKE_BIND_PORT") {
             if let Ok(p) = v.parse() {
                 cfg.bind_port = p;
@@ -43,6 +38,11 @@ impl Config {
         if let Ok(v) = env::var("LITEBIKE_INTERFACE") {
             if !v.trim().is_empty() {
                 cfg.interface = v;
+            }
+        }else 
+        if let Ok(v) = env::var("LITEBIKE_BIND_ADDR") {
+            if let Ok(ip) = v.parse() {
+                cfg.bind_addr = ip;
             }
         }
         if let Ok(v) = env::var("LITEBIKE_LOG") {

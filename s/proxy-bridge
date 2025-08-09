@@ -19,7 +19,7 @@ NC='\033[0m'
 : ${TERMUX_USER:=u0_a471}
 
 # Litebike path
-LITEBIKE="$HOME/litebike-proxy"
+LITEBIKE="./target/release/litebike"
 
 detect_platform() {
     if [[ "$PREFIX" == *"com.termux"* ]]; then
@@ -109,18 +109,7 @@ start_server() {
     local mode="${1:-default}"
     echo -e "${GREEN}Starting litebike server...${NC}"
     
-    # Build if needed
-    if [ ! -x "$LITEBIKE" ]; then
-        echo -e "${YELLOW}Building litebike...${NC}"
-        if [ -d "$HOME/litebike" ]; then
-            cd "$HOME/litebike"
-            cargo build --release || exit 1
-            cp target/release/litebike-proxy "$HOME/"
-        else
-            echo -e "${RED}Error: litebike source not found${NC}"
-            exit 1
-        fi
-    fi
+    
     
     # Kill existing proxies
     pkill -f litebike-proxy 2>/dev/null || true
