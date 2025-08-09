@@ -22,6 +22,25 @@ pub fn get_default_gateway() -> io::Result<Ipv4Addr> {
     Err(io::Error::new(io::ErrorKind::Other, "Unsupported OS for getting default gateway"))
 }
 
+/// Best-effort discovery of the default local IPv4 address by opening a UDP socket
+/// to common public IPs and reading the chosen local address. This does not send any packets.
+pub fn get_default_local_ipv4() -> io::Result<Ipv4Addr> {
+    use std::net::{SocketAddr, UdpSocket};
+
+    let sock = UdpSocket::bind(("0.0.0.0", 0))?;
+    let targets = [("1.1.1.1", 80u16), ("8.8.8.8", 80u16), ("9.9.9.9", 80u16)];
+    for (host, port) in targets {
+        if sock.connect((host, port)).is_ok() {
+            if let Ok(local) = sock.local_addr() {
+                if let SocketAddr::V4(sa) = local {
+                    return Ok(*sa.ip());
+                }
+            }
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::Other, "unable to determine local IPv4"))
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn parse_proc_net_route() -> io::Result<Ipv4Addr> {
     use std::fs::File;

@@ -1,4 +1,4 @@
-use litebike::syscall_net::{get_default_gateway, list_interfaces, InterfaceAddr};
+use litebike::syscall_net::{get_default_gateway, get_default_local_ipv4, list_interfaces, InterfaceAddr};
 use std::env;
 use std::path::Path;
 
@@ -83,13 +83,20 @@ fn run_ip(args: &[String]) {
 }
 
 fn run_route() {
-	match get_default_gateway() {
-		Ok(gw) => {
-			println!("Kernel IP routing table");
-			println!("Destination     Gateway         Genmask         Flags Metric Ref    Use Iface");
-			println!("0.0.0.0         {:<15} 0.0.0.0         UG    0      0        0 -", gw);
+	let gw = get_default_gateway();
+	println!("Kernel IP routing table");
+	println!("Destination     Gateway         Genmask         Flags Metric Ref    Use Iface");
+	match gw {
+		Ok(gw) => println!(
+			"0.0.0.0         {:<15} 0.0.0.0         UG    0      0        0 -",
+			gw
+		),
+		Err(e) => {
+			eprintln!("route: {}", e);
+			if let Ok(ip) = get_default_local_ipv4() {
+				println!("(hint) default local IPv4: {} (gateway likely {}.1)", ip, ip.to_string().rsplit('.').skip(1).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("."));
+			}
 		}
-		Err(e) => eprintln!("route: {}", e),
 	}
 }
 
