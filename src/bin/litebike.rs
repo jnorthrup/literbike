@@ -111,6 +111,8 @@ fn run_netstat(args: &[String]) {
 	let mut show_udp = true;
 	let mut listening_only = false;
 	let _numeric = true; // always numeric in our output
+	let mut show_routes = false;
+	let mut show_ifaces = false;
 	if !args.is_empty() {
 		// Default if filters present but neither -t nor -u provided: show both
 		for a in args {
@@ -119,10 +121,15 @@ fn run_netstat(args: &[String]) {
 				"-u" => { show_udp = true; show_tcp = false; },
 				"-a" => { show_tcp = true; show_udp = true; },
 				"-l" => listening_only = true,
+				"-r" => show_routes = true,
+				"-i" => show_ifaces = true,
 				_ => {}
 			}
 		}
 	}
+
+	if show_routes { return run_netstat_route(); }
+	if show_ifaces { return run_netstat_interfaces(); }
 
 	#[cfg(any(target_os = "linux", target_os = "android"))]
 	{
@@ -143,8 +150,8 @@ fn run_netstat(args: &[String]) {
 			printed |= print_external_netstat(&udp_cmd);
 		}
 		if printed { return; }
-		if print_external_netstat(&["netstat", "-an"]) { return; }
-		if print_external_netstat(&["busybox", "netstat", "-an"]) { return; }
+	if print_external_netstat(&["netstat", "-an"]) { return; }
+	if print_external_netstat(&["busybox", "netstat", "-an"]) { return; }
 		eprintln!("netstat: socket tables not accessible (permissions?)");
 		return;
 	}
@@ -152,7 +159,7 @@ fn run_netstat(args: &[String]) {
 	#[cfg(target_os = "macos")]
 	{
 		// Map our flags to macOS netstat subsets
-		let mut args_vec = vec!["-an"]; // numeric
+	let mut args_vec = vec!["-an"]; // numeric
 		if listening_only { args_vec.push("-l"); }
 		// Note: macOS netstat lacks simple -t/-u, but we can filter via -ptcp/-pudp on some systems.
 		// Keep it simple and show all sockets.
@@ -265,11 +272,67 @@ fn print_external_netstat(cmd: &[&str]) -> bool {
 	if let Ok(out) = Command::new(prog).args(args).output() {
 		if out.status.success() {
 			let text = String::from_utf8_lossy(&out.stdout);
-			for line in text.lines().take(100) {
-				println!("{}", line);
+			let lines: Vec<&str> = text.lines().collect();
+			let non_empty = lines.iter().filter(|l| !l.trim().is_empty()).count();
+			if non_empty >= 3 {
+				for line in lines.into_iter().take(100) {
+					println!("{}", line);
+				}
+				return true;
 			}
-			return true;
 		}
 	}
 	false
+}
+
+fn run_netstat_route() {
+	println!("Routing tables");
+	println!("Destination        Gateway            Flags  Refs    Use  Iface");
+	match get_default_gateway() {
+		Ok(gw) => println!("default            {:<16} UG     0       0    -", gw),
+		Err(e) => {
+			eprintln!("netstat -r: {}", e);
+			if let Ok(ip) = get_default_local_ipv4() {
+				// Show a hint row even if gateway is blocked
+				let ip_s = ip.to_string();
+				let octets: Vec<&str> = ip_s.split('.').collect();
+				if octets.len() == 4 {
+					println!("(hint) default local IPv4 {} (gw likely {}.1)", ip, [octets[0], octets[1], octets[2]].join("."));
+				}
+			}
+		}
+	}
+}
+
+fn run_netstat_interfaces() {
+	println!("Kernel Interface table");
+	println!("Iface   Flags    Index   IPv4              IPv6 count  MAC");
+	match list_interfaces() {
+		Ok(ifaces) => {
+			for (name, iface) in ifaces {
+				let ipv4s: Vec<String> = iface
+					.addrs
+					.iter()
+					.filter_map(|a| if let InterfaceAddr::V4(ip) = a { Some(ip.to_string()) } else { None })
+					.collect();
+				let v6count = iface.addrs.iter().filter(|a| matches!(a, InterfaceAddr::V6(_))).count();
+				let mac = iface
+					.addrs
+					.iter()
+					.find_map(|a| if let InterfaceAddr::Link(m) = a { Some(m.clone()) } else { None })
+					.map(|m| format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m.get(0).copied().unwrap_or(0), m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0), m.get(3).copied().unwrap_or(0), m.get(4).copied().unwrap_or(0), m.get(5).copied().unwrap_or(0)))
+					.unwrap_or_else(|| "-".to_string());
+				println!(
+					"{:<6} 0x{:04x}  {:<6} {:<17} {:<10} {}",
+					name,
+					iface.flags,
+					iface.index,
+					ipv4s.get(0).cloned().unwrap_or_else(|| "-".to_string()),
+					v6count,
+					mac
+				);
+			}
+		}
+		Err(e) => eprintln!("netstat -i: {}", e),
+	}
 }
