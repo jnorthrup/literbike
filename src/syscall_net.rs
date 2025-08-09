@@ -113,6 +113,82 @@ pub fn find_iface_by_ipv4(ip: Ipv4Addr) -> Option<String> {
     None
 }
 
+/// Classify an IPv4 address into categories useful for network domain summaries.
+/// Returns one of: "private", "cgnat", "loopback", "link-local", "broadcast", "multicast", "public".
+pub fn classify_ipv4(ip: Ipv4Addr) -> &'static str {
+    let o = ip.octets();
+    // Loopback 127.0.0.0/8
+    if o[0] == 127 { return "loopback"; }
+    // Link-local 169.254.0.0/16
+    if o[0] == 169 && o[1] == 254 { return "link-local"; }
+    // Broadcast
+    if ip == Ipv4Addr::new(255,255,255,255) { return "broadcast"; }
+    // Multicast 224.0.0.0/4
+    if (o[0] & 0b1111_0000) == 0b1110_0000 { return "multicast"; }
+    // RFC1918 private ranges
+    if o[0] == 10 { return "private"; }
+    if o[0] == 172 && (16..=31).contains(&o[1]) { return "private"; }
+    if o[0] == 192 && o[1] == 168 { return "private"; }
+    // CGNAT 100.64.0.0/10
+    if o[0] == 100 && (64..=127).contains(&o[1]) { return "cgnat"; }
+    "public"
+}
+
+/// Classify IPv6 address scope. Returns one of: "loopback", "unspecified", "link-local",
+/// "unique-local", "multicast", or "global".
+pub fn classify_ipv6(ip: Ipv6Addr) -> &'static str {
+    if ip.is_loopback() { return "loopback"; }
+    if ip.is_unspecified() { return "unspecified"; }
+    if ip.is_unicast_link_local() { return "link-local"; }
+    // Unique local fc00::/7
+    if (ip.octets()[0] & 0xfe) == 0xfc { return "unique-local"; }
+    // Multicast ff00::/8
+    if ip.segments()[0] & 0xff00 == 0xff00 { return "multicast"; }
+    "global"
+}
+
+/// On Android, query a small set of getprop keys that hint the carrier/APN and SIM/operator.
+/// Returns non-empty key/value pairs. On non-Android platforms, returns an empty map.
+pub fn android_carrier_props() -> HashMap<String, String> {
+    #[allow(unused_mut)]
+    let mut out: HashMap<String, String> = HashMap::new();
+    #[cfg(any(target_os = "android"))]
+    {
+        use std::process::Command;
+        let keys = [
+            // Active operator and SIM info
+            "gsm.operator.alpha",
+            "gsm.operator.numeric",
+            "gsm.operator.iso-country",
+            "gsm.sim.operator.alpha",
+            "gsm.sim.operator.numeric",
+            "gsm.sim.operator.iso-country",
+            // APN/profile hints (may be empty on managed devices)
+            "ril.apn",
+            "ril.data.profile",
+            "persist.radio.apn",
+            // Subscription/carrier IDs (AOSP hints)
+            "persist.radio.carrier_name",
+            "persist.radio.carrier_id",
+            // Build/brand carrier overlays
+            "ro.carrier",
+            "ro.product.brand",
+        ];
+        for k in keys {
+            if let Ok(o) = Command::new("getprop").arg(k).output() {
+                if o.status.success() {
+                    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if !v.is_empty() { out.insert(k.to_string(), v); }
+                }
+            }
+        }
+
+        // As a fallback, try to detect the active data APN name from ip rule comments (rare) or netId mapping.
+        // No-op here; kept minimal due to policy restrictions.
+    }
+    out
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn parse_proc_net_route() -> io::Result<Ipv4Addr> {
     use std::fs::File;

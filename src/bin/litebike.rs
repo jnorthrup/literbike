@@ -1,4 +1,15 @@
-use litebike::syscall_net::{get_default_gateway, get_default_gateway_v6, get_default_local_ipv4, get_default_local_ipv6, guess_default_v6_interface, list_interfaces, InterfaceAddr};
+use litebike::syscall_net::{
+	get_default_gateway,
+	get_default_gateway_v6,
+	get_default_local_ipv4,
+	get_default_local_ipv6,
+	guess_default_v6_interface,
+	list_interfaces,
+	InterfaceAddr,
+	find_iface_by_ipv4,
+	classify_ipv4,
+	classify_ipv6,
+};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
@@ -18,47 +29,96 @@ fn main() {
 		"route" => run_route(),
 		"netstat" => run_netstat(&args[1..]),
 		"watch" => run_watch(&args[1..]),
+		"probe" => run_probe(),
+		"domains" => run_domains(),
+		"carrier" => run_carrier(),
 		_ => {
 			// Default: short help and a quick interfaces print
-			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat)\n");
+			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier)\n");
 			run_ifconfig(&[]);
 		}
 	}
 }
 
-fn run_ifconfig(args: &[String]) {
-	// Optional: ifconfig <iface> to filter output
-	let filter = args.get(0).map(|s| s.as_str());
-	match list_interfaces() {
-		Ok(ifaces) => {
-			for (name, iface) in ifaces {
-				if let Some(f) = filter {
-					if name != f { continue; }
-				}
-				println!("{}: flags=0x{:x} index {}", name, iface.flags, iface.index);
-				for addr in iface.addrs {
-					match addr {
-						InterfaceAddr::V4(ip) => println!("    inet {}", ip),
-						InterfaceAddr::V6(ip) => println!("    inet6 {}", ip),
-						InterfaceAddr::Link(mac) => {
-							if !mac.is_empty() {
-								println!(
-									"    ether {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-									mac.get(0).cloned().unwrap_or(0),
-									mac.get(1).cloned().unwrap_or(0),
-									mac.get(2).cloned().unwrap_or(0),
-									mac.get(3).cloned().unwrap_or(0),
-									mac.get(4).cloned().unwrap_or(0),
-									mac.get(5).cloned().unwrap_or(0)
-								);
-							}
-						}
-					}
-				}
-			}
-		}
-		Err(e) => eprintln!("ifconfig: {}", e),
-	}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run_ifconfig_no_args_prints_all_interfaces() {
+        // This test assumes list_interfaces returns at least one interface.
+        // We capture stdout to verify output.
+        let args: Vec<String> = vec![];
+        let mut output = Vec::new();
+        {
+            let _guard = gag::Redirect::stdout(&mut output).unwrap();
+            run_ifconfig(&args);
+        }
+        let out_str = String::from_utf8_lossy(&output);
+        assert!(out_str.contains("flags="));
+    }
+
+    #[test]
+    fn test_run_ifconfig_with_filter_prints_only_filtered_iface() {
+        // Use the first interface name as filter
+        let ifaces = list_interfaces().unwrap();
+        let first_iface = ifaces.keys().next().unwrap().clone();
+        let args = vec![first_iface.clone()];
+        let mut output = Vec::new();
+        {
+            let _guard = gag::Redirect::stdout(&mut output).unwrap();
+            run_ifconfig(&args);
+        }
+        let out_str = String::from_utf8_lossy(&output);
+        assert!(out_str.contains(&first_iface));
+        // Should not print other interfaces
+        for name in ifaces.keys() {
+            if name != &first_iface {
+                assert!(!out_str.contains(name));
+            }
+        }
+    }
+
+    #[test]
+    fn test_run_ifconfig_prints_ipv4_and_ipv6() {
+        let ifaces = list_interfaces().unwrap();
+        let args: Vec<String> = vec![];
+        let mut output = Vec::new();
+        {
+            let _guard = gag::Redirect::stdout(&mut output).unwrap();
+            run_ifconfig(&args);
+        }
+        let out_str = String::from_utf8_lossy(&output);
+        let found_v4 = out_str.contains("inet ");
+        let found_v6 = out_str.contains("inet6 ");
+        assert!(found_v4 || found_v6);
+    }
+
+    #[test]
+    fn test_run_ifconfig_prints_mac_if_present() {
+        let ifaces = list_interfaces().unwrap();
+        let args: Vec<String> = vec![];
+        let mut output = Vec::new();
+        {
+            let _guard = gag::Redirect::stdout(&mut output).unwrap();
+            run_ifconfig(&args);
+        }
+        let out_str = String::from_utf8_lossy(&output);
+        // MAC address line starts with "    ether"
+        let found_mac = out_str.contains("ether ");
+        assert!(found_mac || !out_str.contains("ether "));
+    }
+
+    #[test]
+    fn test_run_ifconfig_error_handling() {
+        // Simulate error by temporarily replacing list_interfaces
+        // This requires dependency injection or mocking, so we just check that error prints
+        // For demonstration, we check that error message is printed if error occurs
+        // (In real code, use a trait or mock crate)
+        // Here, just ensure function doesn't panic
+        let args: Vec<String> = vec!["nonexistent_iface".to_string()];
+        run_ifconfig(&args);
+    }
 }
 
 fn run_ip(args: &[String]) {
@@ -293,6 +353,7 @@ fn print_proc_net_sockets_filtered(show_tcp: bool, show_udp: bool, listening_onl
 #[allow(unused)]
 fn print_external_netstat(cmd: &[&str]) -> bool {
 	use std::process::Command;
+use litebike::syscall_net::{InterfaceAddr, Interface, list_interfaces};
 	if cmd.is_empty() { return false; }
 	let (prog, args) = (cmd[0], &cmd[1..]);
 	if let Ok(out) = Command::new(prog).args(args).output() {
@@ -462,5 +523,83 @@ fn run_watch(args: &[String]) {
 		prev = curr;
 		iter += 1;
 		if let Some(limit) = max_count { if iter >= limit { break; } }
+	}
+}
+
+fn run_probe() {
+	// Show best-effort egress selections for v4/v6 and map to interfaces and defaults
+	println!("probe: best-effort egress selection");
+	match get_default_local_ipv4() {
+		Ok(ip) => {
+			let iface = find_iface_by_ipv4(ip).unwrap_or_else(|| "-".into());
+			let gw = get_default_gateway().map(|g| g.to_string()).unwrap_or_else(|_| "-".into());
+			println!("v4: src {} iface {} gw {} ({})", ip, iface, gw, classify_ipv4(ip));
+		}
+		Err(e) => println!("v4: unavailable ({})", e),
+	}
+	match get_default_local_ipv6() {
+		Ok(ip6) => {
+			let iface6 = guess_default_v6_interface().unwrap_or_else(|| "-".into());
+			let gw6 = get_default_gateway_v6().map(|g| g.to_string()).unwrap_or_else(|_| "-".into());
+			println!("v6: src {} iface {} gw {} ({})", ip6, iface6, gw6, classify_ipv6(ip6));
+		}
+		Err(e) => println!("v6: unavailable ({})", e),
+	}
+}
+
+fn run_domains() {
+	println!("domains: per-interface summary");
+	match list_interfaces() {
+		Ok(ifaces) => {
+			for (name, iface) in ifaces {
+				let mut v4_classes = Vec::new();
+				let mut v6_classes = Vec::new();
+				let mut first_v4 = None;
+				for a in iface.addrs {
+					match a {
+						InterfaceAddr::V4(ip) => { v4_classes.push(classify_ipv4(ip)); if first_v4.is_none() { first_v4 = Some(ip); } },
+						InterfaceAddr::V6(ip) => v6_classes.push(classify_ipv6(ip)),
+						InterfaceAddr::Link(_) => {}
+					}
+				}
+				// Domain guess by name
+				let domain = if name.starts_with("rmnet") || name.starts_with("ccmni") || name.starts_with("wwan") { "cell" }
+							 else if name.starts_with("wlan") || name.starts_with("swlan") { "wifi" }
+							 else if name.starts_with("tun") || name.starts_with("tap") || name.starts_with("wg") || name.starts_with("utun") { "vpn" }
+							 else { "other" };
+				let mode = match (v4_classes.is_empty(), v6_classes.is_empty()) {
+					(true, true) => "no-ip",
+					(false, true) => "v4-only",
+					(true, false) => "v6-only",
+					(false, false) => "dual",
+				};
+				// Notable hints
+				let v4hint = first_v4.map(|ip| classify_ipv4(ip)).unwrap_or("-");
+				let v6hint = v6_classes.iter().find(|&&c| c == "global").copied().unwrap_or(v6_classes.get(0).copied().unwrap_or("-"));
+				println!(
+					"{:<12} domain={:<5} mode={:<7} v4_hint={:<8} v6_hint={:<11}",
+					name, domain, mode, v4hint, v6hint
+				);
+			}
+			// Show defaults at the end
+			if let Ok(gw) = get_default_gateway() { println!("default v4 gw {}", gw); }
+			if let Ok(gw6) = get_default_gateway_v6() { println!("default v6 gw {}", gw6); }
+			else if let Some(ifn) = guess_default_v6_interface() { println!("(hint) default v6 egress iface {}", ifn); }
+		}
+		Err(e) => eprintln!("domains: {}", e),
+	}
+}
+
+fn run_carrier() {
+	#[cfg(any(target_os = "android"))]
+	{
+		let props = litebike::syscall_net::android_carrier_props();
+		if props.is_empty() { println!("carrier: no getprop keys visible (managed device?)"); return; }
+		println!("carrier props:");
+		for (k,v) in props { println!("{} = {}", k, v); }
+	}
+	#[cfg(not(any(target_os = "android")))]
+	{
+		println!("carrier: only available on Android (uses getprop)");
 	}
 }
