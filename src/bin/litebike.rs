@@ -15,6 +15,8 @@ use std::env;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use std::thread;
+use std::fs;
+use std::time::SystemTime;
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
@@ -32,11 +34,47 @@ fn main() {
 		"probe" => run_probe(),
 		"domains" => run_domains(),
 		"carrier" => run_carrier(),
+		"snapshot" => run_snapshot(&args[1..]),
 		_ => {
 			// Default: short help and a quick interfaces print
-			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier)\n");
+			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | snapshot)\n");
 			run_ifconfig(&[]);
 		}
+	}
+}
+
+fn run_ifconfig(args: &[String]) {
+	// Optional: ifconfig <iface> to filter output
+	let filter = args.get(0).map(|s| s.as_str());
+	match list_interfaces() {
+		Ok(ifaces) => {
+			for (name, iface) in ifaces {
+				if let Some(f) = filter {
+					if name != f { continue; }
+				}
+				println!("{}: flags=0x{:x} index {}", name, iface.flags, iface.index);
+				for addr in iface.addrs {
+					match addr {
+						InterfaceAddr::V4(ip) => println!("    inet {}", ip),
+						InterfaceAddr::V6(ip) => println!("    inet6 {}", ip),
+						InterfaceAddr::Link(mac) => {
+							if !mac.is_empty() {
+								println!(
+									"    ether {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+									mac.get(0).cloned().unwrap_or(0),
+									mac.get(1).cloned().unwrap_or(0),
+									mac.get(2).cloned().unwrap_or(0),
+									mac.get(3).cloned().unwrap_or(0),
+									mac.get(4).cloned().unwrap_or(0),
+									mac.get(5).cloned().unwrap_or(0)
+								);
+							}
+						}
+					}
+				}
+			}
+		}
+		Err(e) => eprintln!("ifconfig: {}", e),
 	}
 }
 
@@ -602,4 +640,105 @@ fn run_carrier() {
 	{
 		println!("carrier: only available on Android (uses getprop)");
 	}
+}
+
+fn run_snapshot(args: &[String]) {
+	// Usage: snapshot [label words...]
+	let label = if args.is_empty() { "unnamed".to_string() } else { args.join(" ") };
+	let sanitized: String = label.chars().map(|c| if c.is_ascii_alphanumeric() { c } else if c.is_whitespace() { '_' } else { '-' }).collect();
+	let ts = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+	let dir = Path::new("docs").join("snapshots");
+	if let Err(e) = fs::create_dir_all(&dir) { eprintln!("snapshot: cannot create dir {}: {}", dir.display(), e); return; }
+	let path = dir.join(format!("{}-{}.txt", ts, sanitized));
+	let mut out = String::new();
+	out.push_str(&format!("carrier snapshot: {}\n", label));
+	out.push_str(&format!("timestamp: {}\n\n", ts));
+
+	// Interfaces (condensed)
+	out.push_str("[interfaces]\n");
+	match list_interfaces() {
+		Ok(ifaces) => {
+			for (name, iface) in ifaces {
+				let mut v4s = Vec::new(); let mut v6s = Vec::new(); let mut mac = String::new();
+				for a in iface.addrs {
+					match a {
+						InterfaceAddr::V4(ip) => v4s.push(ip.to_string()),
+						InterfaceAddr::V6(ip) => v6s.push(ip.to_string()),
+						InterfaceAddr::Link(m) => if mac.is_empty() { mac = format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m.get(0).copied().unwrap_or(0), m.get(1).copied().unwrap_or(0), m.get(2).copied().unwrap_or(0), m.get(3).copied().unwrap_or(0), m.get(4).copied().unwrap_or(0), m.get(5).copied().unwrap_or(0)); },
+					}
+				}
+				out.push_str(&format!("{} flags=0x{:x} idx={} v4=[{}] v6=[{}] mac={}\n", name, iface.flags, iface.index, v4s.join(","), v6s.join(","), if mac.is_empty() { "-".into() } else { mac }));
+			}
+		}
+		Err(e) => out.push_str(&format!("error: {}\n", e)),
+	}
+	out.push('\n');
+
+	// Defaults and probe
+	out.push_str("[defaults]\n");
+	match get_default_gateway() { Ok(gw) => out.push_str(&format!("v4_gw={}\n", gw)), Err(e) => out.push_str(&format!("v4_gw=error({})\n", e)), }
+	match get_default_gateway_v6() { Ok(gw6) => out.push_str(&format!("v6_gw={}\n", gw6)), Err(_) => { if let Some(ifn) = guess_default_v6_interface() { out.push_str(&format!("v6_iface_hint={}\n", ifn)); } else { out.push_str("v6=unavailable\n"); } } }
+	out.push('\n');
+
+	out.push_str("[probe]\n");
+	match get_default_local_ipv4() {
+		Ok(ip) => {
+			let iface = find_iface_by_ipv4(ip).unwrap_or_else(|| "-".into());
+			let cls = classify_ipv4(ip);
+			out.push_str(&format!("v4 src={} iface={} class={}\n", ip, iface, cls));
+		}
+		Err(e) => out.push_str(&format!("v4 error={}\n", e)),
+	}
+	match get_default_local_ipv6() {
+		Ok(ip6) => {
+			let iface6 = guess_default_v6_interface().unwrap_or_else(|| "-".into());
+			let cls6 = classify_ipv6(ip6);
+			out.push_str(&format!("v6 src={} iface={} class={}\n", ip6, iface6, cls6));
+		}
+		Err(e) => out.push_str(&format!("v6 error={}\n", e)),
+	}
+	out.push('\n');
+
+	// Domains
+	out.push_str("[domains]\n");
+	match list_interfaces() {
+		Ok(ifaces) => {
+			for (name, iface) in ifaces {
+				let mut has_v4 = false; let mut has_v6 = false; let mut v4hint = "-"; let mut v6hint = "-";
+				for a in iface.addrs {
+					match a {
+						InterfaceAddr::V4(ip) => { if !has_v4 { v4hint = classify_ipv4(ip); } has_v4 = true; },
+						InterfaceAddr::V6(ip) => { if !has_v6 { v6hint = classify_ipv6(ip); } has_v6 = true; },
+						InterfaceAddr::Link(_) => {}
+					}
+				}
+				let domain = if name.starts_with("rmnet") || name.starts_with("ccmni") || name.starts_with("wwan") { "cell" }
+							 else if name.starts_with("wlan") || name.starts_with("swlan") { "wifi" }
+							 else if name.starts_with("tun") || name.starts_with("tap") || name.starts_with("wg") || name.starts_with("utun") { "vpn" }
+							 else { "other" };
+				let mode = match (has_v4, has_v6) { (false,false)=>"no-ip", (true,false)=>"v4-only", (false,true)=>"v6-only", (true,true)=>"dual" };
+				out.push_str(&format!("{:<12} domain={:<5} mode={:<7} v4_hint={:<8} v6_hint={:<11}\n", name, domain, mode, v4hint, v6hint));
+			}
+		}
+		Err(e) => out.push_str(&format!("error: {}\n", e)),
+	}
+	out.push('\n');
+
+	// Carrier props (Android only)
+	out.push_str("[carrier_props]\n");
+	#[cfg(any(target_os = "android"))]
+	{
+		let props = litebike::syscall_net::android_carrier_props();
+		if props.is_empty() { out.push_str("(none)\n"); }
+		let mut keys: Vec<_> = props.keys().cloned().collect();
+		keys.sort();
+		for k in keys { out.push_str(&format!("{} = {}\n", k, props[&k])); }
+	}
+	#[cfg(not(any(target_os = "android")))]
+	{
+		out.push_str("(n/a)\n");
+	}
+
+	if let Err(e) = fs::write(&path, out) { eprintln!("snapshot: failed to write {}: {}", path.display(), e); }
+	else { println!("snapshot saved: {}", path.display()); }
 }
