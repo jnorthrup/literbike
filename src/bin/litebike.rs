@@ -1,4 +1,4 @@
-use litebike::syscall_net::{get_default_gateway, get_default_gateway_v6, get_default_local_ipv4, list_interfaces, InterfaceAddr};
+use litebike::syscall_net::{get_default_gateway, get_default_gateway_v6, get_default_local_ipv4, guess_default_v6_interface, list_interfaces, InterfaceAddr};
 use std::env;
 use std::path::Path;
 
@@ -305,7 +305,11 @@ fn run_netstat_route() {
 	// IPv6 default route (best-effort)
 	match get_default_gateway_v6() {
 		Ok(gw6) => println!("default            {:<16} UG     0       0    -", gw6),
-		Err(_) => {}
+		Err(_) => {
+			if let Some(ifn) = guess_default_v6_interface() {
+				println!("(hint) default IPv6 egress interface: {}", ifn);
+			}
+		}
 	}
 }
 

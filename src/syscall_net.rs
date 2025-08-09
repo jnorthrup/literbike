@@ -34,6 +34,36 @@ pub fn get_default_gateway_v6() -> io::Result<Ipv6Addr> {
     Err(io::Error::new(io::ErrorKind::Other, "Unsupported OS for getting default IPv6 gateway"))
 }
 
+/// Best-effort: guess the default IPv6 egress interface by creating an IPv6 UDP socket,
+/// connecting to a well-known IPv6 address, and matching the chosen local address to an interface.
+pub fn guess_default_v6_interface() -> Option<String> {
+    use std::net::{SocketAddr, UdpSocket};
+
+    // Bind an IPv6 socket
+    let sock = UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0)).ok()?;
+    let targets = [
+        ("2001:4860:4860::8888", 80u16),
+        ("2606:4700:4700::1111", 80u16),
+    ];
+    for (host, port) in targets {
+        if sock.connect((host, port)).is_ok() {
+            if let Ok(local) = sock.local_addr() {
+                if let SocketAddr::V6(sa) = local {
+                    // Map local IPv6 to interface name via list_interfaces
+                    if let Ok(ifaces) = list_interfaces() {
+                        for (name, iface) in ifaces {
+                            if iface.addrs.iter().any(|a| matches!(a, InterfaceAddr::V6(ip) if ip == sa.ip())) {
+                                return Some(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Best-effort discovery of the default local IPv4 address by opening a UDP socket
 /// to common public IPs and reading the chosen local address. This does not send any packets.
 pub fn get_default_local_ipv4() -> io::Result<Ipv4Addr> {
