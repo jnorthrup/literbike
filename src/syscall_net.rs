@@ -145,6 +145,11 @@ fn parse_ip_route_default() -> io::Result<Ipv4Addr> {
         return Ok(addr);
     }
 
+    // Last-resort best-effort guess: derive gateway from local IPv4 (x.y.z.1)
+    if let Some(guess) = guess_gateway_from_local_ip() {
+        return Ok(guess);
+    }
+
     Err(io::Error::new(io::ErrorKind::Other, "ip route command failed"))
 }
 
@@ -175,6 +180,32 @@ fn android_getprop_gateway() -> Option<Ipv4Addr> {
                     if let Ok(ip) = s.parse() {
                         return Some(ip);
                     }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn guess_gateway_from_local_ip() -> Option<Ipv4Addr> {
+    use std::net::{SocketAddr, UdpSocket};
+
+    // Create a UDP socket and "connect" to a well-known public IP.
+    // This doesn't send traffic but lets us discover the chosen local IP.
+    let sock = UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    // Try multiple common targets to maximize success without DNS.
+    let targets = [
+        ("1.1.1.1", 80u16),
+        ("8.8.8.8", 80u16),
+        ("9.9.9.9", 80u16),
+    ];
+    for (host, port) in targets {
+        if sock.connect((host, port)).is_ok() {
+            if let Ok(local) = sock.local_addr() {
+                if let SocketAddr::V4(sa) = local {
+                    let o = sa.ip().octets();
+                    return Some(Ipv4Addr::new(o[0], o[1], o[2], 1));
                 }
             }
         }
