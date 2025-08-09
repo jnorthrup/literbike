@@ -101,6 +101,18 @@ pub fn get_default_local_ipv6() -> io::Result<Ipv6Addr> {
     Err(io::Error::new(io::ErrorKind::Other, "unable to determine local IPv6"))
 }
 
+/// Find the interface name that has the given IPv4 address assigned.
+pub fn find_iface_by_ipv4(ip: Ipv4Addr) -> Option<String> {
+    if let Ok(ifaces) = list_interfaces() {
+        for (name, iface) in ifaces {
+            if iface.addrs.iter().any(|a| matches!(a, InterfaceAddr::V4(v) if *v == ip)) {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn parse_proc_net_route() -> io::Result<Ipv4Addr> {
     use std::fs::File;

@@ -1,6 +1,9 @@
 use litebike::syscall_net::{get_default_gateway, get_default_gateway_v6, get_default_local_ipv4, get_default_local_ipv6, guess_default_v6_interface, list_interfaces, InterfaceAddr};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::Path;
+use std::time::{Duration, Instant};
+use std::thread;
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
@@ -14,6 +17,7 @@ fn main() {
 		"ip" => run_ip(&args[1..]),
 		"route" => run_route(),
 		"netstat" => run_netstat(&args[1..]),
+		"watch" => run_watch(&args[1..]),
 		_ => {
 			// Default: short help and a quick interfaces print
 			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat)\n");
@@ -365,5 +369,98 @@ fn run_netstat_interfaces() {
 			}
 		}
 		Err(e) => eprintln!("netstat -i: {}", e),
+	}
+}
+
+fn run_watch(args: &[String]) {
+	// Options: -n <secs> (interval), --count <N> (iterations), --v6 (include v6 egress hints)
+	let mut interval = 3u64;
+	let mut max_count: Option<u64> = None;
+	let mut include_v6 = true;
+	let mut i = 0;
+	while i < args.len() {
+		match args[i].as_str() {
+			"-n" if i + 1 < args.len() => {
+				if let Ok(v) = args[i + 1].parse::<u64>() { interval = v; }
+				i += 2; continue;
+			}
+			"--count" if i + 1 < args.len() => {
+				if let Ok(v) = args[i + 1].parse::<u64>() { max_count = Some(v); }
+				i += 2; continue;
+			}
+			"--no-v6" => { include_v6 = false; i += 1; continue; }
+			_ => { i += 1; }
+		}
+	}
+
+	#[derive(Clone)]
+	struct IfInfo { flags: u32, _index: u32, v4: HashSet<String>, v6: HashSet<String> }
+	#[derive(Clone, Default)]
+	struct Snap {
+		ifs: HashMap<String, IfInfo>,
+		gw4: Option<String>,
+		v6_iface: Option<String>,
+	}
+
+	fn snapshot(include_v6: bool) -> Snap {
+		let mut snap = Snap::default();
+		if let Ok(ifaces) = list_interfaces() {
+			for (name, iface) in ifaces {
+				let mut v4 = HashSet::new();
+				let mut v6 = HashSet::new();
+				for a in iface.addrs {
+					match a {
+						InterfaceAddr::V4(ip) => { v4.insert(ip.to_string()); },
+						InterfaceAddr::V6(ip) => { if include_v6 { v6.insert(ip.to_string()); } },
+						InterfaceAddr::Link(_) => {}
+					}
+				}
+				snap.ifs.insert(name, IfInfo { flags: iface.flags, _index: iface.index, v4, v6 });
+			}
+		}
+		if let Ok(gw) = get_default_gateway() { snap.gw4 = Some(gw.to_string()); }
+		if include_v6 { snap.v6_iface = guess_default_v6_interface(); }
+		snap
+	}
+
+	fn print_diff(prev: &Snap, curr: &Snap, t: &str) {
+		// Interfaces added/removed
+		for name in curr.ifs.keys() {
+			if !prev.ifs.contains_key(name) {
+				println!("{} iface+ {}", t, name);
+			}
+		}
+		for name in prev.ifs.keys() {
+			if !curr.ifs.contains_key(name) {
+				println!("{} iface- {}", t, name);
+			}
+		}
+		// Address changes
+		for (name, ci) in &curr.ifs {
+			if let Some(pi) = prev.ifs.get(name) {
+				for ip in ci.v4.difference(&pi.v4) { println!("{} {} v4+ {}", t, name, ip); }
+				for ip in pi.v4.difference(&ci.v4) { println!("{} {} v4- {}", t, name, ip); }
+				for ip in ci.v6.difference(&pi.v6) { println!("{} {} v6+ {}", t, name, ip); }
+				for ip in pi.v6.difference(&ci.v6) { println!("{} {} v6- {}", t, name, ip); }
+				if ci.flags != pi.flags { println!("{} {} flags 0x{:x}->0x{:x}", t, name, pi.flags, ci.flags); }
+			}
+		}
+		// Default v4 GW changes
+		if prev.gw4 != curr.gw4 { println!("{} default-v4 {}->{}", t, prev.gw4.clone().unwrap_or("-".into()), curr.gw4.clone().unwrap_or("-".into())); }
+		// v6 egress iface hint
+		if prev.v6_iface != curr.v6_iface { println!("{} default-v6-iface {}->{}", t, prev.v6_iface.clone().unwrap_or("-".into()), curr.v6_iface.clone().unwrap_or("-".into())); }
+	}
+
+	let start = Instant::now();
+	let mut prev = snapshot(include_v6);
+	let mut iter = 0u64;
+	loop {
+		thread::sleep(Duration::from_secs(interval));
+		let curr = snapshot(include_v6);
+		let t = format!("t+{}s", start.elapsed().as_secs());
+		print_diff(&prev, &curr, &t);
+		prev = curr;
+		iter += 1;
+		if let Some(limit) = max_count { if iter >= limit { break; } }
 	}
 }
