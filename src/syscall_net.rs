@@ -121,6 +121,8 @@ pub fn classify_ipv4(ip: Ipv4Addr) -> &'static str {
     if o[0] == 127 { return "loopback"; }
     // Link-local 169.254.0.0/16
     if o[0] == 169 && o[1] == 254 { return "link-local"; }
+    // IANA special-use 192.0.0.0/24 (often seen in tethering/captive flows)
+    if o[0] == 192 && o[1] == 0 && o[2] == 0 { return "special"; }
     // Broadcast
     if ip == Ipv4Addr::new(255,255,255,255) { return "broadcast"; }
     // Multicast 224.0.0.0/4
