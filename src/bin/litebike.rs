@@ -106,7 +106,127 @@ fn run_route() {
 }
 
 fn run_netstat() {
-	println!("Active Internet connections (servers/established) - minimal");
+	println!("Active Internet connections (servers/established) - best-effort");
 	println!("Proto Recv-Q Send-Q Local Address           Foreign Address         State");
-	// Minimal placeholder; extend with netlink or /proc parsing as needed
+
+	#[cfg(any(target_os = "linux", target_os = "android"))]
+	{
+		if print_proc_net_sockets() {
+			return;
+		}
+		// Fallback to external tools if /proc is blocked
+		if print_external_netstat(&["ss", "-ant"]) { return; }
+		if print_external_netstat(&["netstat", "-ant"]) { return; }
+		if print_external_netstat(&["busybox", "netstat", "-ant"]) { return; }
+		eprintln!("netstat: socket tables not accessible (permissions?)");
+	}
+
+	#[cfg(target_os = "macos")]
+	{
+		if print_external_netstat(&["netstat", "-an"]) { return; }
+		eprintln!("netstat: external command not available");
+	}
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn print_proc_net_sockets() -> bool {
+	use std::fs;
+
+	fn parse_hex_ip_port(hex: &str, v6: bool) -> (String, u16) {
+		let mut parts = hex.split(':');
+		let ip_hex = parts.next().unwrap_or("");
+		let port_hex = parts.next().unwrap_or("0");
+		let port = u16::from_str_radix(port_hex, 16).unwrap_or(0);
+		if !v6 {
+			if ip_hex.len() >= 8 {
+				let b0 = u8::from_str_radix(&ip_hex[6..8], 16).unwrap_or(0);
+				let b1 = u8::from_str_radix(&ip_hex[4..6], 16).unwrap_or(0);
+				let b2 = u8::from_str_radix(&ip_hex[2..4], 16).unwrap_or(0);
+				let b3 = u8::from_str_radix(&ip_hex[0..2], 16).unwrap_or(0);
+				return (format!("{}.{}.{}.{}", b0, b1, b2, b3), port);
+			}
+			return ("0.0.0.0".to_string(), port);
+		} else {
+			// IPv6: 32 hex chars, little-endian 32-bit words
+			if ip_hex.len() >= 32 {
+				let mut segs = Vec::new();
+				for i in (0..32).step_by(8) {
+					let w3 = &ip_hex[i..i + 2];
+					let w2 = &ip_hex[i + 2..i + 4];
+					let w1 = &ip_hex[i + 4..i + 6];
+					let w0 = &ip_hex[i + 6..i + 8];
+					segs.push(format!("{}{}:{}{}", w3, w2, w1, w0));
+				}
+				return (segs.join(":"), port);
+			}
+			return ("::".to_string(), port);
+		}
+	}
+
+	fn state_str(code: &str) -> &'static str {
+		match code {
+			"01" => "ESTABLISHED",
+			"02" => "SYN_SENT",
+			"03" => "SYN_RECV",
+			"04" => "FIN_WAIT1",
+			"05" => "FIN_WAIT2",
+			"06" => "TIME_WAIT",
+			"07" => "CLOSE",
+			"08" => "CLOSE_WAIT",
+			"09" => "LAST_ACK",
+			"0A" => "LISTEN",
+			"0B" => "CLOSING",
+			_ => "UNKNOWN",
+		}
+	}
+
+	fn print_file(path: &str, proto: &str, v6: bool) -> bool {
+		let Ok(content) = fs::read_to_string(path) else { return false };
+		for (i, line) in content.lines().enumerate() {
+			if i == 0 { continue; }
+			let cols: Vec<&str> = line.split_whitespace().collect();
+			if cols.len() < 10 { continue; }
+			let (lip, lport) = parse_hex_ip_port(cols[1], v6);
+			let (rip, rport) = parse_hex_ip_port(cols[2], v6);
+			let st = state_str(cols[3]);
+			// Filter: show LISTEN/ESTABLISHED for TCP, and all for UDP
+			if proto.starts_with("TCP") {
+				if st != "LISTEN" && st != "ESTABLISHED" { continue; }
+			}
+			println!(
+				"{:<5} {:>5} {:>5} {:<22} {:<22} {}",
+				proto,
+				0, // Recv-Q (not parsed here)
+				0, // Send-Q
+				format!("{}:{}", lip, lport),
+				format!("{}:{}", rip, rport),
+				st
+			);
+		}
+		true
+	}
+
+	let mut any = false;
+	any |= print_file("/proc/net/tcp", "TCP", false);
+	any |= print_file("/proc/net/tcp6", "TCP6", true);
+	any |= print_file("/proc/net/udp", "UDP", false);
+	any |= print_file("/proc/net/udp6", "UDP6", true);
+	any
+}
+
+#[allow(unused)]
+fn print_external_netstat(cmd: &[&str]) -> bool {
+	use std::process::Command;
+	if cmd.is_empty() { return false; }
+	let (prog, args) = (cmd[0], &cmd[1..]);
+	if let Ok(out) = Command::new(prog).args(args).output() {
+		if out.status.success() {
+			let text = String::from_utf8_lossy(&out.stdout);
+			for line in text.lines().take(100) {
+				println!("{}", line);
+			}
+			return true;
+		}
+	}
+	false
 }
