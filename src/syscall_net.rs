@@ -52,8 +52,7 @@ pub fn guess_default_v6_interface() -> Option<String> {
                     // Map local IPv6 to interface name via list_interfaces
                     if let Ok(ifaces) = list_interfaces() {
                         for (name, iface) in ifaces {
-                            if iface.addrs.iter().any(|a| matches!(a, InterfaceAddr::V6(ip) if ip == sa.ip())) {
-                                return Some(name);
+                            if iface.addrs.iter().any(|a| matches!(a, InterfaceAddr::V6(ip) if ip == sa.ip())) { return Some(name);
                             }
                         }
                     }
@@ -81,6 +80,25 @@ pub fn get_default_local_ipv4() -> io::Result<Ipv4Addr> {
         }
     }
     Err(io::Error::new(io::ErrorKind::Other, "unable to determine local IPv4"))
+}
+
+/// Best-effort discovery of the default local IPv6 address by opening a UDP socket
+/// to common public IPv6 IPs and reading the chosen local address. This does not send any packets.
+pub fn get_default_local_ipv6() -> io::Result<Ipv6Addr> {
+    use std::net::{SocketAddr, UdpSocket};
+
+    let sock = UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0))?;
+    let targets = [("2001:4860:4860::8888", 80u16), ("2606:4700:4700::1111", 80u16)];
+    for (host, port) in targets {
+        if sock.connect((host, port)).is_ok() {
+            if let Ok(local) = sock.local_addr() {
+                if let SocketAddr::V6(sa) = local {
+                    return Ok(*sa.ip());
+                }
+            }
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::Other, "unable to determine local IPv6"))
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

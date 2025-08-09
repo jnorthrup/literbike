@@ -1,4 +1,4 @@
-use litebike::syscall_net::{get_default_gateway, get_default_gateway_v6, get_default_local_ipv4, guess_default_v6_interface, list_interfaces, InterfaceAddr};
+use litebike::syscall_net::{get_default_gateway, get_default_gateway_v6, get_default_local_ipv4, get_default_local_ipv6, guess_default_v6_interface, list_interfaces, InterfaceAddr};
 use std::env;
 use std::path::Path;
 
@@ -59,10 +59,17 @@ fn run_ifconfig(args: &[String]) {
 
 fn run_ip(args: &[String]) {
 	if args.is_empty() {
-		eprintln!("Usage: ip [addr|route]");
+		eprintln!("Usage: ip [addr|route] [-6]");
 		return;
 	}
-	match args[0].as_str() {
+	// Support both: ip -6 addr ... and ip addr -6 ...
+	let (want_v6, subcmd_idx) = if !args.is_empty() && args[0] == "-6" {
+		(true, 1usize)
+	} else {
+		(args.iter().any(|a| a == "-6"), 0usize)
+	};
+	if subcmd_idx >= args.len() { eprintln!("Usage: ip [addr|route] [-6]"); return; }
+	match args[subcmd_idx].as_str() {
 		"addr" | "address" => {
 			match list_interfaces() {
 				Ok(ifaces) => {
@@ -71,8 +78,8 @@ fn run_ip(args: &[String]) {
 						println!("{}: {}: <UP> mtu 1500", idx, name);
 						for addr in iface.addrs {
 							match addr {
-								InterfaceAddr::V4(ip) => println!("    inet {}/24", ip),
-								InterfaceAddr::V6(ip) => println!("    inet6 {}/64", ip),
+								InterfaceAddr::V4(ip) => if !want_v6 { println!("    inet {}/24", ip) },
+								InterfaceAddr::V6(ip) => if want_v6 { println!("    inet6 {}/64", ip) },
 								InterfaceAddr::Link(_) => {}
 							}
 						}
@@ -82,8 +89,23 @@ fn run_ip(args: &[String]) {
 				Err(e) => eprintln!("ip addr: {}", e),
 			}
 		}
-		"route" => run_route(),
-		_ => eprintln!("ip: unknown command '{}'", args[0]),
+		"route" => {
+			if want_v6 {
+				match get_default_gateway_v6() {
+					Ok(gw) => println!("default via {} dev -", gw),
+					Err(e) => {
+						eprintln!("ip -6 route: {}", e);
+						if let Ok(ip) = get_default_local_ipv6() {
+							let iface = guess_default_v6_interface().unwrap_or_else(|| "-".to_string());
+							println!("(hint) src {} dev {}", ip, iface);
+						}
+					}
+				}
+			} else {
+				run_route();
+			}
+		},
+	_ => eprintln!("ip: unknown command '{}'", args[subcmd_idx]),
 	}
 }
 
