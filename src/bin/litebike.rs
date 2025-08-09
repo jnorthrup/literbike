@@ -10,22 +10,27 @@ fn main() {
 		.unwrap_or("litebike");
 
 	match prog {
-		"ifconfig" => run_ifconfig(),
+		"ifconfig" => run_ifconfig(&args[1..]),
 		"ip" => run_ip(&args[1..]),
 		"route" => run_route(),
 		"netstat" => run_netstat(),
 		_ => {
 			// Default: short help and a quick interfaces print
 			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat)\n");
-			run_ifconfig();
+			run_ifconfig(&[]);
 		}
 	}
 }
 
-fn run_ifconfig() {
+fn run_ifconfig(args: &[String]) {
+	// Optional: ifconfig <iface> to filter output
+	let filter = args.get(0).map(|s| s.as_str());
 	match list_interfaces() {
 		Ok(ifaces) => {
 			for (name, iface) in ifaces {
+				if let Some(f) = filter {
+					if name != f { continue; }
+				}
 				println!("{}: flags=0x{:x} index {}", name, iface.flags, iface.index);
 				for addr in iface.addrs {
 					match addr {
