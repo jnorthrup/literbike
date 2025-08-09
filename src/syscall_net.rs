@@ -22,6 +22,18 @@ pub fn get_default_gateway() -> io::Result<Ipv4Addr> {
     Err(io::Error::new(io::ErrorKind::Other, "Unsupported OS for getting default gateway"))
 }
 
+/// Gets the default IPv6 gateway address using the most direct method available.
+pub fn get_default_gateway_v6() -> io::Result<Ipv6Addr> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return parse_proc_net_ipv6_route();
+
+    #[cfg(target_os = "macos")]
+    return parse_netstat_route_v6();
+
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
+    Err(io::Error::new(io::ErrorKind::Other, "Unsupported OS for getting default IPv6 gateway"))
+}
+
 /// Best-effort discovery of the default local IPv4 address by opening a UDP socket
 /// to common public IPs and reading the chosen local address. This does not send any packets.
 pub fn get_default_local_ipv4() -> io::Result<Ipv4Addr> {
@@ -170,6 +182,111 @@ fn parse_ip_route_default() -> io::Result<Ipv4Addr> {
     }
 
     Err(io::Error::new(io::ErrorKind::Other, "ip route command failed"))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn parse_proc_net_ipv6_route() -> io::Result<Ipv6Addr> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::process::Command;
+
+    // Try /proc/net/ipv6_route first
+    match File::open("/proc/net/ipv6_route") {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let line = line?;
+                // Fields per line: dest(32) dest_plen src(32) src_plen gw(32) metric refcnt use flags iface
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() < 10 { continue; }
+                let dest = cols[0];
+                let dest_plen = cols[1];
+                let gw_hex = cols[4];
+                if dest == "00000000000000000000000000000000" && dest_plen == "00000000" {
+                    if let Some(addr) = hex32_to_ipv6(gw_hex) {
+                        return Ok(addr);
+                    }
+                }
+            }
+            // Not found
+            Err(io::Error::new(io::ErrorKind::NotFound, "Default IPv6 route not found in /proc/net/ipv6_route"))
+        }
+        Err(e) => {
+            if e.kind() == io::ErrorKind::PermissionDenied || e.kind() == io::ErrorKind::NotFound {
+                // Fallback: try ip -6 route show default via toybox/busybox variants
+                let tries: &[&[&str]] = &[
+                    &["ip", "-6", "route", "show", "default"],
+                    &["ip", "-6", "route", "get", "2001:4860:4860::8888"],
+                    &["toybox", "ip", "-6", "route", "show", "default"],
+                    &["busybox", "ip", "-6", "route", "show", "default"],
+                ];
+                for cmd in tries {
+                    if let Ok(out) = Command::new(cmd[0]).args(&cmd[1..]).output() {
+                        if out.status.success() {
+                            let text = String::from_utf8_lossy(&out.stdout);
+                            for line in text.lines() {
+                                if let Some(pos) = line.find(" via ") {
+                                    let rest = &line[pos + 5..];
+                                    let gw = rest.split_whitespace().next().unwrap_or("");
+                                    // Strip scope-id if present (e.g., %wlan0)
+                                    let gw_clean = gw.split('%').next().unwrap_or(gw);
+                                    if let Ok(ip) = gw_clean.parse() {
+                                        return Ok(ip);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(io::Error::new(io::ErrorKind::Other, "ip -6 route command failed"))
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn hex32_to_ipv6(s: &str) -> Option<Ipv6Addr> {
+    if s.len() < 32 { return None; }
+    // Convert 32 hex chars to 16 bytes, accounting for per-32-bit little-endian representation
+    let mut bytes = [0u8; 16];
+    let mut out = 0;
+    for i in (0..32).step_by(8) {
+        // order: [6..8][4..6][2..4][0..2]
+        let order = [(6,8),(4,6),(2,4),(0,2)];
+        for (a,b) in order {
+            let idx = i + a;
+            if idx+2 <= s.len() {
+                let byte = u8::from_str_radix(&s[idx..idx+2], 16).ok()?;
+                bytes[out] = byte;
+                out += 1;
+            }
+        }
+    }
+    Some(Ipv6Addr::from(bytes))
+}
+
+#[cfg(target_os = "macos")]
+fn parse_netstat_route_v6() -> io::Result<Ipv6Addr> {
+    use std::process::Command;
+    use std::str;
+    let output = Command::new("netstat").args(["-rn", "-f", "inet6"]).output()?;
+    if !output.status.success() {
+        return Err(io::Error::new(io::ErrorKind::Other, "netstat inet6 failed"));
+    }
+    let stdout = str::from_utf8(&output.stdout)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid UTF-8"))?;
+    for line in stdout.lines() {
+        if line.starts_with("default") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() > 1 {
+                let gw = parts[1].split('%').next().unwrap_or(parts[1]);
+                if let Ok(addr) = gw.parse() { return Ok(addr); }
+            }
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::NotFound, "Default IPv6 route not found"))
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
