@@ -153,16 +153,20 @@ fn android_getprop_gateway() -> Option<Ipv4Addr> {
     use std::process::Command;
 
     // Common Android iface names to try; include env-driven interface for hints.
-    let mut candidates = vec![
+    let mut candidates: Vec<String> = vec![
         "wlan0", "swlan0", "eth0", "rmnet0", "rmnet_data0", "rmnet_data1", "rmnet_data7",
-    ];
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
     if let Ok(hint) = std::env::var("LITEBIKE_INTERFACE") {
-        if !hint.trim().is_empty() {
-            candidates.insert(0, hint.trim());
+        let hint = hint.trim().to_string();
+        if !hint.is_empty() {
+            candidates.insert(0, hint);
         }
     }
 
-    for iface in candidates {
+    for iface in &candidates {
         let key = format!("dhcp.{}.gateway", iface);
         if let Ok(out) = Command::new("getprop").arg(&key).output() {
             if out.status.success() {
