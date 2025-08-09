@@ -27,22 +27,68 @@ fn parse_proc_net_route() -> io::Result<Ipv4Addr> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
 
-    let file = File::open("/proc/net/route")?;
-    let reader = BufReader::new(file);
+    match File::open("/proc/net/route") {
+        Ok(file) => {
+            let reader = BufReader::new(file);
 
-    for line in reader.lines() {
-        let line = line?;
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() > 2 && parts[1] == "00000000" {
-            let gateway_hex = parts[2];
-            if let Ok(gateway_int) = u32::from_str_radix(gateway_hex, 16) {
-                // The IP address in /proc/net/route is in little-endian format.
-                return Ok(Ipv4Addr::from(gateway_int.to_le_bytes()));
+            for line in reader.lines() {
+                let line = line?;
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() > 2 && parts[1] == "00000000" {
+                    let gateway_hex = parts[2];
+                    if let Ok(gateway_int) = u32::from_str_radix(gateway_hex, 16) {
+                        // The IP address in /proc/net/route is in little-endian format.
+                        return Ok(Ipv4Addr::from(gateway_int.to_le_bytes()));
+                    }
+                }
+            }
+
+            Err(io::Error::new(io::ErrorKind::NotFound, "Default route not found in /proc/net/route"))
+        }
+        Err(e) => {
+            // Some Android devices restrict /proc/net; fall back to `ip route` parsing.
+            if e.kind() == io::ErrorKind::PermissionDenied || e.kind() == io::ErrorKind::NotFound {
+                parse_ip_route_default()
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn parse_ip_route_default() -> io::Result<Ipv4Addr> {
+    use std::process::Command;
+    use std::str;
+
+    // Try `ip route show default` first
+    let output = Command::new("ip").args(["route", "show", "default"]).output();
+    let stdout = match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => {
+            // Fallback to `ip route get 8.8.8.8`
+            let alt = Command::new("ip").args(["route", "get", "8.8.8.8"]).output()?;
+            if !alt.status.success() {
+                return Err(io::Error::new(io::ErrorKind::Other, "ip route command failed"));
+            }
+            String::from_utf8_lossy(&alt.stdout).into_owned()
+        }
+    };
+
+    for line in stdout.lines() {
+        // Common formats:
+        // default via 192.168.1.1 dev wlan0 ...
+        // 8.8.8.8 via 192.168.1.1 dev wlan0 src 192.168.1.10 ...
+        if let Some(pos) = line.find(" via ") {
+            let rest = &line[pos + 5..];
+            let gw = rest.split_whitespace().next().unwrap_or("");
+            if let Ok(addr) = gw.parse() {
+                return Ok(addr);
             }
         }
     }
 
-    Err(io::Error::new(io::ErrorKind::NotFound, "Default route not found in /proc/net/route"))
+    Err(io::Error::new(io::ErrorKind::NotFound, "Default route not found in ip route output"))
 }
 
 #[cfg(target_os = "macos")]
