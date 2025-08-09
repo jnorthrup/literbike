@@ -66,12 +66,47 @@ fn parse_ip_route_default() -> io::Result<Ipv4Addr> {
     let stdout = match output {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
         _ => {
-            // Fallback to `ip route get 8.8.8.8`
-            let alt = Command::new("ip").args(["route", "get", "8.8.8.8"]).output()?;
-            if !alt.status.success() {
-                return Err(io::Error::new(io::ErrorKind::Other, "ip route command failed"));
+            // Fallback attempts: `ip route get 8.8.8.8`, toybox ip, busybox ip
+            if let Ok(alt) = Command::new("ip").args(["route", "get", "8.8.8.8"]).output() {
+                if alt.status.success() {
+                    String::from_utf8_lossy(&alt.stdout).into_owned()
+                } else if let Ok(tb) = Command::new("toybox").args(["ip", "route", "show", "default"]).output() {
+                    if tb.status.success() {
+                        String::from_utf8_lossy(&tb.stdout).into_owned()
+                    } else if let Ok(bb) = Command::new("busybox").args(["ip", "route", "show", "default"]).output() {
+                        if bb.status.success() {
+                            String::from_utf8_lossy(&bb.stdout).into_owned()
+                        } else {
+                            // Last resort: try busybox route -n parsing below
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    // Try toybox/busybox paths
+                    if let Ok(tb) = Command::new("toybox").args(["ip", "route", "show", "default"]).output() {
+                        if tb.status.success() {
+                            String::from_utf8_lossy(&tb.stdout).into_owned()
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                }
+            } else {
+                // No ip binary? try toybox directly
+                if let Ok(tb) = Command::new("toybox").args(["ip", "route", "show", "default"]).output() {
+                    if tb.status.success() {
+                        String::from_utf8_lossy(&tb.stdout).into_owned()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
             }
-            String::from_utf8_lossy(&alt.stdout).into_owned()
         }
     };
 
@@ -88,7 +123,59 @@ fn parse_ip_route_default() -> io::Result<Ipv4Addr> {
         }
     }
 
-    Err(io::Error::new(io::ErrorKind::NotFound, "Default route not found in ip route output"))
+    // Try `busybox route -n` output
+    if let Ok(rt) = Command::new("busybox").args(["route", "-n"]).output() {
+        if rt.status.success() {
+            let text = String::from_utf8_lossy(&rt.stdout);
+            for line in text.lines() {
+                // Destination Gateway Genmask Flags ...
+                // 0.0.0.0    192.168.1.1  0.0.0.0   UG ...
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() >= 2 && cols[0] == "0.0.0.0" {
+                    if let Ok(addr) = cols[1].parse() {
+                        return Ok(addr);
+                    }
+                }
+            }
+        }
+    }
+
+    // Android getprop fallback: dhcp.<iface>.gateway
+    if let Some(addr) = android_getprop_gateway() {
+        return Ok(addr);
+    }
+
+    Err(io::Error::new(io::ErrorKind::Other, "ip route command failed"))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn android_getprop_gateway() -> Option<Ipv4Addr> {
+    use std::process::Command;
+
+    // Common Android iface names to try; include env-driven interface for hints.
+    let mut candidates = vec![
+        "wlan0", "swlan0", "eth0", "rmnet0", "rmnet_data0", "rmnet_data1", "rmnet_data7",
+    ];
+    if let Ok(hint) = std::env::var("LITEBIKE_INTERFACE") {
+        if !hint.trim().is_empty() {
+            candidates.insert(0, hint.trim());
+        }
+    }
+
+    for iface in candidates {
+        let key = format!("dhcp.{}.gateway", iface);
+        if let Ok(out) = Command::new("getprop").arg(&key).output() {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !s.is_empty() {
+                    if let Ok(ip) = s.parse() {
+                        return Some(ip);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(target_os = "macos")]
