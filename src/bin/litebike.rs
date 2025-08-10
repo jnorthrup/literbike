@@ -18,7 +18,8 @@ use std::thread;
 use std::fs;
 use std::time::SystemTime;
 use std::process::Command;
-use std::net::TcpStream;
+use std::net::{TcpStream, UdpSocket, SocketAddr};
+use std::io::{Read, Write};
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
@@ -47,9 +48,10 @@ fn main() {
 		"snapshot" => run_snapshot(subargs),
 		"remote-sync" => run_remote_sync(subargs),
 		"proxy-setup" => run_proxy_setup(subargs),
+		"upnp-gateway" => run_upnp_gateway(subargs),
 		_ => {
 			// Default: short help and a quick interfaces print
-			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | radios | snapshot | remote-sync | proxy-setup)\n");
+			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | radios | snapshot | remote-sync | proxy-setup | upnp-gateway)\n");
 			run_ifconfig(&[]);
 		}
 	}
@@ -1234,5 +1236,141 @@ fn run_proxy_setup(args: &[String]) {
 	#[cfg(not(target_os = "macos"))]
 	{
 		eprintln!("proxy-setup: only available on macOS");
+	}
+}
+
+fn run_upnp_gateway(args: &[String]) {
+	let port = args.get(0).unwrap_or(&"1900".to_string()).parse::<u16>().unwrap_or(1900);
+	let http_port = args.get(1).unwrap_or(&"8888".to_string()).parse::<u16>().unwrap_or(8888);
+	
+	println!("Starting UPnP IGD (Internet Gateway Device) on:");
+	println!("  SSDP Discovery: UDP port {}", port);
+	println!("  HTTP Control: TCP port {}", http_port);
+	
+	// Get local IP for responses
+	let local_ip = get_default_local_ipv4().unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+	
+	// Start SSDP discovery listener in a thread
+	let local_ip_clone = local_ip.clone();
+	thread::spawn(move || {
+		if let Ok(socket) = UdpSocket::bind(("0.0.0.0", port)) {
+			println!("✓ SSDP discovery listening on port {}", port);
+			
+			// Join multicast group for SSDP
+			let multicast_addr = std::net::Ipv4Addr::new(239, 255, 255, 250);
+			let _ = socket.join_multicast_v4(&multicast_addr, &std::net::Ipv4Addr::new(0, 0, 0, 0));
+			
+			let mut buf = [0; 2048];
+			loop {
+				if let Ok((len, src)) = socket.recv_from(&mut buf) {
+					let msg = String::from_utf8_lossy(&buf[..len]);
+					
+					// Respond to M-SEARCH for IGD
+					if msg.contains("M-SEARCH") && (msg.contains("ssdp:all") || msg.contains("InternetGatewayDevice")) {
+						let response = format!(
+							"HTTP/1.1 200 OK\r\n\
+							CACHE-CONTROL: max-age=1800\r\n\
+							EXT:\r\n\
+							LOCATION: http://{}:{}/description.xml\r\n\
+							SERVER: LiteBike/1.0 UPnP/1.0 IGD/1.0\r\n\
+							ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\
+							USN: uuid:litebike-gateway::urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\
+							\r\n",
+							local_ip_clone, http_port
+						);
+						let _ = socket.send_to(response.as_bytes(), src);
+						println!("→ SSDP response sent to {}", src);
+					}
+				}
+			}
+		} else {
+			eprintln!("Failed to bind SSDP socket on port {}", port);
+		}
+	});
+	
+	// Start HTTP control point server
+	if let Ok(listener) = std::net::TcpListener::bind(("0.0.0.0", http_port)) {
+		println!("✓ UPnP control point listening on port {}", http_port);
+		
+		// Announce presence
+		if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+			let announce = format!(
+				"NOTIFY * HTTP/1.1\r\n\
+				HOST: 239.255.255.250:1900\r\n\
+				CACHE-CONTROL: max-age=1800\r\n\
+				LOCATION: http://{}:{}/description.xml\r\n\
+				NT: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\
+				NTS: ssdp:alive\r\n\
+				SERVER: LiteBike/1.0 UPnP/1.0 IGD/1.0\r\n\
+				USN: uuid:litebike-gateway::urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\
+				\r\n",
+				local_ip, http_port
+			);
+			let multicast_addr: SocketAddr = "239.255.255.250:1900".parse().unwrap();
+			let _ = socket.send_to(announce.as_bytes(), multicast_addr);
+			println!("✓ UPnP presence announced");
+		}
+		
+		println!("\nLiteBike UPnP Gateway active - devices can now discover and use this as IGD");
+		println!("Press Ctrl+C to stop");
+		
+		// Handle HTTP requests for device description and control
+		for stream in listener.incoming() {
+			if let Ok(mut stream) = stream {
+				let mut buffer = [0; 1024];
+				if let Ok(len) = stream.read(&mut buffer) {
+					let request = String::from_utf8_lossy(&buffer[..len]);
+					
+					if request.contains("GET /description.xml") {
+						let description = format!(
+							"<?xml version=\"1.0\"?>\
+							<root xmlns=\"urn:schemas-upnp-org:device-1-0\">\
+								<specVersion><major>1</major><minor>0</minor></specVersion>\
+								<device>\
+									<deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType>\
+									<friendlyName>LiteBike Gateway</friendlyName>\
+									<manufacturer>LiteBike</manufacturer>\
+									<modelName>LiteBike UPnP IGD</modelName>\
+									<UDN>uuid:litebike-gateway</UDN>\
+									<serviceList>\
+										<service>\
+											<serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>\
+											<serviceId>urn:upnp-org:serviceId:WANIPConn1</serviceId>\
+											<SCPDURL>/scpd.xml</SCPDURL>\
+											<controlURL>/control</controlURL>\
+											<eventSubURL>/events</eventSubURL>\
+										</service>\
+									</serviceList>\
+								</device>\
+							</root>"
+						);
+						
+						let response = format!(
+							"HTTP/1.1 200 OK\r\n\
+							Content-Type: text/xml\r\n\
+							Content-Length: {}\r\n\
+							\r\n\
+							{}",
+							description.len(),
+							description
+						);
+						let _ = stream.write_all(response.as_bytes());
+						println!("→ Device description served");
+					} else if request.contains("POST /control") {
+						// Handle port mapping requests
+						if request.contains("AddPortMapping") {
+							let response = "HTTP/1.1 200 OK\r\n\
+								Content-Type: text/xml\r\n\
+								Content-Length: 0\r\n\
+								\r\n";
+							let _ = stream.write_all(response.as_bytes());
+							println!("→ Port mapping request accepted");
+						}
+					}
+				}
+			}
+		}
+	} else {
+		eprintln!("Failed to bind HTTP control point on port {}", http_port);
 	}
 }
