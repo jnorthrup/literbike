@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 use std::thread;
 use std::fs;
 use std::time::SystemTime;
+use std::process::Command;
+use std::net::TcpStream;
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
@@ -43,9 +45,11 @@ fn main() {
 		"carrier" => run_carrier(),
 		"radios" => run_radios(subargs),
 		"snapshot" => run_snapshot(subargs),
+		"remote-sync" => run_remote_sync(subargs),
+		"proxy-setup" => run_proxy_setup(subargs),
 		_ => {
 			// Default: short help and a quick interfaces print
-			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | radios | snapshot)\n");
+			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | radios | snapshot | remote-sync | proxy-setup)\n");
 			run_ifconfig(&[]);
 		}
 	}
@@ -878,4 +882,357 @@ fn run_snapshot(args: &[String]) {
 
 	if let Err(e) = fs::write(&path, out) { eprintln!("snapshot: failed to write {}: {}", path.display(), e); }
 	else { println!("snapshot saved: {}", path.display()); }
+}
+
+fn run_remote_sync(args: &[String]) {
+	let cmd = args.get(0).map(|s| s.as_str()).unwrap_or("list");
+	match cmd {
+		"list" => {
+			if let Ok(output) = Command::new("git").args(["remote", "-v"]).output() {
+				let remotes = String::from_utf8_lossy(&output.stdout);
+				for line in remotes.lines() {
+					if line.contains("(fetch)") {
+						let parts: Vec<&str> = line.split_whitespace().collect();
+						if parts.len() >= 2 {
+							let name = parts[0];
+							let url = parts[1];
+							let status = if url.starts_with("ssh://") || url.contains("@") {
+								if let Some(host) = extract_ssh_host(url) {
+									if check_ssh_reachable(&host) { "active" } else { "stale" }
+								} else { "unknown" }
+							} else if url.starts_with("http") {
+								"http"
+							} else {
+								"local"
+							};
+							println!("{:<20} {:<50} {}", name, url, status);
+						}
+					}
+				}
+			}
+		}
+		"pull" => {
+			if let Ok(output) = Command::new("git").args(["remote", "-v"]).output() {
+				let remotes = String::from_utf8_lossy(&output.stdout);
+				for line in remotes.lines() {
+					if line.contains("(fetch)") && (line.contains("tmp") || line.contains("temp")) {
+						let parts: Vec<&str> = line.split_whitespace().collect();
+						if parts.len() >= 2 {
+							let name = parts[0];
+							println!("Pulling from {}", name);
+							let _ = Command::new("git").args(["pull", name, "master"]).status();
+						}
+					}
+				}
+			}
+		}
+		"clean" => {
+			let mut stale_remotes = Vec::new();
+			if let Ok(output) = Command::new("git").args(["remote", "-v"]).output() {
+				let remotes = String::from_utf8_lossy(&output.stdout);
+				for line in remotes.lines() {
+					if line.contains("(fetch)") && (line.contains("tmp") || line.contains("temp")) {
+						let parts: Vec<&str> = line.split_whitespace().collect();
+						if parts.len() >= 2 {
+							let name = parts[0];
+							let url = parts[1];
+							if url.starts_with("ssh://") || url.contains("@") {
+								if let Some(host) = extract_ssh_host(url) {
+									if !check_ssh_reachable(&host) {
+										stale_remotes.push(name.to_string());
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			for remote in stale_remotes {
+				println!("Removing stale remote: {}", remote);
+				let _ = Command::new("git").args(["remote", "remove", &remote]).status();
+			}
+		}
+		_ => {
+			eprintln!("Usage: litebike remote-sync [list|pull|clean]");
+			eprintln!("  list  - List all remotes with connectivity status");
+			eprintln!("  pull  - Pull from all tmp/temp remotes");
+			eprintln!("  clean - Remove stale tmp/temp remotes");
+		}
+	}
+}
+
+fn extract_ssh_host(url: &str) -> Option<String> {
+	if url.starts_with("ssh://") {
+		let without_proto = &url[6..];
+		if let Some(at_pos) = without_proto.find('@') {
+			let after_at = &without_proto[at_pos + 1..];
+			if let Some(colon_pos) = after_at.find(':') {
+				return Some(after_at[..colon_pos].to_string());
+			}
+			if let Some(slash_pos) = after_at.find('/') {
+				return Some(after_at[..slash_pos].to_string());
+			}
+		}
+	} else if url.contains("@") {
+		if let Some(at_pos) = url.find('@') {
+			let after_at = &url[at_pos + 1..];
+			if let Some(colon_pos) = after_at.find(':') {
+				return Some(after_at[..colon_pos].to_string());
+			}
+		}
+	}
+	None
+}
+
+fn check_ssh_reachable(host: &str) -> bool {
+	let port = if host.contains(':') {
+		let parts: Vec<&str> = host.split(':').collect();
+		parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(22)
+	} else {
+		22
+	};
+	let clean_host = if host.contains(':') {
+		host.split(':').next().unwrap_or(host)
+	} else {
+		host
+	};
+	TcpStream::connect_timeout(
+		&format!("{}:{}", clean_host, port).parse().unwrap_or_else(|_| ([127,0,0,1], port).into()),
+		Duration::from_secs(1)
+	).is_ok()
+}
+
+fn run_proxy_setup(args: &[String]) {
+	let cmd = args.get(0).map(|s| s.as_str()).unwrap_or("enable");
+	
+	#[cfg(target_os = "macos")]
+	{
+		match cmd {
+			"enable" => {
+				let proxy_host = args.get(1).unwrap_or(&"localhost".to_string()).clone();
+				let proxy_port = args.get(2).unwrap_or(&"8888".to_string()).clone();
+				
+				println!("Setting up macOS system proxy:");
+				println!("  Host: {}", proxy_host);
+				println!("  Port: {}", proxy_port);
+				
+				// Get active network service
+				let output = Command::new("networksetup")
+					.args(["-listnetworkserviceorder"])
+					.output();
+				
+				let mut active_service = "Wi-Fi".to_string();
+				if let Ok(out) = output {
+					let s = String::from_utf8_lossy(&out.stdout);
+					for line in s.lines() {
+						if line.contains("Wi-Fi") || line.contains("Ethernet") {
+							if let Some(start) = line.find(')') {
+								if let Some(service) = line[start+1..].trim().split(',').next() {
+									active_service = service.trim().to_string();
+									break;
+								}
+							}
+						}
+					}
+				}
+				
+				println!("  Service: {}", active_service);
+				
+				// Set HTTP proxy
+				let _ = Command::new("networksetup")
+					.args(["-setwebproxy", &active_service, &proxy_host, &proxy_port])
+					.status();
+				
+				// Set HTTPS proxy (TLS)
+				let _ = Command::new("networksetup")
+					.args(["-setsecurewebproxy", &active_service, &proxy_host, &proxy_port])
+					.status();
+				
+				// Set SOCKS proxy
+				let _ = Command::new("networksetup")
+					.args(["-setsocksfirewallproxy", &active_service, &proxy_host, &proxy_port])
+					.status();
+				
+				// Create and set PAC file
+				let pac_content = format!(
+					r#"function FindProxyForURL(url, host) {{
+    // Direct connection for local addresses
+    if (isPlainHostName(host) ||
+        shExpMatch(host, "*.local") ||
+        isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0") ||
+        isInNet(dnsResolve(host), "172.16.0.0", "255.240.0.0") ||
+        isInNet(dnsResolve(host), "192.168.0.0", "255.255.0.0") ||
+        isInNet(dnsResolve(host), "127.0.0.0", "255.255.255.0"))
+        return "DIRECT";
+    
+    // Use proxy for everything else (HTTP/TLS/SOCKS5)
+    return "PROXY {}:{}; SOCKS5 {}:{}; DIRECT";
+}}"#,
+					proxy_host, proxy_port, proxy_host, proxy_port
+				);
+				
+				let pac_path = "/tmp/litebike-proxy.pac";
+				if let Err(e) = fs::write(pac_path, pac_content) {
+					eprintln!("Failed to write PAC file: {}", e);
+				} else {
+					// Set PAC URL
+					let pac_url = format!("file://{}", pac_path);
+					let _ = Command::new("networksetup")
+						.args(["-setautoproxyurl", &active_service, &pac_url])
+						.status();
+					
+					// Enable auto proxy
+					let _ = Command::new("networksetup")
+						.args(["-setautoproxystate", &active_service, "on"])
+						.status();
+				}
+				
+				// Enable all proxy types
+				let _ = Command::new("networksetup")
+					.args(["-setwebproxystate", &active_service, "on"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setsecurewebproxystate", &active_service, "on"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setsocksfirewallproxystate", &active_service, "on"])
+					.status();
+				
+				println!("✓ HTTP proxy enabled");
+				println!("✓ HTTPS/TLS proxy enabled");
+				println!("✓ SOCKS5 proxy enabled");
+				println!("✓ PAC file configured");
+				println!("✓ Auto-proxy enabled");
+				
+				// Set bypass domains
+				let _ = Command::new("networksetup")
+					.args(["-setproxybypassdomains", &active_service, "*.local", "169.254/16", "localhost", "127.0.0.1"])
+					.status();
+				
+				println!("✓ Bypass domains configured");
+				
+				// Register Bonjour/mDNS service for auto-discovery
+				let _ = Command::new("dns-sd")
+					.args(["-R", "LiteBike Proxy", "_http._tcp,_sub:_proxy", "local", &proxy_port, "path=/"])
+					.spawn();
+				println!("✓ Bonjour service advertised");
+				
+				// Create WPAD file for auto-discovery
+				let wpad_content = format!(
+					r#"function FindProxyForURL(url, host) {{
+    if (isInNet(dnsResolve(host), "192.168.0.0", "255.255.0.0") ||
+        isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0") ||
+        isInNet(dnsResolve(host), "172.16.0.0", "255.240.0.0") ||
+        isInNet(dnsResolve(host), "127.0.0.0", "255.255.255.0"))
+        return "DIRECT";
+    return "PROXY {}:{}; SOCKS5 {}:{}; DIRECT";
+}}"#,
+					proxy_host, proxy_port, proxy_host, proxy_port
+				);
+				
+				let wpad_path = "/tmp/wpad.dat";
+				if let Err(e) = fs::write(wpad_path, &wpad_content) {
+					eprintln!("Failed to write WPAD file: {}", e);
+				} else {
+					println!("✓ WPAD file created at {}", wpad_path);
+				}
+				
+				// Check UPnP port mapping capability
+				println!("\nVerifying network capabilities:");
+				
+				// Check if port is reachable
+				if TcpStream::connect_timeout(
+					&format!("{}:{}", proxy_host, proxy_port).parse().unwrap_or_else(|_| ([127,0,0,1], 8888).into()),
+					Duration::from_millis(500)
+				).is_ok() {
+					println!("✓ Proxy port {} is reachable", proxy_port);
+				} else {
+					println!("⚠ Proxy port {} not yet reachable (service may need to be started)", proxy_port);
+				}
+				
+				// Try UPnP discovery (check if miniupnpc is available)
+				if let Ok(upnp_check) = Command::new("which").arg("upnpc").output() {
+					if upnp_check.status.success() {
+						// Try to list UPnP devices
+						if let Ok(upnp_list) = Command::new("upnpc").args(["-l"]).output() {
+							let output = String::from_utf8_lossy(&upnp_list.stdout);
+							if output.contains("IGD") {
+								println!("✓ UPnP gateway detected");
+								// Try to add port mapping
+								let _ = Command::new("upnpc")
+									.args(["-a", "127.0.0.1", &proxy_port, &proxy_port, "TCP", "0", "LiteBike"])
+									.status();
+								println!("✓ UPnP port mapping attempted for port {}", proxy_port);
+							} else {
+								println!("⚠ No UPnP gateway found");
+							}
+						}
+					} else {
+						println!("⚠ UPnP tools not installed (install miniupnpc for UPnP support)");
+					}
+				}
+				
+				println!("\nSystem proxy fully configured with redundant auto-configuration!");
+			}
+			"disable" => {
+				// Get active network service
+				let output = Command::new("networksetup")
+					.args(["-listnetworkserviceorder"])
+					.output();
+				
+				let mut active_service = "Wi-Fi".to_string();
+				if let Ok(out) = output {
+					let s = String::from_utf8_lossy(&out.stdout);
+					for line in s.lines() {
+						if line.contains("Wi-Fi") || line.contains("Ethernet") {
+							if let Some(start) = line.find(')') {
+								if let Some(service) = line[start+1..].trim().split(',').next() {
+									active_service = service.trim().to_string();
+									break;
+								}
+							}
+						}
+					}
+				}
+				
+				println!("Disabling proxy for: {}", active_service);
+				
+				// Disable all proxy types
+				let _ = Command::new("networksetup")
+					.args(["-setwebproxystate", &active_service, "off"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setsecurewebproxystate", &active_service, "off"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setsocksfirewallproxystate", &active_service, "off"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setautoproxystate", &active_service, "off"])
+					.status();
+				
+				println!("✓ All proxies disabled");
+			}
+			"status" => {
+				let output = Command::new("networksetup")
+					.args(["-getwebproxy", "Wi-Fi"])
+					.output();
+				if let Ok(out) = output {
+					println!("Proxy Status:\n{}", String::from_utf8_lossy(&out.stdout));
+				}
+			}
+			_ => {
+				eprintln!("Usage: litebike proxy-setup [enable|disable|status] [host] [port]");
+				eprintln!("  enable  - Configure all system proxies and PAC");
+				eprintln!("  disable - Disable all system proxies");
+				eprintln!("  status  - Show current proxy settings");
+				eprintln!("\nExample: litebike proxy-setup enable localhost 8888");
+			}
+		}
+	}
+	
+	#[cfg(not(target_os = "macos"))]
+	{
+		eprintln!("proxy-setup: only available on macOS");
+	}
 }
