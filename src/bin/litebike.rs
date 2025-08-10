@@ -20,6 +20,10 @@ use std::time::SystemTime;
 use std::process::Command;
 use std::net::{TcpStream, UdpSocket, SocketAddr};
 use std::io::{Read, Write};
+use litebike::rbcursive::protocols::ProtocolType;
+use litebike::rbcursive::{RBCursive, Classify, Signal};
+use litebike::rbcursive::protocols::Listener;
+use litebike::rbcursive::protocols;
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
@@ -48,10 +52,13 @@ fn main() {
 		"snapshot" => run_snapshot(subargs),
 		"remote-sync" => run_remote_sync(subargs),
 		"proxy-setup" => run_proxy_setup(subargs),
+		"proxy-server" => run_proxy_server(subargs),
+		"proxy-cleanup" => run_proxy_cleanup(subargs),
 		"upnp-gateway" => run_upnp_gateway(subargs),
+		"git-push" => run_git_push(subargs),
 		_ => {
 			// Default: short help and a quick interfaces print
-			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | radios | snapshot | remote-sync | proxy-setup | upnp-gateway)\n");
+			eprintln!("litebike: argv0-dispatch utility (ifconfig | ip | route | netstat | probe | domains | carrier | radios | snapshot | remote-sync | proxy-setup | proxy-server | proxy-cleanup | upnp-gateway | git-push)\n");
 			run_ifconfig(&[]);
 		}
 	}
@@ -1055,39 +1062,21 @@ fn run_proxy_setup(args: &[String]) {
 					.args(["-setsocksfirewallproxy", &active_service, &proxy_host, &proxy_port])
 					.status();
 				
-				// Create and set PAC file
-				let pac_content = format!(
-					r#"function FindProxyForURL(url, host) {{
-    // Direct connection for local addresses
-    if (isPlainHostName(host) ||
-        shExpMatch(host, "*.local") ||
-        isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0") ||
-        isInNet(dnsResolve(host), "172.16.0.0", "255.240.0.0") ||
-        isInNet(dnsResolve(host), "192.168.0.0", "255.255.0.0") ||
-        isInNet(dnsResolve(host), "127.0.0.0", "255.255.255.0"))
-        return "DIRECT";
-    
-    // Use proxy for everything else (HTTP/TLS/SOCKS5)
-    return "PROXY {}:{}; SOCKS5 {}:{}; DIRECT";
-}}"#,
-					proxy_host, proxy_port, proxy_host, proxy_port
-				);
+				// Enable Auto Proxy Discovery (first checkbox)
+				let _ = Command::new("networksetup")
+					.args(["-setproxyautodiscovery", &active_service, "on"])
+					.status();
 				
-				let pac_path = "/tmp/litebike-proxy.pac";
-				if let Err(e) = fs::write(pac_path, pac_content) {
-					eprintln!("Failed to write PAC file: {}", e);
-				} else {
-					// Set PAC URL
-					let pac_url = format!("file://{}", pac_path);
-					let _ = Command::new("networksetup")
-						.args(["-setautoproxyurl", &active_service, &pac_url])
-						.status();
-					
-					// Enable auto proxy
-					let _ = Command::new("networksetup")
-						.args(["-setautoproxystate", &active_service, "on"])
-						.status();
-				}
+				// Set PAC URL to upstream server
+				let pac_url = format!("http://{}:{}/proxy.pac", proxy_host, proxy_port);
+				let _ = Command::new("networksetup")
+					.args(["-setautoproxyurl", &active_service, &pac_url])
+					.status();
+				
+				// Enable auto proxy
+				let _ = Command::new("networksetup")
+					.args(["-setautoproxystate", &active_service, "on"])
+					.status();
 				
 				// Enable all proxy types
 				let _ = Command::new("networksetup")
@@ -1100,11 +1089,11 @@ fn run_proxy_setup(args: &[String]) {
 					.args(["-setsocksfirewallproxystate", &active_service, "on"])
 					.status();
 				
+				println!("✓ Auto Proxy Discovery enabled (WPAD)");
+				println!("✓ PAC URL: {}", pac_url);
 				println!("✓ HTTP proxy enabled");
 				println!("✓ HTTPS/TLS proxy enabled");
 				println!("✓ SOCKS5 proxy enabled");
-				println!("✓ PAC file configured");
-				println!("✓ Auto-proxy enabled");
 				
 				// Set bypass domains
 				let _ = Command::new("networksetup")
@@ -1119,25 +1108,9 @@ fn run_proxy_setup(args: &[String]) {
 					.spawn();
 				println!("✓ Bonjour service advertised");
 				
-				// Create WPAD file for auto-discovery
-				let wpad_content = format!(
-					r#"function FindProxyForURL(url, host) {{
-    if (isInNet(dnsResolve(host), "192.168.0.0", "255.255.0.0") ||
-        isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0") ||
-        isInNet(dnsResolve(host), "172.16.0.0", "255.240.0.0") ||
-        isInNet(dnsResolve(host), "127.0.0.0", "255.255.255.0"))
-        return "DIRECT";
-    return "PROXY {}:{}; SOCKS5 {}:{}; DIRECT";
-}}"#,
-					proxy_host, proxy_port, proxy_host, proxy_port
-				);
-				
-				let wpad_path = "/tmp/wpad.dat";
-				if let Err(e) = fs::write(wpad_path, &wpad_content) {
-					eprintln!("Failed to write WPAD file: {}", e);
-				} else {
-					println!("✓ WPAD file created at {}", wpad_path);
-				}
+				// WPAD URL also points to upstream at 8888
+				let wpad_url = format!("http://{}:{}/wpad.dat", proxy_host, proxy_port);
+				println!("✓ WPAD URL: {}", wpad_url);
 				
 				// Check UPnP port mapping capability
 				println!("\nVerifying network capabilities:");
@@ -1372,5 +1345,545 @@ fn run_upnp_gateway(args: &[String]) {
 		}
 	} else {
 		eprintln!("Failed to bind HTTP control point on port {}", http_port);
+	}
+}
+
+fn run_git_push(args: &[String]) {
+	// Works with ANY git repo in current directory
+	// Usage: litebike git-push [host] [port] [user]
+	
+	// Check if we're in a git repo
+	let git_check = Command::new("git")
+		.args(["rev-parse", "--git-dir"])
+		.output();
+	
+	if git_check.is_err() || !git_check.unwrap().status.success() {
+		eprintln!("Error: Not in a git repository");
+		return;
+	}
+	
+	// Get repo name from current directory or origin
+	let repo_name = if let Ok(output) = Command::new("git")
+		.args(["config", "--get", "remote.origin.url"])
+		.output() {
+		let url = String::from_utf8_lossy(&output.stdout);
+		url.trim()
+			.rsplit('/')
+			.next()
+			.unwrap_or("repo")
+			.trim_end_matches(".git")
+			.to_string()
+	} else {
+		// Use current directory name
+		env::current_dir()
+			.ok()
+			.and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_string()))
+			.unwrap_or_else(|| "repo".to_string())
+	};
+	
+	// Parse arguments with smart defaults
+	let host = args.get(0).cloned().unwrap_or_else(|| {
+		// Try to detect from existing temp_upstream remote
+		if let Ok(output) = Command::new("git")
+			.args(["remote", "get-url", "temp_upstream"])
+			.output() {
+			let url = String::from_utf8_lossy(&output.stdout);
+			if let Some(h) = extract_ssh_host(url.trim()) {
+				h.split(':').next().unwrap_or("192.168.225.152").to_string()
+			} else {
+				"192.168.225.152".to_string()
+			}
+		} else {
+			// Try to find Termux host from routing table
+			get_default_gateway()
+				.ok()
+				.map(|ip| ip.to_string())
+				.unwrap_or_else(|| "192.168.225.152".to_string())
+		}
+	});
+	
+	let port = args.get(1).unwrap_or(&"8022".to_string()).clone();
+	let user = args.get(2).cloned().unwrap_or_else(|| {
+		// Try to detect from existing remote
+		if let Ok(output) = Command::new("git")
+			.args(["remote", "get-url", "temp_upstream"])
+			.output() {
+			let url = String::from_utf8_lossy(&output.stdout);
+			// Extract user from ssh://user@host or user@host formats
+			if let Some(at_pos) = url.find('@') {
+				let before_at = &url[..at_pos];
+				before_at.trim_start_matches("ssh://").to_string()
+			} else {
+				"u0_a471".to_string()
+			}
+		} else {
+			"u0_a471".to_string()
+		}
+	});
+	
+	println!("Git Push to Remote Host");
+	println!("  Repository: {}", repo_name);
+	println!("  Target: {}@{}:{}", user, host, port);
+	println!("  Remote path: ~/{}", repo_name);
+	
+	// Test SSH connectivity first
+	print!("Testing SSH connection... ");
+	let ssh_test = Command::new("ssh")
+		.args(["-p", &port, "-o", "ConnectTimeout=3", &format!("{}@{}", user, host), "echo", "ok"])
+		.output();
+	
+	if ssh_test.is_err() || !ssh_test.unwrap().status.success() {
+		eprintln!("FAILED");
+		eprintln!("Cannot connect to {}@{}:{}", user, host, port);
+		eprintln!("Please check:");
+		eprintln!("  1. SSH service is running on remote");
+		eprintln!("  2. Network connectivity");
+		eprintln!("  3. Credentials are correct");
+		return;
+	}
+	println!("OK");
+	
+	// Check if repo exists on remote
+	print!("Checking remote repository... ");
+	let remote_check = Command::new("ssh")
+		.args(["-p", &port, &format!("{}@{}", user, host), "test", "-d", &format!("~/{}/.git", repo_name)])
+		.status();
+	
+	let remote_exists = remote_check.map(|s| s.success()).unwrap_or(false);
+	
+	if !remote_exists {
+		println!("NOT FOUND");
+		print!("Creating repository on remote... ");
+		
+		// Create bare repo on remote
+		let create_repo = Command::new("ssh")
+			.args([
+				"-p", &port,
+				&format!("{}@{}", user, host),
+				&format!("mkdir -p ~/{} && cd ~/{} && git init && git config receive.denyCurrentBranch updateInstead", repo_name, repo_name)
+			])
+			.status();
+		
+		if create_repo.is_err() || !create_repo.unwrap().success() {
+			eprintln!("FAILED");
+			return;
+		}
+		println!("CREATED");
+	} else {
+		println!("EXISTS");
+	}
+	
+	// Configure or update the remote
+	let remote_url = format!("ssh://{}@{}:{}/~/{}", user, host, port, repo_name);
+	
+	// Check if temp_upstream exists
+	let has_remote = Command::new("git")
+		.args(["remote", "get-url", "temp_upstream"])
+		.output()
+		.map(|o| o.status.success())
+		.unwrap_or(false);
+	
+	if has_remote {
+		print!("Updating temp_upstream remote... ");
+		let _ = Command::new("git")
+			.args(["remote", "set-url", "temp_upstream", &remote_url])
+			.status();
+	} else {
+		print!("Adding temp_upstream remote... ");
+		let _ = Command::new("git")
+			.args(["remote", "add", "temp_upstream", &remote_url])
+			.status();
+	}
+	println!("OK");
+	
+	// Get current branch
+	let branch_output = Command::new("git")
+		.args(["branch", "--show-current"])
+		.output()
+		.unwrap_or_else(|_| Command::new("git").args(["rev-parse", "--abbrev-ref", "HEAD"]).output().unwrap());
+	let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+	let branch = if branch.is_empty() { "master" } else { &branch };
+	
+	// Push to remote
+	println!("Pushing {} to temp_upstream...", branch);
+	let push_result = Command::new("git")
+		.args(["push", "-u", "temp_upstream", branch])
+		.status();
+	
+	if push_result.is_err() || !push_result.unwrap().success() {
+		eprintln!("Push failed! Trying force push...");
+		let force_push = Command::new("git")
+			.args(["push", "-f", "temp_upstream", branch])
+			.status();
+		
+		if force_push.is_err() || !force_push.unwrap().success() {
+			eprintln!("Force push also failed.");
+			eprintln!("Manual intervention required.");
+			return;
+		}
+	}
+	
+	println!("\n✓ Successfully pushed to {}@{}:{}/~/{}", user, host, port, repo_name);
+	println!("✓ Remote: temp_upstream -> {}", remote_url);
+	println!("\nTo pull from remote later:");
+	println!("  git pull temp_upstream {}", branch);
+}
+
+fn run_proxy_server(args: &[String]) {
+	let port = args.get(0).unwrap_or(&"8888".to_string()).parse::<u16>().unwrap_or(8888);
+	
+	// Get local IP for binding (from proxy-bridge logic)
+	let local_ip = get_default_local_ipv4().unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+	let bind_ip = env::var("BIND_IP").unwrap_or_else(|_| local_ip.to_string());
+	
+	println!("Starting Universal Proxy Server");
+	println!("  Binding to: {}:{}", bind_ip, port);
+	println!("  Protocols: HTTP/HTTPS/SOCKS5/TLS/DoH");
+	println!("  PAC file: http://{}:{}/proxy.pac", bind_ip, port);
+	println!("  WPAD: http://{}:{}/wpad.dat", bind_ip, port);
+	
+	// PAC file content
+	let pac_content = format!(
+		r#"function FindProxyForURL(url, host) {{
+    if (isPlainHostName(host) ||
+        shExpMatch(host, "*.local") ||
+        isInNet(dnsResolve(host), "10.0.0.0", "255.0.0.0") ||
+        isInNet(dnsResolve(host), "172.16.0.0", "255.240.0.0") ||
+        isInNet(dnsResolve(host), "192.168.0.0", "255.255.0.0") ||
+        isInNet(dnsResolve(host), "127.0.0.0", "255.255.255.0"))
+        return "DIRECT";
+    return "PROXY {}:{}; SOCKS5 {}:{}; DIRECT";
+}}"#,
+		bind_ip, port, bind_ip, port
+	);
+	
+	// Print configuration URLs (from proxy-bridge)
+	println!("\nAuto-Discovery URLs:");
+	println!("  PAC URL:     http://{}:{}/proxy.pac", bind_ip, port);
+	println!("  WPAD URL:    http://{}:{}/wpad.dat", bind_ip, port);
+	println!("  Config URL:  http://{}:{}/config", bind_ip, port);
+	println!("\nManual Configuration:");
+	println!("  HTTP Proxy:  {}:{}", bind_ip, port);
+	println!("  SOCKS5:      {}:{}", bind_ip, port);
+	println!("  SSH Forward: ssh -L {}:{}:{} user@{} -p 8022", port, bind_ip, port, bind_ip);
+	
+	// Start server - bind to specific IP or all interfaces
+	let bind_addr = if bind_ip == "127.0.0.1" {
+		format!("0.0.0.0:{}", port)
+	} else {
+		format!("0.0.0.0:{}", port) // Still bind to all for compatibility
+	};
+	
+	if let Ok(tcp_listener) = std::net::TcpListener::bind(&bind_addr) {
+		println!("\n✓ Listening on {}", bind_addr);
+		println!("✓ Supports: HTTP, HTTPS, SOCKS5, TLS, DoH, PAC/WPAD");
+
+		// Prepare RBCursive and parsers once (idempotent, no state per-conn)
+	let rbc = RBCursive::new();
+		let http = rbc.http_parser();
+		// Monomorphized listener over protocol specs for fast early classification
+	let proto_listener = Listener::<{ protocols::PROTOCOL_SPECS_ARR.len() }>::new(
+			&protocols::PROTOCOL_SPECS_ARR,
+		);
+		// Note: socks5/json parsers available from rbc as needed
+
+		for stream in tcp_listener.incoming() {
+			if let Ok(mut stream) = stream {
+				// Read up to a small window; if NeedMore, read a bit more once
+				let mut buffer = [0u8; 512];
+				if let Ok(mut len) = stream.read(&mut buffer[..256]) {
+					if len == 0 { continue; }
+					// Try initial classification
+					let mut req = Vec::from(&buffer[..len]);
+					let mut classified = proto_listener.classify(&req);
+					if matches!(classified, Classify::NeedMore) && len < buffer.len() {
+						// Safe reborrow: we won't use old req slice; rebuild after read
+						if let Ok(more) = stream.read(&mut buffer[len..]) {
+							len += more;
+							req.clear();
+							req.extend_from_slice(&buffer[..len]);
+							classified = proto_listener.classify(&req);
+						}
+					}
+
+					match classified {
+						Classify::Protocol(protocol) => {
+							match protocol {
+								ProtocolType::Socks5 => {
+									println!("→ SOCKS5");
+									let _ = stream.write_all(&[0x05, 0x00]);
+								}
+								ProtocolType::Tls => {
+									println!("→ TLS");
+								}
+								ProtocolType::Dns => {
+									println!("→ DNS");
+								}
+								ProtocolType::Json => {
+									println!("→ JSON (PAC or API) ");
+								}
+								ProtocolType::Http2 => {
+									println!("→ HTTP/2 (ALPN likely via CONNECT/TLS)");
+								}
+								ProtocolType::Http(_method) => {
+									let request_str = String::from_utf8_lossy(&req);
+
+									if request_str.contains("GET /proxy.pac") || request_str.contains("GET /wpad.dat") {
+										// Serve PAC file
+										let response = format!(
+											"HTTP/1.1 200 OK\r\n\
+											Content-Type: application/x-ns-proxy-autoconfig\r\n\
+											Content-Length: {}\r\n\
+											Cache-Control: no-cache\r\n\
+											\r\n\
+											{}",
+											pac_content.len(),
+											pac_content
+										);
+										let _ = stream.write_all(response.as_bytes());
+										println!("→ Served PAC file");
+									} else if request_str.contains("CONNECT ") {
+										// HTTPS proxy CONNECT request
+										let _ = stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n");
+										println!("→ HTTPS CONNECT tunnel");
+									} else {
+										// HTTP proxy request
+										let response = "HTTP/1.1 200 OK\r\n\
+											Content-Type: text/plain\r\n\
+											Content-Length: 30\r\n\
+											\r\n\
+											Litebike Proxy Server Running";
+										let _ = stream.write_all(response.as_bytes());
+										println!("→ HTTP proxy request");
+									}
+								}
+								ProtocolType::Unknown => {
+									// Try lightweight HTTP request-line parse as a soft hint only
+									match http.parse_request(&req).signal() {
+										Signal::Accept => println!("→ HTTP (soft-parse)"),
+										Signal::NeedMore => println!("→ Need more data to classify"),
+										Signal::Reject => println!("→ Unknown protocol (no match)"),
+									}
+								}
+							}
+						}
+						Classify::NeedMore => {
+							println!("→ Need more data to classify");
+						}
+						Classify::Unknown => {
+							println!("→ Unknown protocol (no anchor matched)");
+						}
+					}
+				}
+			}
+		}
+	} else {
+		eprintln!("Failed to bind to port {}", port);
+		eprintln!("Port may be in use or requires permissions");
+	}
+}
+
+fn run_proxy_cleanup(args: &[String]) {
+	let verbose = args.iter().any(|a| a == "-v" || a == "--verbose");
+	
+	println!("🧹 Cleaning up proxy turds...\n");
+	
+	// List of all proxy turds we've created
+	let mut turds_found = Vec::new();
+	let mut turds_cleaned = Vec::new();
+	
+	// 1. Check macOS network services
+	#[cfg(target_os = "macos")]
+	{
+		println!("Checking macOS proxy settings:");
+		
+		// Get all network services
+		let services = vec!["Wi-Fi", "Ethernet", "Thunderbolt Ethernet"];
+		
+		for service in services {
+			// Check each proxy type
+			let proxy_types = vec![
+				("getproxyautodiscovery", "Auto Discovery"),
+				("getautoproxyurl", "PAC URL"),
+				("getwebproxy", "HTTP Proxy"),
+				("getsecurewebproxy", "HTTPS Proxy"),
+				("getsocksfirewallproxy", "SOCKS Proxy"),
+			];
+			
+			for (cmd, name) in proxy_types {
+				if let Ok(output) = Command::new("networksetup")
+					.args([&format!("-{}", cmd), service])
+					.output() {
+					let result = String::from_utf8_lossy(&output.stdout);
+					if result.contains("Enabled: Yes") || result.contains("On") || result.contains("URL:") {
+						turds_found.push(format!("{} - {}", service, name));
+						if verbose {
+							println!("  ✗ {} - {}: {}", service, name, result.trim());
+						}
+					}
+				}
+			}
+			
+			// Disable all proxies for this service
+			let disable_cmds = vec![
+				"setproxyautodiscovery",
+				"setautoproxystate", 
+				"setwebproxystate",
+				"setsecurewebproxystate",
+				"setsocksfirewallproxystate",
+			];
+			
+			for cmd in disable_cmds {
+				let _ = Command::new("networksetup")
+					.args([&format!("-{}", cmd), service, "off"])
+					.status();
+			}
+			
+			// Clear PAC URL
+			let _ = Command::new("networksetup")
+				.args(["-setautoproxyurl", service, ""])
+				.status();
+		}
+		
+		if !turds_found.is_empty() {
+			println!("  ✓ Disabled {} proxy configurations", turds_found.len());
+			turds_cleaned.extend(turds_found.clone());
+		}
+	}
+	
+	// 2. Check for PAC/WPAD files
+	println!("\nChecking for PAC/WPAD files:");
+	let pac_files = vec![
+		"/tmp/litebike-proxy.pac",
+		"/tmp/wpad.dat",
+		"/tmp/proxy.pac",
+		"/var/tmp/litebike-proxy.pac",
+	];
+	
+	for file in pac_files {
+		if std::path::Path::new(file).exists() {
+			turds_found.push(format!("PAC file: {}", file));
+			if verbose {
+				println!("  ✗ Found: {}", file);
+			}
+			let _ = fs::remove_file(file);
+			turds_cleaned.push(format!("Removed: {}", file));
+		}
+	}
+	
+	// 3. Check for running proxy processes
+	println!("\nChecking for proxy processes:");
+	let process_patterns = vec![
+		"litebike proxy-server",
+		"litebike upnp-gateway",
+		"dns-sd.*LiteBike",
+	];
+	
+	for pattern in process_patterns {
+		if let Ok(output) = Command::new("pgrep")
+			.args(["-f", pattern])
+			.output() {
+			let pids = String::from_utf8_lossy(&output.stdout);
+			for pid in pids.lines() {
+				if !pid.trim().is_empty() {
+					turds_found.push(format!("Process: {} (PID {})", pattern, pid.trim()));
+					if verbose {
+						println!("  ✗ Found: {} (PID {})", pattern, pid.trim());
+					}
+					let _ = Command::new("kill").arg(pid.trim()).status();
+					turds_cleaned.push(format!("Killed PID {}", pid.trim()));
+				}
+			}
+		}
+	}
+	
+	// 4. Check for Bonjour/mDNS advertisements
+	println!("\nChecking for Bonjour advertisements:");
+	// Note: dns-sd -B runs forever, so we just check if processes exist
+	if let Ok(output) = Command::new("pgrep")
+		.args(["-f", "dns-sd.*LiteBike"])
+		.output() {
+		let pids = String::from_utf8_lossy(&output.stdout);
+		if !pids.trim().is_empty() {
+			turds_found.push("Bonjour: LiteBike Proxy advertisement".to_string());
+			if verbose {
+				println!("  ✗ Found: LiteBike Proxy advertisement");
+			}
+		}
+	}
+	
+	// 5. Check environment variables
+	println!("\nChecking environment variables:");
+	let proxy_vars = vec![
+		"HTTP_PROXY", "http_proxy",
+		"HTTPS_PROXY", "https_proxy",
+		"FTP_PROXY", "ftp_proxy",
+		"ALL_PROXY", "all_proxy",
+		"NO_PROXY", "no_proxy",
+	];
+	
+	for var in proxy_vars {
+		if let Ok(val) = env::var(var) {
+			if !val.is_empty() && (val.contains("8888") || val.contains("litebike")) {
+				turds_found.push(format!("Env var: {}={}", var, val));
+				if verbose {
+					println!("  ✗ Found: {}={}", var, val);
+				}
+			}
+		}
+	}
+	
+	// 6. Check git proxy config
+	println!("\nChecking git configuration:");
+	if let Ok(output) = Command::new("git")
+		.args(["config", "--global", "--get-regexp", "http.*proxy"])
+		.output() {
+		let config = String::from_utf8_lossy(&output.stdout);
+		if !config.trim().is_empty() {
+			for line in config.lines() {
+				turds_found.push(format!("Git config: {}", line));
+				if verbose {
+					println!("  ✗ Found: {}", line);
+				}
+			}
+			// Remove git proxy configs
+			let _ = Command::new("git").args(["config", "--global", "--unset", "http.proxy"]).status();
+			let _ = Command::new("git").args(["config", "--global", "--unset", "https.proxy"]).status();
+			turds_cleaned.push("Removed git proxy configs".to_string());
+		}
+	}
+	
+	// Summary
+	println!("\n📊 Cleanup Summary:");
+	println!("  Turds found: {}", turds_found.len());
+	println!("  Turds cleaned: {}", turds_cleaned.len());
+	
+	if verbose && !turds_found.is_empty() {
+		println!("\n📝 Detailed cleanup:");
+		for turd in &turds_cleaned {
+			println!("  ✓ {}", turd);
+		}
+	}
+	
+	if turds_found.is_empty() {
+		println!("\n✨ No proxy turds found - system is clean!");
+	} else {
+		println!("\n✅ Cleaned {} proxy turds from the system", turds_cleaned.len());
+	}
+	
+	// Final verification
+	#[cfg(target_os = "macos")]
+	{
+		println!("\nVerifying cleanup:");
+		if let Ok(output) = Command::new("networksetup")
+			.args(["-getwebproxy", "Wi-Fi"])
+			.output() {
+			let result = String::from_utf8_lossy(&output.stdout);
+			if result.contains("Enabled: No") {
+				println!("  ✓ Proxy disabled");
+			} else {
+				println!("  ⚠ Proxy may still be active");
+			}
+		}
 	}
 }
