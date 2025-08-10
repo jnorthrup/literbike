@@ -21,7 +21,7 @@ flowchart TB
 
   subgraph Google_Fi_SIM
     direction TB
-  GFi_v4_public_cell[IPv4 public on cell (192_0_0_0_slash_24 special)]:::v4
+    GFi_v4_public_cell[IPv4_public_on_cell_192_0_0_0_slash_24_special]:::v4
   GFi_v6_global_cell[IPv6 global on cell]:::v6
   GFi_wifi_v6_link_local[WiFi IPv6 link_local only]:::warn
   GFi_default_v4_gw[Default v4 gateway 192_0_0_1]:::v4

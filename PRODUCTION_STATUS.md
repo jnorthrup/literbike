@@ -26,6 +26,9 @@
 - WebSocket handling
 - Connection limits
 - Most environment variables documented
+- macOS proxy automation (networksetup/scutil integration CLI)
+- PAC/WPAD helper (packaged hosting + toggles)
+- Bonjour/mDNS advertisement for PAC/proxy endpoints
 
 ### Build Status
 - `litebike-proxy` (Termux) - Builds and runs
@@ -53,4 +56,5 @@ Required for production:
 - Create configuration system
 - Add monitoring/metrics
 - Perform security audit
-- Run actual benchmarks
+- Provide macOS client automation (enable/disable proxies, PAC hosting)
+- Optional: mDNS/Bonjour announcer and DHCP/DNS WPAD integration

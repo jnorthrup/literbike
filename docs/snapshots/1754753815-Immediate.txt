@@ -1,0 +1,61 @@
+carrier snapshot: Immediate
+timestamp: 1754753815
+
+[interfaces]
+bridge0 flags=0x8a63 idx=15 v4=[192.168.3.1] v6=[fe80::340f:89ff:fe50:64c0,fd70:f51e:df67:f1a7:109a:1a1c:cd94:f84c] mac=36:0f:89:50:64:c0
+stf0 flags=0x0 idx=3 v4=[] v6=[] mac=00:00:00:00:00:00
+utun3 flags=0x8051 idx=21 v4=[] v6=[fe80::ce81:b1c:bd2c:69e] mac=00:00:00:00:00:00
+en5 flags=0x8963 idx=8 v4=[] v6=[] mac=3a:3d:a0:ce:43:85
+utun2 flags=0x8051 idx=20 v4=[] v6=[fe80::8dd6:c29b:c737:aaae] mac=00:00:00:00:00:00
+ap1 flags=0x8863 idx=13 v4=[] v6=[] mac=0a:45:90:19:6e:87
+en2 flags=0x8963 idx=11 v4=[] v6=[] mac=36:0f:89:50:64:c4
+en1 flags=0x8963 idx=10 v4=[] v6=[] mac=36:0f:89:50:64:c0
+en8 flags=0x8863 idx=9 v4=[] v6=[] mac=3a:3d:a0:ce:43:86
+llw0 flags=0x8863 idx=17 v4=[] v6=[fe80::14be:e9ff:fea9:abb2] mac=16:be:e9:a9:ab:b2
+bridge100 flags=0x8a63 idx=22 v4=[192.168.2.1] v6=[fe80::80a9:97ff:fe43:c64,fd70:f51e:df67:f1a7:109a:1a1c:cd94:f84c] mac=82:a9:97:43:0c:64
+gif0 flags=0x8010 idx=2 v4=[] v6=[] mac=00:00:00:00:00:00
+lo0 flags=0x8049 idx=1 v4=[127.0.0.1] v6=[::1,fe80::1] mac=00:00:00:00:00:00
+anpi0 flags=0x8863 idx=4 v4=[] v6=[] mac=3a:3d:a0:ce:43:a4
+awdl0 flags=0x8863 idx=16 v4=[] v6=[fe80::14be:e9ff:fea9:abb2] mac=16:be:e9:a9:ab:b2
+anpi2 flags=0x8863 idx=6 v4=[] v6=[] mac=3a:3d:a0:ce:43:a6
+en0 flags=0x8863 idx=14 v4=[192.168.225.91] v6=[fe80::14d1:bf02:26b8:bdec,2600:1007:b012:d355:1897:8551:2fec:1c90,2600:1007:b012:d355:14e2:8c46:403e:512,2607:fb91:17e4:5f1c:10f2:d6fa:533f:afd8,2607:fb91:17e4:5f1c:cc0d:baff:8f47:2c5] mac=3a:9a:65:2c:cf:27
+utun0 flags=0x8051 idx=18 v4=[] v6=[fe80::a329:9640:144f:13e5] mac=00:00:00:00:00:00
+utun1 flags=0x8051 idx=19 v4=[] v6=[fe80::46d9:94dc:b693:5840] mac=00:00:00:00:00:00
+anpi1 flags=0x8863 idx=5 v4=[] v6=[] mac=3a:3d:a0:ce:43:a5
+en3 flags=0x8963 idx=12 v4=[] v6=[] mac=36:0f:89:50:64:c8
+en4 flags=0x8863 idx=7 v4=[] v6=[] mac=3a:3d:a0:ce:43:84
+
+[defaults]
+v4_gw=192.168.225.152
+v6_gw=fe80::7074:14ff:fe12:7744
+
+[probe]
+v4 src=192.168.225.91 iface=en0 class=private
+v6 src=2607:fb91:17e4:5f1c:cc0d:baff:8f47:2c5 iface=en0 class=global
+
+[domains]
+gif0         domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+lo0          domain=other mode=dual    v4_hint=loopback v6_hint=loopback   
+en4          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+bridge0      domain=other mode=dual    v4_hint=private  v6_hint=link-local 
+bridge100    domain=other mode=dual    v4_hint=private  v6_hint=link-local 
+utun3        domain=vpn   mode=v6-only v4_hint=-        v6_hint=link-local 
+en0          domain=other mode=dual    v4_hint=private  v6_hint=link-local 
+en5          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+anpi0        domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+anpi2        domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+awdl0        domain=other mode=v6-only v4_hint=-        v6_hint=link-local 
+utun0        domain=vpn   mode=v6-only v4_hint=-        v6_hint=link-local 
+en2          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+utun1        domain=vpn   mode=v6-only v4_hint=-        v6_hint=link-local 
+en1          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+en3          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+llw0         domain=other mode=v6-only v4_hint=-        v6_hint=link-local 
+stf0         domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+en8          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+utun2        domain=vpn   mode=v6-only v4_hint=-        v6_hint=link-local 
+anpi1        domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+ap1          domain=other mode=no-ip   v4_hint=-        v6_hint=-          
+
+[carrier_props]
+(n/a)

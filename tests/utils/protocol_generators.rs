@@ -91,6 +91,10 @@ impl HttpTestData {
             b"GET /wpad.dat HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
             b"GET /proxy.pac HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
             b"GET /wpad.dat?v=1 HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
+            // Common WPAD hostname and PAC MIME accept header
+            b"GET /wpad.dat HTTP/1.1\r\nHost: wpad\r\nAccept: application/x-ns-proxy-autoconfig,*/*\r\n\r\n".to_vec(),
+            // Alternate path occasionally used by misconfigured environments
+            b"GET /wpad/wpad.dat HTTP/1.1\r\nHost: example.com\r\n\r\n".to_vec(),
         ]
     }
     
@@ -500,6 +504,120 @@ impl FuzzGenerator {
             // TLS malformed
             vec![0x16, 0x99, 0x99], // Invalid TLS version
             vec![0x16, 0x03, 0x03, 0xFF, 0xFF], // Invalid length
+        ]
+    }
+}
+
+// ----- NEW: Bonjour/mDNS protocol test data generator -----
+
+/// Bonjour/mDNS protocol test data generator (UDP 5353)
+pub struct MdnsTestData;
+
+impl super::ProtocolTestData for MdnsTestData {
+    fn valid_requests(&self) -> Vec<Vec<u8>> {
+        vec![
+            // Query available service types
+            Self::build_dns_query("_services._dns-sd._udp.local.", 12, 1),
+            // Query HTTP services
+            Self::build_dns_query("_http._tcp.local.", 12, 1),
+            // Query SOCKS services (illustrative)
+            Self::build_dns_query("_socks._tcp.local.", 12, 1),
+        ]
+    }
+
+    fn invalid_requests(&self) -> Vec<Vec<u8>> {
+        vec![
+            vec![],                                 // Empty
+            vec![0x00, 0x00],                       // Too short for DNS header
+            b"\x12\x34\x01\x00\x00\x00\x00\x00".to_vec(), // Truncated header
+        ]
+    }
+
+    fn edge_case_requests(&self) -> Vec<Vec<u8>> {
+        vec![
+            // Max label length name (63 'a's) + .local.
+            {
+                let mut name = "a".repeat(63);
+                name.push_str(".local.");
+                Self::build_dns_query(&name, 12, 1)
+            },
+            // Unicast response desired (QU flag bit in class)
+            Self::build_dns_query_qu("_http._tcp.local.", 12, 1),
+        ]
+    }
+
+    fn expected_responses(&self) -> Vec<Vec<u8>> {
+        vec![
+            // Minimal mDNS response header (no answers, OK)
+            vec![0x00,0x00, 0x84,0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00],
+        ]
+    }
+}
+
+impl MdnsTestData {
+    fn build_dns_query(name: &str, qtype: u16, qclass: u16) -> Vec<u8> {
+        let mut msg = Vec::new();
+        // Header: ID=0, Flags=0x0000, QD=1, AN/NS/AR=0
+        msg.extend_from_slice(&[0x00,0x00, 0x00,0x00, 0x00,0x01, 0x00,0x00, 0x00,0x00, 0x00,0x00]);
+        Self::write_dns_name(&mut msg, name);
+        msg.extend_from_slice(&qtype.to_be_bytes());
+        msg.extend_from_slice(&qclass.to_be_bytes());
+        msg
+    }
+
+    // QU (unicast response desired) sets the top bit of qclass in mDNS
+    fn build_dns_query_qu(name: &str, qtype: u16, qclass: u16) -> Vec<u8> {
+        let qu_class = qclass | 0x8000;
+        Self::build_dns_query(name, qtype, qu_class)
+    }
+
+    fn write_dns_name(buf: &mut Vec<u8>, name: &str) {
+        for label in name.trim_end_matches('.').split('.') {
+            buf.push(label.len() as u8);
+            buf.extend_from_slice(label.as_bytes());
+        }
+        buf.push(0x00);
+    }
+}
+
+// ----- NEW: UPnP/SSDP protocol test data generator -----
+
+/// UPnP/SSDP protocol test data generator (UDP 1900, HTTP-like over UDP)
+pub struct SsdpTestData;
+
+impl super::ProtocolTestData for SsdpTestData {
+    fn valid_requests(&self) -> Vec<Vec<u8>> {
+        vec![
+            // Discover all devices/services
+            b"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n".to_vec(),
+            // Root devices
+            b"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: upnp:rootdevice\r\n\r\n".to_vec(),
+            // Internet Gateway Device
+            b"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n".to_vec(),
+        ]
+    }
+
+    fn invalid_requests(&self) -> Vec<Vec<u8>> {
+        vec![
+            b"M-SEARCH * HTTP/1.1\r\n\r\n".to_vec(), // Missing required headers
+            b"M-SEARCH * HTTP/1.0\r\nHOST: 239.255.255.250:1900\r\n\r\n".to_vec(), // Wrong HTTP version
+            b"NOTIFY * HTTP/1.1\r\n\r\n".to_vec(), // Wrong method for discovery
+        ]
+    }
+
+    fn edge_case_requests(&self) -> Vec<Vec<u8>> {
+        vec![
+            // Excessively large MX value
+            b"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 120\r\nST: ssdp:all\r\n\r\n".to_vec(),
+            // Extra whitespace and header casing variations
+            b"M-SEARCH * HTTP/1.1\r\nhost: 239.255.255.250:1900\r\nMan: \"ssdp:discover\" \r\nMx: 2\r\nSt: ssdp:all\r\n\r\n".to_vec(),
+        ]
+    }
+
+    fn expected_responses(&self) -> Vec<Vec<u8>> {
+        vec![
+            // Minimal valid 200 OK response sample
+            b"HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nDATE: Fri, 01 Jan 2021 00:00:00 GMT\r\nEXT:\r\nLOCATION: http://192.0.2.1:1900/device.xml\r\nSERVER: Test/1.0 UPnP/1.1 Mock/1.0\r\nST: upnp:rootdevice\r\nUSN: uuid:00000000-0000-0000-0000-000000000000::upnp:rootdevice\r\n\r\n".to_vec(),
         ]
     }
 }

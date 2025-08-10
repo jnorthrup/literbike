@@ -7,5 +7,7 @@ This commit addresses the core priorities outlined in the README.md:
 - **Rigorous Interface Compatibility Testing (Placeholder):** Added placeholder tests in `tests/integration/interface_compatibility.rs` to outline future testing scenarios for various network interfaces. These tests are currently ignored as they require specific network environments.
 - **Self-Contained, Minimal TLS (Design Decision):** Decided to delegate TLS handling to external tools to maintain the zero-dependency binary goal, rather than implementing a complex TLS stack from scratch within `litebike`.
 - **Temporary Git Remote Management (Placeholder):** Created `scripts/deploy_remote.sh` as a placeholder script to demonstrate how the binary could be deployed to a remote host.
+- **Ops docs:** Added SSH remote deploy/run and :8888 smoke test one-liners to DEPLOY.md and a concise remote smoke test snippet in tests/README.md.
+- **SSH co-build docs:** Documented parallel local/remote build and proxy smoke tests over SSH.
 
 This commit lays the groundwork for a highly resilient, portable, and dependency-free network toolkit.
