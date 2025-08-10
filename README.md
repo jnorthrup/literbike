@@ -1,7 +1,6 @@
 AI: DONT FUCKING TOUCH
 
 # litebike
-
 Low-level, cross-platform networking PROXY BITCH! and building blocks for proxying and tunnel tools. Focused on direct syscalls (via `libc`) for Linux/Android/macOS environments, including constrained/locked-down devices.
 
 ## TERMUX NETWORK TOOLS FOR KNOX  
@@ -24,7 +23,7 @@ Low-level, cross-platform networking PROXY BITCH! and building blocks for proxyi
 - Bonjour/mDNS service advertisement and UPnP port mapping for NAT traversal (targets)
 - Rust + libc POSIX syscalls for portable, minimal dependencies
 
-Note: Some bullets above are project goals and/or test utilities; the crate currently exposes a syscall-oriented library (`syscall_net`) and foundational types/config for higher-level components.
+Note: Some bullets above are project goals and/or test utilities 
 
 ## Repo layout
 

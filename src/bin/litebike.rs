@@ -1539,8 +1539,8 @@ fn run_proxy_server(args: &[String]) {
 	println!("Starting Universal Proxy Server");
 	println!("  Binding to: {}:{}", bind_ip, port);
 	println!("  Protocols: HTTP/HTTPS/SOCKS5/TLS/DoH");
-	println!("  PAC file: http://{}:{}/proxy.pac", bind_ip, port);
-	println!("  WPAD: http://{}:{}/wpad.dat", bind_ip, port);
+	println!("  PAC file: {}", pac_url(bind_ip.as_str(), port));
+	println!("  WPAD: {}", wpad_url(bind_ip.as_str(), port));
 	
 	// PAC file content
 	let pac_content = format!(
@@ -1559,13 +1559,33 @@ fn run_proxy_server(args: &[String]) {
 	
 	// Print configuration URLs (from proxy-bridge)
 	println!("\nAuto-Discovery URLs:");
-	println!("  PAC URL:     http://{}:{}/proxy.pac", bind_ip, port);
-	println!("  WPAD URL:    http://{}:{}/wpad.dat", bind_ip, port);
-	println!("  Config URL:  http://{}:{}/config", bind_ip, port);
+	println!("  PAC URL:     {}", pac_url(bind_ip.as_str(), port));
+	println!("  WPAD URL:    {}", wpad_url(bind_ip.as_str(), port));
+	println!("  Config URL:  {}", config_url(bind_ip.as_str(), port));
 	println!("\nManual Configuration:");
-	println!("  HTTP Proxy:  {}:{}", bind_ip, port);
-	println!("  SOCKS5:      {}:{}", bind_ip, port);
-	println!("  SSH Forward: ssh -L {}:{}:{} user@{} -p 8022", port, bind_ip, port, bind_ip);
+	println!("  HTTP Proxy:  {}", proxy_addr(bind_ip.as_str(), port));
+	println!("  SOCKS5:      {}", proxy_addr(bind_ip.as_str(), port));
+	println!("  SSH Forward: {}", ssh_forward_cmd(bind_ip.as_str(), port));
+// --- Helper functions for config URLs and addresses ---
+fn pac_url(ip: &str, port: u16) -> String {
+	format!("http://{}:{}/proxy.pac", ip, port)
+}
+
+fn wpad_url(ip: &str, port: u16) -> String {
+	format!("http://{}:{}/wpad.dat", ip, port)
+}
+
+fn config_url(ip: &str, port: u16) -> String {
+	format!("http://{}:{}/config", ip, port)
+}
+
+fn proxy_addr(ip: &str, port: u16) -> String {
+	format!("{}:{}", ip, port)
+}
+
+fn ssh_forward_cmd(ip: &str, port: u16) -> String {
+	format!("ssh -L {}:{}:{} user@{} -p 8022", port, ip, port, ip)
+}
 	
 	// Start server - bind to specific IP or all interfaces
 	let bind_addr = if bind_ip == "127.0.0.1" {
