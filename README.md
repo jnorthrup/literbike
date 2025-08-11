@@ -23,7 +23,7 @@ Low-level, cross-platform networking PROXY BITCH! and building blocks for proxyi
 - Bonjour/mDNS service advertisement and UPnP port mapping for NAT traversal (targets)
 - Rust + libc POSIX syscalls for portable, minimal dependencies
 
-Note: Some bullets above are project goals and/or test utilities 
+Note: Some bullets above are project goals and/or test utilities; the crate currently exposes a syscall-oriented library (`syscall_net`) and foundational types/config for higher-level components.
 
 ## Repo layout
 
