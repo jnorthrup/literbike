@@ -305,7 +305,7 @@ impl MockSocks5Server {
         let password_str = String::from_utf8_lossy(&password);
         
         let auth_success = if let Some((valid_user, valid_pass)) = valid_creds {
-            username_str == valid_user && password_str == valid_pass
+            username_str == *valid_user && password_str == *valid_pass
         } else {
             true // Accept any credentials if none specified
         };
@@ -375,94 +375,7 @@ impl MockSlowServer {
     }
 }
 
-/// Server that drops connections after specific patterns
-pub struct MockUnreliableServer {
-    listener: TcpListener,
-    state: Arc<TestState>,
-    drop_pattern: DropPattern,
-}
 
-#[derive(Clone)]
-pub enum DropPattern {
-    EveryNth(usize),
-    AfterBytes(usize),
-    Random(f64), // Probability of dropping (0.0-1.0)
-}
-
-impl MockUnreliableServer {
-    pub async fn new(drop_pattern: DropPattern) -> std::io::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        Ok(Self {
-            listener,
-            state: TestState::new(),
-            drop_pattern,
-        })
-    }
-    
-    pub fn addr(&self) -> SocketAddr {
-        self.listener.local_addr().unwrap()
-    }
-    
-    pub fn state(&self) -> Arc<TestState> {
-        Arc::clone(&self.state)
-    }
-    
-    pub async fn run(mut self) {
-        let mut connection_count = 0;
-        
-        while let Ok((mut stream, addr)) = self.listener.accept().await {
-            connection_count += 1;
-            let state = Arc::clone(&self.state);
-            let drop_pattern = self.drop_pattern.clone();
-            
-            tokio::spawn(async move {
-                state.record_connection();
-                debug!("Unreliable server connection {} from {}", connection_count, addr);
-                
-                let should_drop = match drop_pattern {
-                    DropPattern::EveryNth(n) => connection_count % n == 0,
-                    DropPattern::AfterBytes(_) => false, // Will be handled during read
-                    DropPattern::Random(prob) => rand::random::<f64>() < prob,
-                };
-                
-                if should_drop && !matches!(drop_pattern, DropPattern::AfterBytes(_)) {
-                    debug!("Dropping connection {} immediately", connection_count);
-                    state.record_error(format!("Connection {} dropped by pattern", connection_count));
-                    return;
-                }
-                
-                let mut buffer = vec![0u8; 1024];
-                let mut bytes_read = 0;
-                
-                while let Ok(n) = stream.read(&mut buffer).await {
-                    if n == 0 { break; }
-                    
-                    bytes_read += n;
-                    state.record_bytes(n as u64);
-                    
-                    if let DropPattern::AfterBytes(limit) = drop_pattern {
-                        if bytes_read >= limit {
-                            debug!("Dropping connection {} after {} bytes", connection_count, bytes_read);
-                            state.record_error(format!("Connection {} dropped after {} bytes", connection_count, bytes_read));
-                            return;
-                        }
-                    }
-                    
-                    // Echo the data back
-                    if let Err(e) = stream.write_all(&buffer[..n]).await {
-                        state.record_error(format!("Failed to echo data: {}", e));
-                        break;
-                    } else {
-                        state.record_bytes(n as u64);
-                    }
-                }
-            });
-        }
-    }
-}
-
-// Helper to add randomization for testing
-use rand::Rng;
 
 /// DNS mock server for DoH testing
 pub struct MockDnsServer {
@@ -503,16 +416,12 @@ impl MockDnsServer {
                     
                     let response = if request.contains("/dns-query") {
                         // DoH response
-                        "HTTP/1.1 200 OK\r\n\
-                         Content-Type: application/dns-message\r\n\
-                         Content-Length: 32\r\n\
-                         \r\n\
-                         \x00\x00\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\
-                         \x03www\x07example\x03com\x00\x00\x01\x00\x01\
-                         \xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\
-                         \x5d\xb8\xd8\x22"
+                        b"HTTP/1.1 200 OK\r\n\                        Content-Type: application/dns-message\r\n\                        Content-Length: 32\r\n\                        \r\n\                        \x00\x00\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\
+                        \x03www\x07example\x03com\x00\x00\x01\x00\x01\
+                        \xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\
+                        \x5d\xb8\xd8\x22"
                     } else {
-                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
                     };
                     
                     if let Err(e) = stream.write_all(response.as_bytes()).await {

@@ -95,7 +95,6 @@ impl ProtocolHandler for TestHandler {
 }
 
 mod registry_creation_tests {
-    use super::*;
 
     #[test]
     fn test_empty_registry_creation() {
@@ -254,7 +253,6 @@ mod protocol_detection_routing_tests {
 }
 
 mod detection_result_tests {
-    use super::*;
 
     #[test]
     fn test_detection_result_creation() {
@@ -397,7 +395,6 @@ mod concurrency_tests {
 }
 
 mod memory_management_tests {
-    use super::*;
 
     #[test]
     fn test_registry_clone_behavior() {

@@ -128,7 +128,8 @@ pub struct SimulatedStream<S> {
     second_start: std::time::Instant,
 }
 
-impl<S> SimulatedStream<S>
+impl<S>
+    SimulatedStream<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -143,7 +144,8 @@ where
         }
     }
     
-    async fn apply_conditions(&mut self, bytes_count: usize) -> io::Result<()> {
+    async fn apply_conditions(&mut self, bytes_count: usize) -> io::Result<()>
+    {
         // Check for disconnection
         if self.conditions.disconnect_probability > 0.0 {
             if rand::random::<f64>() < self.conditions.disconnect_probability {
@@ -205,14 +207,16 @@ where
     }
 }
 
-impl<S> AsyncRead for SimulatedStream<S>
+impl<S>
+    AsyncRead
+    for SimulatedStream<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
+        cx: &mut Context<'_'>,
+        buf: &mut tokio::io::ReadBuf<'_'>,
     ) -> Poll<io::Result<()>> {
         // First, try to read from the inner stream
         let initial_filled = buf.filled().len();
@@ -248,13 +252,15 @@ where
     }
 }
 
-impl<S> AsyncWrite for SimulatedStream<S>
+impl<S>
+    AsyncWrite
+    for SimulatedStream<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     fn poll_write(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut Context<'_'>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
         // Apply conditions before writing
@@ -291,11 +297,11 @@ where
         }
     }
     
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_'>) -> Poll<Result<(), io::Error>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
     
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_'>) -> Poll<Result<(), io::Error>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
@@ -333,7 +339,8 @@ impl NetworkTestServer {
         self.listener.local_addr().unwrap()
     }
     
-    pub async fn run(mut self) -> io::Result<()> {
+    pub async fn run(mut self) -> io::Result<()>
+    {
         while let Ok((stream, addr)) = self.listener.accept().await {
             let simulator = NetworkSimulator::new(self.simulator.conditions.clone());
             let behavior = self.behavior.clone();

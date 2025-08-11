@@ -36,47 +36,82 @@ This directory contains a comprehensive test framework for the LiteBike proxy pr
 
 ### `/utils/` - Test Utilities Framework
 
+
+
 - **`mod.rs`** - Core testing utilities and configuration
+
 - **`mock_servers.rs`** - Various mock servers (HTTP, echo, SOCKS5, DNS, slow, unreliable)
+
 - **`protocol_generators.rs`** - Protocol data generators for testing and fuzzing
   - Includes HTTP (PAC/WPAD variants), SOCKS5, TLS, DoH, Bonjour/mDNS, and UPnP/SSDP
 - **`test_macros.rs`** - Convenient macros for common testing patterns
 - **`network_simulation.rs`** - Network condition simulation (latency, bandwidth, packet loss)
+
 - **`performance_helpers.rs`** - Performance measurement and benchmarking utilities
 
+
+
+
 ## Running Tests
+
 
 ### Basic Test Execution
 
 ```bash
+
 # Run all tests
+
+
 cargo test
 
+
+
+
 # Run specific test suites
-cargo test --test protocol_detection           # Unit tests
-cargo test --test comprehensive_scenarios      # Integration tests
-cargo test --test protocol_detection_enhanced  # Enhanced unit tests
+
+
+
+
 
 # Run benchmarks
+
+
 cargo bench
+
+
 
 # Run with specific features
 cargo test --features full
 cargo test --features basic-proxy
+
 cargo test --features doh
+
+
 cargo test --no-default-features
+
 ```
+
+
+
 
 ### Advanced Test Scenarios
 
+
+
+
 ```bash
+
+
 # Run with network simulation
+
 RUST_LOG=debug cargo test comprehensive_scenarios
+
 
 # Run property-based tests
 cargo test property_based_tests
 
 # Run SIMD validation tests (requires simd feature)
+
 cargo test --features simd simd_validation
 
 # Run performance regression tests

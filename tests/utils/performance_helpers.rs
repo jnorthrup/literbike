@@ -542,6 +542,7 @@ impl LatencyTester {
 }
 
 // Platform-specific memory usage functions
+#[cfg(target_os = "linux")]
 fn get_memory_usage() -> u64 {
     // On Unix systems, read from /proc/self/status
     use std::fs;
@@ -561,12 +562,14 @@ fn get_memory_usage() -> u64 {
     0 // Fallback if reading fails
 }
 
+#[cfg(target_os = "windows")]
 fn get_memory_usage() -> u64 {
     // On Windows, use Windows API
     // This is a simplified implementation
     0 // Placeholder
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 fn get_memory_usage() -> u64 {
     0 // Unsupported platform
 }

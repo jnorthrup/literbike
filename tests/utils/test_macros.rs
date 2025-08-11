@@ -2,7 +2,6 @@
 // Provides convenient macros and functions for common testing patterns
 
 use std::time::Duration;
-use tokio::time::timeout;
 
 /// Macro to create a simple test server setup
 #[macro_export]

@@ -1,118 +1,133 @@
-AI: DONT FUCKING TOUCH
+## Adaptive Git Sandbox & Agent Hierarchy (Mermaid)
 
-# litebike
-Low-level, cross-platform networking PROXY BITCH! and building blocks for proxying and tunnel tools. Focused on direct syscalls (via `libc`) for Linux/Android/macOS environments, including constrained/locked-down devices.
+```mermaid
+flowchart TD
+	subgraph Host
+		H1[File Watcher]
+		H2[Git Agent]
+		H3[Debug Agent]
+		H4[Build/Test Runner]
+	end
+	subgraph Client
+		C1[File Watcher]
+		C2[Git Agent]
+		C3[Debug Agent]
+		C4[Build/Test Runner]
+	end
+	subgraph SSH
+		S1[Secure Tunnel]
+	end
+	subgraph Coordination
+		M1[Root Agent]
+		M2[Sub-Agent: Repo]
+		M3[Sub-Agent: Service]
+	end
 
-## TERMUX NETWORK TOOLS FOR KNOX  
+	H1 --"Detects changes"--> H2
+	H2 --"Commits & pushes deltas"--> S1
+	S1 --"Syncs deltas"--> C2
+	C2 --"Applies/merges deltas"--> C1
+	H2 --"Notifies"--> M1
+	C2 --"Notifies"--> M1
+	M1 --"Coordinates debug session"--> H3
+	M1 --"Coordinates debug session"--> C3
+	H3 --"Runs diagnostics"--> H4
+	C3 --"Runs diagnostics"--> C4
+	H4 --"Reports results"--> M1
+	C4 --"Reports results"--> M1
+	M1 --"Escalates/Delegates"--> M2
+	M2 --"Communicates"--> M3
+	M1 --"Aggregates state"--> S1
 
-- hardlinking to litebike will enable the main() of each util to be active
-
-- ip
-- route
-- ifconfig
-- netstat
-
- these will be crafted from syscalls with rust MM and perfected on note 20 5g available TERMUX
-
-## Highlights
-
-- Universal listener target (port 8888) for multi-protocol frontends (HTTP/SOCKS5/TLS/DoH)
-- Auto-detection of TERMUX host from routing table (Android/Termux scenarios)
-- SSH localhost forwarding for easy access in remote-dev workflows
-- System proxy helpers (macOS), Git proxy wiring, and PAC/WPAD auto-configuration support (targets)
-- Bonjour/mDNS service advertisement and UPnP port mapping for NAT traversal (targets)
-- Rust + libc POSIX syscalls for portable, minimal dependencies
-
-Note: Some bullets above are project goals and/or test utilities; the crate currently exposes a syscall-oriented library (`syscall_net`) and foundational types/config for higher-level components.
-
-## Repo layout
-
-- `src/syscall_net.rs` — direct-syscall networking (sockets, interfaces, default route)
-- `src/types.rs` — enums and helpers for protocols, addresses, flags
-- `src/config.rs` — env-configurable runtime options
-- `tests/` — integration/unit/bench scaffolding (work in progress)
-
-## Quick start
-
-Build:
-
-```bash
-cargo build
+	H2 --"Resolves conflicts"--> C2
+	C2 --"Resolves conflicts"--> H2
+	S1 --"Enables tmux/VSCode Live Share"--> H3
+	S1 --"Enables tmux/VSCode Live Share"--> C3
 ```
 
-Run tests:
+AI: DO NOT TOUCH
 
-```bash
-cargo test
-```
+# LiteBike
 
-Use as a library (path dependency example):
+## Defaults and Tools
 
-```toml
-[dependencies]
-litebike = { path = "../litebike" }
-```
+- Default ingress interface: `s?w?lan*,en*`
+- Default egress interface: `rmnet*` (with backoff logic)
+- Unified proxy port: `8888`
+- Drop-in replacements: `ifconfig`, `netstat`, `route`, `ip`
+- Cross-platform: Android/Termux, macOS, Linux
 
-### Minimal example: list interfaces and default gateway
+## Actual Codebase Specifications
 
-```rust
-use litebike::syscall_net::{list_interfaces, get_default_gateway};
+### Binaries & Entrypoints
+- Main binary: `litebike` (argv0-dispatch)
+- Hardlink/symlink invocation: acts as `ifconfig`, `ip`, `route`, `netstat` (minimal syscall-only implementations)
+- Additional commands: `probe`, `domains`, `carrier`, `radios`, `snapshot`, `watch`
 
-fn main() -> std::io::Result<()> {
-  let ifaces = list_interfaces()?;
-  for (name, iface) in ifaces {
-    println!("{}: {:?}", name, iface.addrs);
-  }
+### Supported Commands
+- `litebike ifconfig [iface]` — List interfaces and addresses
+- `litebike ip [args]` — IP utility emulation
+- `litebike route` — Print routing table
+- `litebike netstat [args]` — Show socket states
+- `litebike probe` — Show best-effort egress selections for v4/v6
+- `litebike domains` — Domain info utility
+- `litebike carrier` — Carrier info utility
+- `litebike radios [args]` — Radio info utility
+- `litebike snapshot [args]` — Print config snapshot
+- `litebike watch [args]` — Watch utility
 
-  if let Ok(gw) = get_default_gateway() {
-    println!("Default gateway: {}", gw);
-  }
-  Ok(())
-}
-```
+### Configuration
+- Environment variables:
+		- `LITEBIKE_BIND_PORT` (default: 8888)
+		- `LITEBIKE_INTERFACE` (default: swlan0)
+		- `LITEBIKE_LOG` (default: info)
+		- `LITEBIKE_FEATURES` (comma-separated)
+		- `EGRESS_INTERFACE` (default: auto)
+		- `EGRESS_BIND_IP` (default: auto)
+		- `LITEBIKE_BIND_ADDR` (optional)
 
-## Configuration
+### Protocol Support
+- Multi-protocol detection on unified port (HTTP, SOCKS5, TLS, DoH, PAC/WPAD, Bonjour, UPnP)
+- Protocols enumerated in code: HTTP, HTTPS, SOCKS5, TLS, DNS, DoH, PAC, WPAD, Bonjour, UPnP, and many more (see `src/types.rs`)
 
-The `Config` struct reads from environment variables. Set any of the following to override defaults:
+### System Utility Emulation
+- All tools use direct syscalls via `libc` (no /proc, /sys, /dev on Android)
+- Netlink sockets for routing info
+- ioctl for interface enumeration
+- Minimal Rust wrappers, C-style code for compatibility
 
-- `LITEBIKE_BIND_PORT` (default `8888`)
-- `LITEBIKE_INTERFACE` (default `swlan0`)
-- `LITEBIKE_LOG` (default `info`)
-- `LITEBIKE_FEATURES` (comma-separated list)
-- `EGRESS_INTERFACE` (default iface route to 8.8.8.8)
+### Testing & Examples
+- Integration/unit/bench scaffolding in `tests/`
+- Example: list interfaces and default gateway
+		```rust
+		use litebike::syscall_net::{list_interfaces, get_default_gateway};
+		fn main() -> std::io::Result<()> {
+			let ifaces = list_interfaces()?;
+			for (name, iface) in ifaces {
+				println!("{}: {:?}", name, iface.addrs);
+			}
+			if let Ok(gw) = get_default_gateway() {
+				println!("Default gateway: {}", gw);
+			}
+			Ok(())
+		}
+		```
 
-second choices
 
-- `EGRESS_BIND_IP` (default route to 8.8.8.8 IP)
-- `LITEBIKE_BIND_ADDR` ( TERMUX_HOST)
-Example:
 
-```bash
-   LITEBIKE_INTERFACE='SWLAN0:' \
-LITEBIKE_BIND_PORT=8888 \
-LITEBIKE_LOG=debug \
-cargo run --example your_app
-```
+## Features
 
-## Remote development (Android/Termux)
+- **Bonjour-Powered Auto-Discovery:** The key to a seamless, plug-and-play experience.
+- **Versatile Proxying:** A robust, multi-protocol proxy server that handles modern web traffic.
+- **UPnP Support:** Enables automatic port forwarding when needed.
+- **`proxy-bridge` Script:** A companion script that automates the tedious task of setting and clearing proxy configurations in all your common shell (`.*rc`) files.
+- **Cross-Platform**: Works on Android/Termux, macOS, Linux without modification.
+- **Legacy Compatibility**: Drop-in replacement for `ifconfig`, `netstat`, `route`, `ip`.
 
-SSH into Termux and optionally forward the universal port 8888 back to your host:
+## Network Interface Handling
 
-```bash
-ssh u0_a471@192.168.225.152 -p 8022 -L 8888:192.168.225.152:8888
-```
+LiteBike is designed to intelligently manage network interfaces for optimal proxying:
 
-This enables pushing to a temporary remote, running on the device, and iterating from the host. Adjust username/IP as needed.
-
-## macOS notes
-
-- Default-gateway detection uses `netstat` under the hood today.
-- System proxy/PAC helpers are roadmap items; some tests/utilities may reference them.
-
-## License
-
-See `LICENSE`, `COPYING`, `COMMERCIAL.md`, and `COMMERCIAL-LICENSE.md`. Some functionality may be dual-licensed for commercial use.
-
-## Security
-
-This crate exposes raw syscalls and socket operations. Review and test thoroughly before deploying to production or locked-down environments.
+- **Default Ingress:** The proxy typically listens on WiFi interfaces, often matching patterns like `s?wlan*`.
+- **Default Egress:** Outgoing traffic is routed through mobile data interfaces, commonly `rmnet*`, with built-in backoff logic for reliable connectivity.
+ 
