@@ -41,7 +41,7 @@ impl SimdScanner for Sse2Scanner {
         let mut result = Vec::with_capacity(positions.len());
         for &pos in positions {
             if let Some(&byte) = data.get(pos) {
-                result.push(*byte);
+                result.push(byte);
             }
         }
         result
