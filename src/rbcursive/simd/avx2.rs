@@ -47,7 +47,7 @@ impl SimdScanner for Avx2Scanner {
         for chunk in positions.chunks(32) {
             for &pos in chunk {
                 if let Some(&byte) = data.get(pos) {
-                    result.push(byte);
+                    result.push(*byte);
                 }
             }
         }
