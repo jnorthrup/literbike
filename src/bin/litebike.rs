@@ -46,6 +46,8 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	("proxy-config", run_proxy_config),
 	("proxy-setup", run_proxy_setup),
 	("proxy-server", run_proxy_server),
+	("proxy-client", run_proxy_client),
+	("proxy-node", run_proxy_node),
 	("proxy-cleanup", run_proxy_cleanup),
 	
 	// Network discovery and monitoring
@@ -65,6 +67,7 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	// Specialized operations
 	("snapshot", run_snapshot),
 	("upnp-gateway", run_upnp_gateway),
+	("bonjour-discover", run_bonjour_discover),
 	("completion", run_completion),
 	("carrier-bypass", run_carrier_bypass),
 	("raw-connect", run_raw_connect),

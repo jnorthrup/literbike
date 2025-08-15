@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
 # DEPRECATED: proxy-bridge is legacy. Use litebike-proxy (universal :8888).
 
-case "${1:-server}" in
-  server|start)
-    BIND_IP="${BIND_IP:-0.0.0.0:8888}"
-    LB_BIN="${LB_BIN:-$HOME/litebike/target/release/litebike-proxy}"
-    command -v litebike-proxy >/dev/null 2>&1 && LB_BIN="litebike-proxy"
-    if [ ! -x "$LB_BIN" ]; then
-      echo "proxy-bridge deprecated. Build/run litebike-proxy (see DEPLOY.md SSH sections)." >&2
-      exit 1
-    fi
-    echo "proxy-bridge is deprecated. Starting unified proxy via: $LB_BIN (BIND_IP=$BIND_IP)" >&2
-    exec env BIND_IP="$BIND_IP" "$LB_BIN"
-    ;;
-: ${HTTP_PORT:=8080}
+
+: ${HTTP_PORT:=8888}
 : ${SOCKS_PORT:=1080}
 : ${TERMUX_PORT:=8022}
 : ${TERMUX_USER:=u0_a471}

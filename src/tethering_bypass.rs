@@ -336,7 +336,7 @@ impl TetheringBypass {
     fn test_ttl_to_host(&self, socket: &UdpSocket, host: &str, _ttl: u8) -> bool {
         // Simple connectivity test (TTL manipulation requires raw sockets)
         let addr = format!("{}:53", host);
-        if let Ok(addr) = addr.parse() {
+        if let Ok(addr) = addr.parse::<std::net::SocketAddr>() {
             socket.connect(addr).is_ok()
         } else {
             false
@@ -380,7 +380,7 @@ impl TetheringBypass {
         
         for port in test_ports {
             let addr = format!("{}:{}", test_host, port);
-            if let Ok(addr) = addr.parse() {
+            if let Ok(addr) = addr.parse::<std::net::SocketAddr>() {
                 if TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_err() {
                     blocked_count += 1;
                 }

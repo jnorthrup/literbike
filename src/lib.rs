@@ -2,7 +2,6 @@ pub mod syscall_net;
 pub mod types;
 pub mod radios;
 pub mod rbcursive;
-pub mod protocol_registry;
 pub mod universal_listener;
 pub mod gates;
 pub mod git_sync;

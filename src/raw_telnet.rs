@@ -127,43 +127,18 @@ impl RawTelnet {
     
     /// Try source port manipulation to bypass carrier filtering
     fn try_source_port_manipulation(&self, addr: &SocketAddr) -> Result<TcpStream, String> {
-        use std::net::TcpSocket;
-        
-        // Try binding to privileged/common source ports that carriers often allow
-        let bypass_source_ports = [53, 80, 443, 8080, 8443];
-        
-        for src_port in bypass_source_ports {
-            if let Ok(socket) = TcpSocket::new_v4() {
-                let local_addr = format!("0.0.0.0:{}", src_port).parse().unwrap();
-                
-                // Try to bind to specific source port
-                if socket.bind(local_addr).is_ok() {
-                    if let Ok(stream) = socket.connect(*addr) {
-                        println!("📡 Connected using source port {}", src_port);
-                        return Ok(stream);
-                    }
-                }
-            }
-        }
-        
-        Err("Source port manipulation failed".to_string())
+        // Simplified - just try standard connection for now
+        // TODO: Implement proper source port manipulation with raw sockets
+        TcpStream::connect_timeout(addr, self.timeout)
+            .map_err(|_| "Source port manipulation failed".to_string())
     }
     
     /// Try TCP options to bypass DPI
     fn try_tcp_options_bypass(&self, addr: &SocketAddr) -> Result<TcpStream, String> {
-        // For now, just attempt standard connection with SO_REUSEADDR
-        use std::net::TcpSocket;
-        
-        if let Ok(socket) = TcpSocket::new_v4() {
-            let _ = socket.set_reuseaddr(true);
-            let _ = socket.set_nodelay(true);
-            
-            if let Ok(stream) = socket.connect(*addr) {
-                return Ok(stream);
-            }
-        }
-        
-        Err("TCP options bypass failed".to_string())
+        // Simplified - just try standard connection for now  
+        // TODO: Implement proper TCP options manipulation
+        TcpStream::connect_timeout(addr, self.timeout)
+            .map_err(|_| "TCP options bypass failed".to_string())
     }
     
     /// Start interactive telnet session

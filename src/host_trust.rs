@@ -44,7 +44,7 @@ pub struct TrustPolicies {
     pub trust_upnp_devices: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TrustCondition {
     PortOpen(u16),
     ServiceRunning(String),

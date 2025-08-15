@@ -340,7 +340,8 @@ impl AggressiveUPnP {
         };
         
         // Extract host and port from control URL
-        let url_parts: Vec<&str> = control_url.replace("http://", "").split('/').collect();
+        let binding = control_url.replace("http://", "");
+        let url_parts: Vec<&str> = binding.split('/').collect();
         let host_port = url_parts[0];
         let path = format!("/{}", url_parts[1..].join("/"));
         

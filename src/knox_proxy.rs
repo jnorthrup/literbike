@@ -123,7 +123,7 @@ impl KnoxProxy {
     }
     
     /// Handle individual connection with Knox bypass
-    async fn handle_connection(stream: TcpStream, config: &KnoxProxyConfig) -> io::Result<()> {
+    async fn handle_connection(mut stream: TcpStream, config: &KnoxProxyConfig) -> io::Result<()> {
         let peer_addr = stream.peer_addr()?;
         debug!("New connection from {}", peer_addr);
         
@@ -134,7 +134,7 @@ impl KnoxProxy {
             // Fallback to regular detection
             let mut buffer = vec![0u8; 512];
             let n = {
-                let mut stream_ref = &stream;
+                let mut stream_ref = &mut stream;
                 stream_ref.read(&mut buffer).await?
             };
             
@@ -372,6 +372,9 @@ impl Clone for KnoxProxyConfig {
             ttl_spoofing: self.ttl_spoofing,
             max_connections: self.max_connections,
             buffer_size: self.buffer_size,
+            packet_fragmentation_enabled: self.packet_fragmentation_enabled,
+            tcp_fingerprint_enabled: self.tcp_fingerprint_enabled,
+            tls_fingerprint_enabled: self.tls_fingerprint_enabled,
         }
     }
 }
