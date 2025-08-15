@@ -6,18 +6,21 @@ pub mod combinators;
 pub mod protocols;
 pub mod continuation;
 pub mod scanner;
+pub mod patterns;
 
 pub use simd::*;
 pub use combinators::*;
 pub use protocols::*;
 pub use continuation::*;
 pub use scanner::*;
+pub use patterns::*;
 
 // Remove unused import
 
 /// Core RBCursive framework - the main entry point
 pub struct RBCursive {
     scanner: Box<dyn SimdScanner>,
+    pattern_scanner: PatternScanner,
 }
 
 impl RBCursive {
@@ -27,6 +30,7 @@ impl RBCursive {
         
         Self {
             scanner: create_optimal_scanner(),
+            pattern_scanner: PatternScanner::new(),
         }
     }
     
@@ -87,6 +91,36 @@ impl RBCursive {
         }
         
         None
+    }
+    
+    /// Match glob patterns against data using SIMD acceleration
+    pub fn match_glob(&self, data: &[u8], pattern: &str) -> PatternMatchResult {
+        self.pattern_scanner.pattern_matcher.match_glob(data, pattern)
+    }
+    
+    /// Match regex patterns against data using SIMD acceleration
+    pub fn match_regex(&self, data: &[u8], pattern: &str) -> Result<PatternMatchResult, PatternError> {
+        self.pattern_scanner.pattern_matcher.match_regex(data, pattern)
+    }
+    
+    /// Find all glob pattern matches in data
+    pub fn find_all_glob(&self, data: &[u8], pattern: &str) -> Vec<PatternMatch> {
+        self.pattern_scanner.pattern_matcher.find_all_glob(data, pattern)
+    }
+    
+    /// Find all regex pattern matches in data
+    pub fn find_all_regex(&self, data: &[u8], pattern: &str) -> Result<Vec<PatternMatch>, PatternError> {
+        self.pattern_scanner.pattern_matcher.find_all_regex(data, pattern)
+    }
+    
+    /// SIMD-accelerated pattern scanning (optimized for large data)
+    pub fn scan_with_pattern(&self, data: &[u8], pattern: &str, pattern_type: PatternType) -> Result<Vec<PatternMatch>, PatternError> {
+        self.pattern_scanner.simd_guided_pattern_scan(data, pattern, pattern_type)
+    }
+    
+    /// Get pattern matching capabilities
+    pub fn pattern_capabilities(&self) -> PatternCapabilities {
+        self.pattern_scanner.pattern_matcher.pattern_capabilities()
     }
 }
 
@@ -239,5 +273,63 @@ mod tests {
             ProtocolDetection::Socks5 => (),
             other => panic!("Expected SOCKS5, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_glob_pattern_matching() {
+        let rbcursive = RBCursive::new();
+        
+        // Test matching file extensions
+        let filename = b"config.json";
+        let result = rbcursive.match_glob(filename, "*.json");
+        assert!(result.matched);
+        assert_eq!(result.total_matches, 1);
+        
+        // Test non-matching pattern
+        let result = rbcursive.match_glob(filename, "*.txt");
+        assert!(!result.matched);
+        assert_eq!(result.total_matches, 0);
+    }
+
+    #[test]
+    fn test_regex_pattern_matching() {
+        let rbcursive = RBCursive::new();
+        
+        // Test HTTP request parsing
+        let http_data = b"GET /api/v1/users/123 HTTP/1.1";
+        let result = rbcursive.match_regex(http_data, r"GET /api/v\d+/users/(\d+)").unwrap();
+        assert!(result.matched);
+        assert_eq!(result.total_matches, 1);
+        
+        // Verify capture group
+        if let Some(match_result) = result.matches.first() {
+            assert!(!match_result.captures.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_pattern_scanner_integration() {
+        let rbcursive = RBCursive::new();
+        
+        // Test SIMD-accelerated pattern scanning
+        let log_data = b"2024-01-01 10:00:00 INFO Starting server\n2024-01-01 10:00:01 ERROR Failed to connect";
+        let matches = rbcursive.scan_with_pattern(log_data, r"\d{4}-\d{2}-\d{2}", PatternType::Regex).unwrap();
+        assert!(matches.len() >= 2); // Should find at least 2 dates
+        
+        // Test glob pattern scanning
+        let file_list = b"test.log";
+        let matches = rbcursive.scan_with_pattern(file_list, "*.log", PatternType::Glob).unwrap();
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn test_pattern_capabilities() {
+        let rbcursive = RBCursive::new();
+        let caps = rbcursive.pattern_capabilities();
+        
+        assert!(caps.supports_glob);
+        assert!(caps.supports_regex);
+        assert!(caps.max_pattern_length > 0);
+        assert!(caps.max_data_size > 0);
     }
 }

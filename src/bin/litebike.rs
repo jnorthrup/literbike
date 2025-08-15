@@ -25,27 +25,15 @@ use litebike::rbcursive::{RBCursive, Classify, Signal};
 use litebike::rbcursive::protocols::Listener;
 use litebike::rbcursive::protocols;
 use litebike::git_sync;
-use litebike::tethering_bypass::enable_carrier_bypass;
+use litebike::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
 use litebike::knox_proxy::{KnoxProxyConfig, start_knox_proxy};
+use litebike::posix_sockets::PosixTcpStream;
 
 /// WAM-style dispatch table for densified command subsumption
 /// Each entry is a 2-ary tuple (pattern, action) for O(1) unification
 type CommandAction = fn(&[String]);
 
 const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
-	// DSEL Exploration commands (semantic discovery)
-	("explore", run_explore),
-	("suggest", run_suggest),
-	("learn", run_learn),
-	("similar", run_similar),
-	("list-all", run_list_all),
-	("by-category", run_by_category),
-	("command-reference", run_command_reference),
-	("capabilities", run_capabilities),
-	("workflows", run_workflows),
-	("examples", run_examples),
-	("dsel-help", run_dsel_help),
-	
 	// Network utilities (most common first for cache efficiency)
 	("ifconfig", run_ifconfig),
 	("route", run_route),
@@ -57,8 +45,6 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	("knox-proxy", run_knox_proxy_command),
 	("proxy-config", run_proxy_config),
 	("proxy-setup", run_proxy_setup),
-	("proxy-test", run_proxy_test),
-	("version-check", run_version_check),
 	("proxy-server", run_proxy_server),
 	("proxy-client", run_proxy_client),
 	("proxy-node", run_proxy_node),
@@ -71,10 +57,6 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	("carrier", run_carrier),
 	("radios", run_radios),
 	("scan-ports", run_scan_ports),
-	
-	// Experimental features (feature-gated)
-	#[cfg(feature = "intel-console")]
-	("intel-console", run_intel_console),
 	
 	// Git and deployment
 	("git-push", run_git_push),
@@ -122,404 +104,22 @@ fn main() {
 
 	// Allow both argv0-dispatch (ifconfig/ip/...) and subcommands: litebike <cmd> [args]
 	let (cmd, subargs): (&str, &[String]) = if argv0 == "litebike" {
-		if args.len() >= 2 { (&args[1], &args[2..]) } else { ("dsel-help", &args[1..]) }
+		if args.len() >= 2 { (&args[1], &args[2..]) } else { ("ifconfig", &args[1..]) }
 	} else {
 		(argv0, &args[1..])
 	};
 
 	// WAM-style unification dispatch
 	if !wam_dispatch(cmd, subargs) {
-		// Enhanced help with proper descriptions
-		show_main_help();
+		// Default fallback: show help and run ifconfig
+		eprintln!("litebike: WAM-dispatched utility");
+		eprintln!("Available commands:");
+		for (pattern, _) in WAM_DISPATCH_TABLE {
+			eprintln!("  {}", pattern);
+		}
+		eprintln!();
 		run_ifconfig(&[]);
 	}
-}
-
-fn show_main_help() {
-	show_dsel_exploration();
-}
-
-/// DSEL Exploration - Intelligent semantic discovery instead of option overload
-fn show_dsel_exploration() {
-	println!("🚀 LiteBike - Intelligent Network Utility");
-	println!("   Explore capabilities through semantic discovery\n");
-	
-	println!("❓ What do you want to accomplish?\n");
-	
-	println!("🎯 EXPLORE BY DOMAIN (semantic categories):");
-	println!("  litebike explore network     # Network analysis and configuration");
-	println!("  litebike explore proxy       # Proxy setup and testing");
-	println!("  litebike explore patterns    # Pattern matching and text processing");
-	println!("  litebike explore sync        # File and code synchronization");
-	println!("  litebike explore security    # Security and bypass tools\n");
-	
-	println!("🔍 DISCOVER BY INTENT (natural language):");
-	println!("  litebike 'show network status'    # Contextual network information");
-	println!("  litebike 'start proxy on 8080'    # Intent-based proxy setup");
-	println!("  litebike 'test connection to X'   # Connection testing tools");
-	println!("  litebike 'find files like *.rs'   # Pattern-based file discovery\n");
-	
-	println!("⚡ CURRENT STATE & QUICK ACTIONS:");
-	show_contextual_status();
-	
-	println!("\n💡 INTELLIGENT COMPLETION & LEARNING:");
-	println!("   Press TAB for context-aware suggestions");
-	println!("   litebike suggest              # Get recommendations for current state");
-	println!("   litebike learn <command>      # Understand command semantics");
-	println!("   litebike similar <command>    # Find related operations\n");
-	
-	println!("🔧 TRADITIONAL ACCESS (for power users):");
-	println!("   litebike list-all             # Show all commands (classic mode)");
-	println!("   litebike by-category          # Categorized command listing");
-	println!("   litebike command-reference    # Complete reference manual\n");
-	
-	println!("📚 DEEPER EXPLORATION:");
-	println!("   litebike capabilities         # Discover what's possible");
-	println!("   litebike workflows            # Common usage patterns");
-	println!("   litebike examples <domain>    # Domain-specific examples");
-	
-	#[cfg(feature = "intel-console")]
-	{
-		println!("   litebike dsel-help            # DSEL syntax and advanced queries");
-	}
-}
-
-/// Show contextual status and suggest relevant quick actions
-fn show_contextual_status() {
-	use std::net::TcpListener;
-	
-	println!("📊 CURRENT CONTEXT:");
-	
-	// Network interface context
-	match litebike::syscall_net::list_interfaces() {
-		Ok(interfaces) => {
-			let active: Vec<_> = interfaces.into_iter()
-				.filter(|(_, iface)| (iface.flags & 0x1) != 0 && !iface.addrs.is_empty())
-				.take(3)
-				.collect();
-			
-			if !active.is_empty() {
-				println!("   📡 Network: {} interface(s) active → try 'litebike probe'", active.len());
-				for (name, _) in active.iter().take(2) {
-					println!("      • {}", name);
-				}
-			} else {
-				println!("   📡 Network: No active interfaces → try 'litebike ifconfig'");
-			}
-		}
-		Err(_) => println!("   📡 Network: Status unknown → try 'litebike ifconfig'"),
-	}
-	
-	// Proxy context
-	let proxy_suggestion = match TcpListener::bind("127.0.0.1:8888") {
-		Ok(_) => "Port 8888 free → try 'litebike proxy-server'",
-		Err(_) => "Port 8888 in use → try 'litebike proxy-test'",
-	};
-	println!("   🔀 Proxy: {}", proxy_suggestion);
-	
-	// Git context (if in git repo)
-	if std::path::Path::new(".git").exists() {
-		println!("   📂 Git repo detected → try 'litebike remote-sync list'");
-	}
-	
-	// Suggest based on common workflow patterns
-	println!("\n🎯 SUGGESTED NEXT ACTIONS:");
-	if std::env::var("SSH_CLIENT").is_ok() || std::env::var("SSH_TTY").is_ok() {
-		println!("   • Remote session detected → 'litebike explore sync'");
-	}
-	println!("   • Explore network topology → 'litebike upnp-gateway'");
-	println!("   • Test connectivity → 'litebike scan-ports <target>'");
-	println!("   • Monitor real-time changes → 'litebike watch'");
-}
-
-/// DSEL Exploration Functions - Intelligent semantic discovery
-
-fn run_explore(args: &[String]) {
-	let domain = args.get(0).map(|s| s.as_str()).unwrap_or("all");
-	
-	match domain {
-		"network" => explore_network_domain(),
-		"proxy" => explore_proxy_domain(),
-		"patterns" => explore_patterns_domain(),
-		"sync" => explore_sync_domain(),
-		"security" => explore_security_domain(),
-		"all" => {
-			println!("🔍 DOMAIN EXPLORATION\n");
-			println!("Available domains to explore:");
-			println!("  network    - Network analysis and configuration");
-			println!("  proxy      - Proxy setup and testing");
-			println!("  patterns   - Pattern matching and text processing");
-			println!("  sync       - File and code synchronization");
-			println!("  security   - Security and bypass tools\n");
-			println!("Usage: litebike explore <domain>");
-		}
-		unknown => {
-			println!("❓ Unknown domain: '{}'", unknown);
-			println!("Available: network, proxy, patterns, sync, security");
-		}
-	}
-}
-
-fn explore_network_domain() {
-	println!("📡 NETWORK DOMAIN EXPLORATION\n");
-	println!("🎯 What you can do:");
-	println!("  • Show interfaces → litebike ifconfig");
-	println!("  • Test connectivity → litebike probe");
-	println!("  • Monitor changes → litebike watch");
-	println!("  • Scan ports → litebike scan-ports <host>");
-	println!("  • Check routing → litebike route");
-	println!("  • View connections → litebike netstat\n");
-	
-	show_contextual_status();
-	
-	println!("\n💡 Related workflows:");
-	println!("  • 'litebike workflows network' for common scenarios");
-}
-
-fn explore_proxy_domain() {
-	println!("🔀 PROXY DOMAIN EXPLORATION\n");
-	println!("🎯 What you can do:");
-	println!("  • Start proxy server → litebike proxy-server [port]");
-	println!("  • Test proxy → litebike proxy-test [host] [port]");
-	println!("  • Quick setup → litebike proxy-quick");
-	println!("  • Configure settings → litebike proxy-config");
-	println!("  • Knox bypass → litebike knox-proxy\n");
-	
-	// Show proxy-specific context
-	use std::net::TcpListener;
-	match TcpListener::bind("127.0.0.1:8888") {
-		Ok(_) => println!("✅ Port 8888 available for proxy server"),
-		Err(_) => println!("⚠️  Port 8888 in use - proxy may be running"),
-	}
-}
-
-fn explore_patterns_domain() {
-	println!("🎯 PATTERN DOMAIN EXPLORATION\n");
-	println!("🎯 What you can do:");
-	println!("  • Match patterns → litebike pattern-match <type> <pattern>");
-	println!("  • Glob matching → litebike pattern-glob <pattern>");
-	println!("  • Regex search → litebike pattern-regex <pattern>");
-	println!("  • Bulk scanning → litebike pattern-scan <file> <pattern>");
-	println!("  • Performance test → litebike pattern-bench\n");
-	
-	println!("💡 Examples:");
-	println!("  litebike pattern-glob '*.rs' .");
-	println!("  litebike pattern-regex 'fn \\w+' src/");
-}
-
-fn explore_sync_domain() {
-	println!("📂 SYNC DOMAIN EXPLORATION\n");
-	println!("🎯 What you can do:");
-	println!("  • List remotes → litebike remote-sync list");
-	println!("  • Sync repositories → litebike git-sync");
-	println!("  • Deploy via SSH → litebike ssh-deploy");
-	println!("  • Push to multiple → litebike git-push\n");
-	
-	if std::path::Path::new(".git").exists() {
-		println!("📂 Git repository detected in current directory");
-	} else {
-		println!("ℹ️  Not in a git repository");
-	}
-}
-
-fn explore_security_domain() {
-	println!("🔒 SECURITY DOMAIN EXPLORATION\n");
-	println!("🎯 What you can do:");
-	println!("  • Carrier bypass → litebike carrier-bypass");
-	println!("  • Trust host → litebike trust-host <host>");
-	println!("  • Raw connections → litebike raw-connect <host>");
-	println!("  • Radio management → litebike radios\n");
-}
-
-fn run_suggest(args: &[String]) {
-	println!("💡 CONTEXTUAL SUGGESTIONS\n");
-	
-	// Context-aware suggestions based on current state
-	show_contextual_status();
-	
-	if args.is_empty() {
-		println!("\n🔍 Based on your environment:");
-		
-		// Check for common scenarios
-		if std::env::var("SSH_CLIENT").is_ok() {
-			println!("  • Remote session → Explore sync capabilities");
-		}
-		
-		if std::path::Path::new("Cargo.toml").exists() {
-			println!("  • Rust project → Pattern matching for code analysis");
-		}
-		
-		if std::path::Path::new(".git").exists() {
-			println!("  • Git repository → Remote sync operations");
-		}
-		
-		println!("\n🎯 Try: litebike suggest <domain> for specific recommendations");
-	}
-}
-
-fn run_learn(_args: &[String]) {
-	println!("📚 LEARNING MODE\n");
-	println!("🎓 Understanding LiteBike semantics:");
-	println!("  • Commands are organized by taxonomical domains");
-	println!("  • Each domain represents a coherent problem space");
-	println!("  • Use 'explore <domain>' to understand capabilities");
-	println!("  • Use 'similar <command>' to find related operations\n");
-	
-	println!("💡 Semantic discovery approach:");
-	println!("  1. Start with intent: 'What do I want to accomplish?'");
-	println!("  2. Explore domain: litebike explore <domain>");
-	println!("  3. Get examples: litebike examples <domain>");
-	println!("  4. Try operations: Follow contextual suggestions");
-}
-
-fn run_similar(args: &[String]) {
-	if let Some(cmd) = args.get(0) {
-		println!("🔍 SIMILAR TO: {}\n", cmd);
-		
-		// Semantic clustering of related operations
-		match cmd.as_str() {
-			"ifconfig" => {
-				println!("📡 Network interface related:");
-				println!("  • route       - Show routing table");
-				println!("  • netstat     - Show connections");
-				println!("  • probe       - Test connectivity");
-				println!("  • watch       - Monitor changes");
-			}
-			"proxy-server" => {
-				println!("🔀 Proxy related:");
-				println!("  • proxy-test    - Test proxy functionality");
-				println!("  • proxy-quick   - Quick proxy setup");
-				println!("  • knox-proxy    - Knox bypass proxy");
-				println!("  • proxy-config  - Configure proxy settings");
-			}
-			"pattern-match" => {
-				println!("🎯 Pattern related:");
-				println!("  • pattern-glob   - Glob pattern matching");
-				println!("  • pattern-regex  - Regex matching");
-				println!("  • pattern-scan   - Bulk pattern scanning");
-				println!("  • pattern-bench  - Performance testing");
-			}
-			_ => {
-				println!("❓ Unknown command: {}", cmd);
-				println!("Try: litebike list-all to see all commands");
-			}
-		}
-	} else {
-		println!("Usage: litebike similar <command>");
-	}
-}
-
-fn run_list_all(_args: &[String]) {
-	println!("📋 ALL COMMANDS (Classic Mode)\n");
-	
-	println!("🔍 DISCOVERY & EXPLORATION:");
-	for (cmd, _) in WAM_DISPATCH_TABLE.iter().take(10) {
-		println!("  {}", cmd);
-	}
-	
-	println!("\n📡 NETWORK OPERATIONS:");
-	println!("  ifconfig, route, netstat, ip, probe, watch, scan-ports");
-	
-	println!("\n🔀 PROXY OPERATIONS:");
-	println!("  proxy-server, proxy-test, proxy-quick, knox-proxy, proxy-config");
-	
-	println!("\n🎯 PATTERN OPERATIONS:");
-	println!("  pattern-match, pattern-glob, pattern-regex, pattern-scan, pattern-bench");
-	
-	println!("\n📂 SYNC OPERATIONS:");
-	println!("  remote-sync, git-sync, git-push, ssh-deploy");
-	
-	println!("\n🔧 UTILITY OPERATIONS:");
-	println!("  completion, carrier-bypass, trust-host, bootstrap, version-check");
-	
-	println!("\n💡 For semantic exploration, use: litebike explore <domain>");
-}
-
-fn run_by_category(_args: &[String]) {
-	println!("📚 COMMANDS BY CATEGORY\n");
-	// Implementation similar to old help but organized better
-	show_main_help(); // Falls back to DSEL exploration
-}
-
-fn run_command_reference(_args: &[String]) {
-	println!("📖 COMMAND REFERENCE MANUAL\n");
-	println!("This would show complete reference documentation");
-	println!("Currently: Use 'litebike explore <domain>' for interactive discovery");
-}
-
-fn run_capabilities(_args: &[String]) {
-	println!("⚡ LITEBIKE CAPABILITIES\n");
-	
-	println!("🏗️  ARCHITECTURE:");
-	println!("  • WAM-dispatched command execution");
-	println!("  • RBCursive SIMD-accelerated pattern matching");
-	println!("  • Taxonomical ontological command mapping");
-	println!("  • Channelized reactor for protocol handling\n");
-	
-	println!("🔧 CORE DOMAINS:");
-	println!("  • Network analysis and monitoring");
-	println!("  • Multi-protocol proxy operations");
-	println!("  • High-performance pattern matching");
-	println!("  • Distributed synchronization");
-	println!("  • Security and bypass tools\n");
-	
-	println!("🎯 INTELLIGENT FEATURES:");
-	println!("  • Context-aware suggestions");
-	println!("  • Semantic command discovery");
-	println!("  • Auto-completion with learning");
-	println!("  • Intent-based operation discovery");
-}
-
-fn run_workflows(_args: &[String]) {
-	println!("🔄 COMMON WORKFLOWS\n");
-	
-	println!("📡 NETWORK ANALYSIS:");
-	println!("  1. litebike ifconfig         # Check interfaces");
-	println!("  2. litebike probe            # Test connectivity");
-	println!("  3. litebike scan-ports <host> # Port scanning\n");
-	
-	println!("🔀 PROXY SETUP:");
-	println!("  1. litebike proxy-quick      # Quick setup");
-	println!("  2. litebike proxy-test       # Verify functionality");
-	println!("  3. litebike watch           # Monitor usage\n");
-	
-	println!("📂 CODE SYNC:");
-	println!("  1. litebike remote-sync list # Check remotes");
-	println!("  2. litebike git-sync        # Synchronize");
-	println!("  3. litebike ssh-deploy      # Deploy changes");
-}
-
-fn run_examples(args: &[String]) {
-	let domain = args.get(0).map(|s| s.as_str()).unwrap_or("all");
-	
-	println!("📋 EXAMPLES: {}\n", domain.to_uppercase());
-	
-	match domain {
-		"network" => {
-			println!("litebike ifconfig eth0           # Show specific interface");
-			println!("litebike probe                   # Test default connectivity");
-			println!("litebike scan-ports 192.168.1.1 # Scan local gateway");
-			println!("litebike watch                   # Monitor network changes");
-		}
-		"proxy" => {
-			println!("litebike proxy-server 8080       # Start proxy on port 8080");
-			println!("litebike proxy-test localhost 8080 # Test proxy");
-			println!("litebike knox-proxy              # Knox bypass proxy");
-		}
-		"patterns" => {
-			println!("litebike pattern-glob '*.rs' .   # Find Rust files");
-			println!("litebike pattern-regex 'fn \\w+' src/ # Find functions");
-			println!("litebike pattern-scan file.txt 'error' # Find errors");
-		}
-		_ => {
-			println!("Available domains: network, proxy, patterns, sync, security");
-			println!("Usage: litebike examples <domain>");
-		}
-	}
-}
-
-fn run_dsel_help(_args: &[String]) {
-	show_dsel_exploration();
 }
 
 fn run_ssh_automation(_args: &[String]) {
@@ -1427,157 +1027,11 @@ fn run_remote_sync(args: &[String]) {
 				let _ = Command::new("git").args(["remote", "remove", &remote]).status();
 			}
 		}
-		"ssh-exec" => {
-			// Subsumed SSH exec functionality with hostname discovery
-			let hostname = args.get(1).cloned().unwrap_or_else(|| {
-				// Auto-discover SSH hostname from active remotes
-				if let Ok(output) = Command::new("git").args(["remote", "-v"]).output() {
-					let remotes = String::from_utf8_lossy(&output.stdout);
-					for line in remotes.lines() {
-						if line.contains("(fetch)") {
-							let parts: Vec<&str> = line.split_whitespace().collect();
-							if parts.len() >= 2 {
-								let url = parts[1];
-								if let Some(host) = extract_ssh_host(url) {
-									if check_ssh_reachable(&host) {
-										return host;
-									}
-								}
-							}
-						}
-					}
-				}
-				"localhost".to_string()
-			});
-			
-			let exec_cmd = &args[2..].join(" ");
-			if exec_cmd.is_empty() {
-				eprintln!("Usage: litebike remote-sync ssh-exec [hostname] <command>");
-				eprintln!("  hostname: SSH target (auto-discovered from git remotes if omitted)");
-				eprintln!("  command:  Command to execute remotely");
-				return;
-			}
-			
-			println!("🔗 SSH exec on {} → {}", hostname, exec_cmd);
-			
-			let ssh_result = Command::new("ssh")
-				.args(["-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no"])
-				.arg(&hostname)
-				.arg(exec_cmd)
-				.status();
-			
-			match ssh_result {
-				Ok(status) if status.success() => {
-					println!("✅ SSH exec completed successfully");
-				}
-				Ok(status) => {
-					println!("❌ SSH exec failed with exit code: {:?}", status.code());
-				}
-				Err(e) => {
-					println!("❌ SSH exec error: {}", e);
-				}
-			}
-		}
-		"ssh-mix" => {
-			// Mixed SSH operations: hostname discovery + sync + exec
-			println!("🔄 SSH Mix: Discovery + Sync + Exec");
-			
-			// Phase 1: Discover active SSH hosts from git remotes
-			let mut active_hosts = Vec::new();
-			if let Ok(output) = Command::new("git").args(["remote", "-v"]).output() {
-				let remotes = String::from_utf8_lossy(&output.stdout);
-				for line in remotes.lines() {
-					if line.contains("(fetch)") {
-						let parts: Vec<&str> = line.split_whitespace().collect();
-						if parts.len() >= 2 {
-							let name = parts[0];
-							let url = parts[1];
-							if let Some(host) = extract_ssh_host(url) {
-								if check_ssh_reachable(&host) {
-									active_hosts.push((name.to_string(), host.clone(), url.to_string()));
-									println!("🟢 Active: {} → {}", name, host);
-								} else {
-									println!("🔴 Stale: {} → {}", name, host);
-								}
-							}
-						}
-					}
-				}
-			}
-			
-			if active_hosts.is_empty() {
-				println!("⚠ No active SSH hosts found in git remotes");
-				return;
-			}
-			
-			// Phase 2: Sync operations on active hosts
-			for (name, host, url) in &active_hosts {
-				if name.contains("tmp") || name.contains("temp") {
-					println!("📥 Pulling from {} ({})", name, host);
-					let _ = Command::new("git").args(["pull", name, "master"]).status();
-				}
-			}
-			
-			// Phase 3: Execute common maintenance commands
-			let maintenance_cmds = ["uptime", "df -h", "ps aux | head -10"];
-			for (_, host, _) in &active_hosts {
-				println!("\n🛠 Maintenance on {}", host);
-				for cmd in &maintenance_cmds {
-					println!("  → {}", cmd);
-					let _ = Command::new("ssh")
-						.args(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no"])
-						.arg(host)
-						.arg(cmd)
-						.status();
-				}
-			}
-		}
-		"hostname-resolve" => {
-			// Subsumed hostname resolution functionality
-			let target = args.get(1).map(|s| s.as_str()).unwrap_or("auto");
-			
-			match target {
-				"auto" => {
-					println!("🔍 Auto-resolving hostnames from git remotes...");
-					if let Ok(output) = Command::new("git").args(["remote", "-v"]).output() {
-						let remotes = String::from_utf8_lossy(&output.stdout);
-						let mut hosts = std::collections::HashSet::new();
-						
-						for line in remotes.lines() {
-							if line.contains("(fetch)") {
-								let parts: Vec<&str> = line.split_whitespace().collect();
-								if parts.len() >= 2 {
-									let url = parts[1];
-									if let Some(host) = extract_ssh_host(url) {
-										hosts.insert(host);
-									}
-								}
-							}
-						}
-						
-						for host in hosts {
-							let status = if check_ssh_reachable(&host) { "✅" } else { "❌" };
-							println!("  {} {}", status, host);
-						}
-					}
-				}
-				hostname => {
-					println!("🔍 Resolving hostname: {}", hostname);
-					let status = if check_ssh_reachable(hostname) { "✅ reachable" } else { "❌ unreachable" };
-					println!("  {} → {}", hostname, status);
-				}
-			}
-		}
 		_ => {
-			eprintln!("Usage: litebike remote-sync [COMMAND]");
-			eprintln!("");
-			eprintln!("COMMANDS:");
-			eprintln!("  list              List all remotes with connectivity status");
-			eprintln!("  pull              Pull from all tmp/temp remotes");
-			eprintln!("  clean             Remove stale tmp/temp remotes");
-			eprintln!("  ssh-exec [host] <cmd>  Execute command via SSH (auto-discover host)");
-			eprintln!("  ssh-mix           Mixed SSH ops: discovery + sync + exec");
-			eprintln!("  hostname-resolve [host]  Resolve and test SSH hostname connectivity");
+			eprintln!("Usage: litebike remote-sync [list|pull|clean]");
+			eprintln!("  list  - List all remotes with connectivity status");
+			eprintln!("  pull  - Pull from all tmp/temp remotes");
+			eprintln!("  clean - Remove stale tmp/temp remotes");
 		}
 	}
 }
@@ -1633,168 +1087,96 @@ fn run_proxy_setup(args: &[String]) {
 				let proxy_host = args.get(1).unwrap_or(&"localhost".to_string()).clone();
 				let proxy_port = args.get(2).unwrap_or(&"8888".to_string()).clone();
 				
-				println!("🔧 Setting up seamless macOS proxy integration:");
-				println!("   Host: {}", proxy_host);
-				println!("   Port: {}", proxy_port);
+				println!("Setting up macOS system proxy:");
+				println!("  Host: {}", proxy_host);
+				println!("  Port: {}", proxy_port);
 				
-				// Get active network service with better detection
+				// Get active network service
 				let output = Command::new("networksetup")
 					.args(["-listnetworkserviceorder"])
 					.output();
 				
-				let mut active_services = Vec::new();
+				let mut active_service = "Wi-Fi".to_string();
 				if let Ok(out) = output {
 					let s = String::from_utf8_lossy(&out.stdout);
 					for line in s.lines() {
-						if line.contains("(Hardware Port:") {
+						if line.contains("Wi-Fi") || line.contains("Ethernet") {
 							if let Some(start) = line.find(')') {
 								if let Some(service) = line[start+1..].trim().split(',').next() {
-									let service_name = service.trim().to_string();
-									// Prioritize Wi-Fi, then Ethernet, then others
-									if service_name.contains("Wi-Fi") {
-										active_services.insert(0, service_name);
-									} else if service_name.contains("Ethernet") || service_name.contains("USB") {
-										active_services.push(service_name);
-									}
+									active_service = service.trim().to_string();
+									break;
 								}
 							}
 						}
 					}
 				}
 				
-				if active_services.is_empty() {
-					active_services.push("Wi-Fi".to_string());
-				}
+				println!("  Service: {}", active_service);
 				
-				for service in &active_services {
-					println!("🔗 Configuring service: {}", service);
-					
-					// Enhanced proxy configuration for seamless variable reading
-					
-					// Clear any existing proxy configuration first
-					let _ = Command::new("networksetup")
-						.args(["-setwebproxystate", service, "off"])
-						.status();
-					let _ = Command::new("networksetup")
-						.args(["-setsecurewebproxystate", service, "off"])
-						.status();
-					let _ = Command::new("networksetup")
-						.args(["-setsocksfirewallproxystate", service, "off"])
-						.status();
-					let _ = Command::new("networksetup")
-						.args(["-setautoproxystate", service, "off"])
-						.status();
-					
-					// Set up PAC-based configuration for seamless integration
-					let pac_url = format!("http://{}:{}/proxy.pac", proxy_host, proxy_port);
-					let _ = Command::new("networksetup")
-						.args(["-setautoproxyurl", service, &pac_url])
-						.status();
-					
-					// Enable auto proxy state (this ensures macOS reads the PAC)
-					let _ = Command::new("networksetup")
-						.args(["-setautoproxystate", service, "on"])
-						.status();
-					
-					// Also set manual proxies as fallback
-					let _ = Command::new("networksetup")
-						.args(["-setwebproxy", service, &proxy_host, &proxy_port])
-						.status();
-					let _ = Command::new("networksetup")
-						.args(["-setsecurewebproxy", service, &proxy_host, &proxy_port])
-						.status();
-					
-					// Set comprehensive bypass list for local traffic
-					let bypass_domains = [
-						"localhost", "127.0.0.1", "169.254/16", "192.168/16", "10.0.0.0/8", "172.16/12",
-						"*.local", "*.lan", "*.home", "*.internal",
-						"apple.com", "*.apple.com", "icloud.com", "*.icloud.com"
-					];
-					let _ = Command::new("networksetup")
-						.args(["-setproxybypassdomains", service].iter().chain(bypass_domains.iter()).cloned().collect::<Vec<_>>().as_slice())
-						.status();
-					
-					println!("   ✓ PAC URL: {}", pac_url);
-				}
-				
-				// Set environment variables for current session and future sessions
-				println!("🌐 Setting environment variables:");
-				
-				// Create/update shell configuration for seamless variable loading
-				let shell_configs = [
-					std::env::var("HOME").unwrap_or_default() + "/.zshrc",
-					std::env::var("HOME").unwrap_or_default() + "/.bash_profile",
-					std::env::var("HOME").unwrap_or_default() + "/.bashrc",
-				];
-				
-				let proxy_vars = format!(
-					"\n# LiteBike Proxy Configuration (auto-generated)\nexport http_proxy=http://{}:{}\nexport https_proxy=http://{}:{}\nexport HTTP_PROXY=http://{}:{}\nexport HTTPS_PROXY=http://{}:{}\nexport all_proxy=socks5://{}:{}\nexport ALL_PROXY=socks5://{}:{}\nexport no_proxy=\"localhost,127.0.0.1,169.254/16,192.168/16,10.0.0.0/8,172.16/12,*.local\"\nexport NO_PROXY=\"localhost,127.0.0.1,169.254/16,192.168/16,10.0.0.0/8,172.16/12,*.local\"\n# End LiteBike Proxy Configuration\n",
-					proxy_host, proxy_port, proxy_host, proxy_port, proxy_host, proxy_port, proxy_host, proxy_port, proxy_host, proxy_port, proxy_host, proxy_port
-				);
-				
-				for config_file in &shell_configs {
-					if let Ok(mut file) = std::fs::OpenOptions::new()
-						.create(true)
-						.append(true)
-						.open(config_file) {
-						let _ = std::io::Write::write_all(&mut file, proxy_vars.as_bytes());
-						println!("   ✓ Updated {}", config_file);
-					}
-				}
-				
-				// Create launchd configuration for automatic proxy management
-				let plist_content = format!(
-					r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>com.litebike.proxy.env</string>
-	<key>ProgramArguments</key>
-	<array>
-		<string>/bin/launchctl</string>
-		<string>setenv</string>
-		<string>http_proxy</string>
-		<string>http://{}:{}</string>
-	</array>
-	<key>RunAtLoad</key>
-	<true/>
-	<key>KeepAlive</key>
-	<false/>
-</dict>
-</plist>"#,
-					proxy_host, proxy_port
-				);
-				
-				let plist_path = std::env::var("HOME").unwrap_or_default() + "/Library/LaunchAgents/com.litebike.proxy.env.plist";
-				if let Ok(mut file) = std::fs::File::create(&plist_path) {
-					let _ = std::io::Write::write_all(&mut file, plist_content.as_bytes());
-					let _ = Command::new("launchctl")
-						.args(["load", &plist_path])
-						.status();
-					println!("   ✓ LaunchAgent installed: {}", plist_path);
-				}
-				
-				// Refresh network configuration
-				let _ = Command::new("dscacheutil")
-					.args(["-flushcache"])
+				// Set HTTP proxy
+				let _ = Command::new("networksetup")
+					.args(["-setwebproxy", &active_service, &proxy_host, &proxy_port])
 					.status();
-				println!("   ✓ DNS cache flushed");
 				
-				// Register mDNS service for better discovery
+				// Set HTTPS proxy (TLS)
+				let _ = Command::new("networksetup")
+					.args(["-setsecurewebproxy", &active_service, &proxy_host, &proxy_port])
+					.status();
+				
+				// Set SOCKS proxy
+				let _ = Command::new("networksetup")
+					.args(["-setsocksfirewallproxy", &active_service, &proxy_host, &proxy_port])
+					.status();
+				
+				// Enable Auto Proxy Discovery (first checkbox)
+				let _ = Command::new("networksetup")
+					.args(["-setproxyautodiscovery", &active_service, "on"])
+					.status();
+				
+				// Set PAC URL to upstream server
+				let pac_url = format!("http://{}:{}/proxy.pac", proxy_host, proxy_port);
+				let _ = Command::new("networksetup")
+					.args(["-setautoproxyurl", &active_service, &pac_url])
+					.status();
+				
+				// Enable auto proxy
+				let _ = Command::new("networksetup")
+					.args(["-setautoproxystate", &active_service, "on"])
+					.status();
+				
+				// Enable all proxy types
+				let _ = Command::new("networksetup")
+					.args(["-setwebproxystate", &active_service, "on"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setsecurewebproxystate", &active_service, "on"])
+					.status();
+				let _ = Command::new("networksetup")
+					.args(["-setsocksfirewallproxystate", &active_service, "on"])
+					.status();
+				
+				println!("✓ Auto Proxy Discovery enabled (WPAD)");
+				println!("✓ PAC URL: {}", pac_url);
+				println!("✓ HTTP proxy enabled");
+				println!("✓ HTTPS/TLS proxy enabled");
+				println!("✓ SOCKS5 proxy enabled");
+				
+				// Set bypass domains
+				let _ = Command::new("networksetup")
+					.args(["-setproxybypassdomains", &active_service, "*.local", "169.254/16", "localhost", "127.0.0.1"])
+					.status();
+				
+				println!("✓ Bypass domains configured");
+				
+				// Register Bonjour/mDNS service for auto-discovery
 				let _ = Command::new("dns-sd")
-					.args(["-R", "LiteBike-Proxy", "_http._tcp", "local", &proxy_port, "path=/proxy.pac"])
+					.args(["-R", "LiteBike Proxy", "_http._tcp,_sub:_proxy", "local", &proxy_port, "path=/"])
 					.spawn();
+				println!("✓ Bonjour service advertised");
 				
-				println!("🚀 Seamless macOS proxy integration completed!");
-				println!("📋 Configuration summary:");
-				println!("   • PAC URL: http://{}:{}/proxy.pac", proxy_host, proxy_port);
-				println!("   • HTTP/HTTPS Proxy: {}:{}", proxy_host, proxy_port);
-				println!("   • Environment variables: Set in shell configs");
-				println!("   • LaunchAgent: Installed for persistent environment");
-				println!("   • Services configured: {}", active_services.join(", "));
-				println!("");
-				println!("💡 To test: open a new terminal and run 'env | grep -i proxy'");
+				// WPAD URL also points to upstream at 8888
+				let wpad_url = format!("http://{}:{}/wpad.dat", proxy_host, proxy_port);
+				println!("✓ WPAD URL: {}", wpad_url);
 				
 				// Check UPnP port mapping capability
 				println!("\nVerifying network capabilities:");
@@ -2255,7 +1637,6 @@ fn parse_proxy_url(url: &str) -> Option<(String, u16, String)> {
     None
 }
 
-
 fn glob_match(pattern: &str, text: &str) -> bool {
 	if pattern == "*" { return true; }
 	if pattern == "s?w?lan*" {
@@ -2384,20 +1765,7 @@ fn ssh_forward_cmd(ip: &str, port: u16) -> String {
 							match protocol {
 								ProtocolType::Socks5 => {
 									println!("→ SOCKS5");
-									
-									// The first packet has already been read into req,
-									// and it should contain the authentication method selection
-									if req.len() >= 3 && req[0] == 0x05 {
-										// Send authentication response (no auth required)
-										if stream.write_all(&[0x05, 0x00]).is_ok() {
-											// Handle SOCKS5 protocol
-											if let Err(e) = handle_socks5_connection(&mut stream) {
-												println!("SOCKS5 error: {}", e);
-											}
-										}
-									} else {
-										println!("Invalid SOCKS5 handshake");
-									}
+									let _ = stream.write_all(&[0x05, 0x00]);
 								}
 								ProtocolType::Tls => {
 									println!("→ TLS");
@@ -2528,123 +1896,6 @@ fn ssh_forward_cmd(ip: &str, port: u16) -> String {
 		eprintln!("Failed to bind to port {}", port);
 		eprintln!("Port may be in use or requires permissions");
 	}
-}
-
-/// Handle SOCKS5 connection with shared tuple listener transitions
-/// Implements sorted SIMD protocol discriminator transitions for zero false positives
-fn handle_socks5_connection(stream: &mut std::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
-	use std::io::{Read, Write};
-	
-	// Read CONNECT request after auth using SIMD-ranked anchor ranges
-	let mut buffer = [0u8; 256];
-	let n = stream.read(&mut buffer)?;
-	
-	// SIMD protocol discriminator: SOCKS5 command structure validation
-	if n < 10 || buffer[0] != 0x05 || buffer[1] != 0x01 {
-		return Err("Invalid SOCKS5 connection request".into());
-	}
-	
-	// Parse target address using sorted transition tuples from SIMD discriminators
-	let (target_addr, _addr_len) = match buffer[3] {
-		0x01 => {
-			// IPv4 tuple: (discriminator=0x01, anchor_range=[4..8], port_range=[8..10])
-			if n < 10 {
-				return Err("Invalid IPv4 address length".into());
-			}
-			let ip = format!("{}.{}.{}.{}", buffer[4], buffer[5], buffer[6], buffer[7]);
-			let port = u16::from_be_bytes([buffer[8], buffer[9]]);
-			(format!("{}:{}", ip, port), 10)
-		}
-		0x03 => {
-			// Domain tuple: (discriminator=0x03, len_anchor=[4], domain_range=[5..5+len], port_range=[5+len..])
-			let domain_len = buffer[4] as usize;
-			if n < 7 + domain_len {
-				return Err("Invalid domain name length".into());
-			}
-			let domain = String::from_utf8_lossy(&buffer[5..5 + domain_len]);
-			let port = u16::from_be_bytes([buffer[5 + domain_len], buffer[6 + domain_len]]);
-			(format!("{}:{}", domain, port), 7 + domain_len)
-		}
-		0x04 => {
-			// IPv6 tuple: (discriminator=0x04, anchor_range=[4..20], port_range=[20..22])
-			if n < 22 {
-				return Err("Invalid IPv6 address length".into());
-			}
-			let ip_bytes = &buffer[4..20];
-			let ip = format!("{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}:{:02x}{:02x}",
-				ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3],
-				ip_bytes[4], ip_bytes[5], ip_bytes[6], ip_bytes[7],
-				ip_bytes[8], ip_bytes[9], ip_bytes[10], ip_bytes[11],
-				ip_bytes[12], ip_bytes[13], ip_bytes[14], ip_bytes[15]);
-			let port = u16::from_be_bytes([buffer[20], buffer[21]]);
-			(format!("[{}]:{}", ip, port), 22)
-		}
-		_ => {
-			return Err("Unsupported address type in shared tuple".into());
-		}
-	};
-	
-	println!("SOCKS5 CONNECT to {} (via sorted transition tuple)", target_addr);
-	
-	// Connect to target with SIMD discriminator validation
-	match std::net::TcpStream::connect(&target_addr) {
-		Ok(mut target_stream) => {
-			// Send success response using SOCKS5 protocol anchor tuple
-			let mut response = vec![0x05, 0x00, 0x00, 0x01]; // Success discriminator
-			response.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // Dummy bind address tuple
-			stream.write_all(&response)?;
-			
-			// Bidirectional forwarding with shared listener tuple preservation
-			use std::thread;
-			
-			let mut stream_clone = stream.try_clone()?;
-			let mut target_clone = target_stream.try_clone()?;
-			
-			// Client -> Target (maintains tuple order)
-			let handle1 = thread::spawn(move || {
-				let mut buffer = [0u8; 4096];
-				loop {
-					match stream_clone.read(&mut buffer) {
-						Ok(0) => break, // Tuple transition complete
-						Ok(n) => {
-							if target_clone.write_all(&buffer[..n]).is_err() {
-								break;
-							}
-						}
-						Err(_) => break,
-					}
-				}
-			});
-			
-			// Target -> Client (maintains sorted transition) - handle in main thread
-			let mut buffer2 = [0u8; 4096];
-			loop {
-				match target_stream.read(&mut buffer2) {
-					Ok(0) => break, // Sorted transition complete
-					Ok(n) => {
-						if stream.write_all(&buffer2[..n]).is_err() {
-							break;
-						}
-					}
-					Err(_) => break,
-				}
-			}
-			
-			// Wait for shared tuple transition completion
-			let _ = handle1.join();
-			
-			println!("SOCKS5 shared tuple connection closed: {}", target_addr);
-		}
-		Err(_) => {
-			// Send connection failed response with error discriminator
-			let mut response = vec![0x05, 0x05, 0x00, 0x01]; // Connection refused tuple
-			response.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // Dummy bind address
-			stream.write_all(&response)?;
-			return Err("Target connection failed in sorted transition".into());
-		}
-	}
-	
-	Ok(())
 }
 
 fn run_proxy_cleanup(args: &[String]) {
@@ -3568,53 +2819,11 @@ fn run_proxy_client(_args: &[String]) {
 // Pattern matching command implementations
 
 fn run_pattern_match(args: &[String]) {
-	if args.is_empty() || (args.len() == 1 && args[0] == "--help") {
-		println!("⚡ RBCursive Pattern Matching - SIMD-Accelerated Engine\n");
-		println!("USAGE:");
-		println!("  litebike pattern-match <type> <pattern> [file]\n");
-		
-		println!("PATTERN TYPES:");
-		println!("  glob      Glob patterns with anchor matrix optimization");
-		println!("  regex     PCRE-compatible regex with SIMD acceleration\n");
-		
-		println!("PATTERN SYNTAX (Enhanced DSEL):");
-		println!("  Glob Patterns:");
-		println!("    *.txt              Match files ending in .txt");
-		println!("    **/*.rs            Recursive match for Rust files");
-		println!("    src/**/mod.rs      Module files in src tree");
-		println!("    {{*.c,*.h}}          Brace expansion for C files");
-		println!("    [abc]*.log         Character class + wildcard");
-		
-		println!("  Regex Patterns (PCRE + SIMD):");
-		println!("    ^HTTP/[12]\\.[01]   HTTP version detection");
-		println!("    (?i)content-type   Case-insensitive headers");
-		println!("    \\b\\d{{1,3}}(\\.\\d{{1,3}}){{3}}\\b  IPv4 address matching");
-		println!("    [a-fA-F0-9]{{32}}    MD5 hash detection");
-		
-		println!("ANCHOR MATRIX FEATURES:");
-		println!("  • Structural anchors: {{}} [] <> () for protocol parsing");
-		println!("  • Delimiter anchors: spaces, newlines, quotes for tokenization");
-		println!("  • SIMD-accelerated scanning with predictable bounds");
-		println!("  • Zero-copy processing using anchor coordinate system\n");
-		
-		println!("EXAMPLES:");
-		println!("  litebike pattern-match glob '*.json' config/");
-		println!("  litebike pattern-match regex '^(GET|POST)' access.log");
-		println!("  echo 'test data' | litebike pattern-match glob '*data*'");
-		println!("  litebike pattern-match regex '\\\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\\\.[A-Z]{{2,}}\\\\b' emails.txt\n");
-		
-		println!("PERFORMANCE NOTES:");
-		println!("  • SIMD acceleration requires --features full for maximum speed");
-		println!("  • Anchor matrix optimization improves large file performance");
-		println!("  • Use pattern-bench to measure performance characteristics");
-		
-		return;
-	}
-	
 	if args.len() < 2 {
-		println!("Error: Insufficient arguments");
 		println!("Usage: litebike pattern-match <pattern-type> <pattern> [file]");
-		println!("Use 'litebike pattern-match --help' for detailed information");
+		println!("  pattern-type: glob or regex");
+		println!("  pattern: the pattern to match");
+		println!("  file: optional file to read (default: stdin)");
 		return;
 	}
 	
@@ -3875,276 +3084,4 @@ fn run_pattern_bench(args: &[String]) {
 	}
 	
 	println!("\n✅ Benchmark completed!");
-}
-
-fn run_proxy_test(args: &[String]) {
-	println!("🧪 Pragmatic Proxy Testing");
-	
-	let host = args.get(0).unwrap_or(&"localhost".to_string()).clone();
-	let port = args.get(1).unwrap_or(&"8888".to_string()).parse::<u16>().unwrap_or(8888);
-	
-	println!("Testing proxy at {}:{}", host, port);
-	
-	// Test 1: Check if proxy is listening
-	println!("\n1️⃣ Connection Test:");
-	use std::net::ToSocketAddrs;
-	let addr = format!("{}:{}", host, port);
-	match addr.to_socket_addrs().and_then(|mut addrs| {
-		addrs.next().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "No addresses resolved"))
-	}).and_then(|addr| {
-		std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3))
-	}) {
-		Ok(_) => println!("   ✅ Proxy is listening on {}:{}", host, port),
-		Err(e) => {
-			println!("   ❌ Cannot connect to proxy: {}", e);
-			return;
-		}
-	}
-	
-	// Test 2: Test HTTP proxy functionality through RBCursive
-	println!("\n2️⃣ HTTP Proxy Test (RBCursive-channelized):");
-	let test_request = format!(
-		"GET http://httpbin.org/ip HTTP/1.1\r\n\
-		Host: httpbin.org\r\n\
-		User-Agent: LiteBike-Test/1.0\r\n\
-		Connection: close\r\n\r\n"
-	);
-	
-	// Use RBCursive to validate the request format before sending
-	let rbcursive = RBCursive::new();
-	let detection = rbcursive.detect_protocol(test_request.as_bytes());
-	println!("   🔍 Request protocol: {:?}", detection);
-	
-	if let Ok(mut stream) = std::net::TcpStream::connect(format!("{}:{}", host, port)) {
-		use std::io::{Read, Write};
-		if stream.write_all(test_request.as_bytes()).is_ok() {
-			let mut response = Vec::new();
-			if stream.read_to_end(&mut response).is_ok() {
-				// Use RBCursive to validate response
-				let resp_detection = rbcursive.detect_protocol(&response);
-				println!("   🔍 Response protocol: {:?}", resp_detection);
-				
-				let response_str = String::from_utf8_lossy(&response);
-				if response_str.contains("200 OK") {
-					println!("   ✅ HTTP proxy working correctly");
-				} else {
-					println!("   ⚠ HTTP proxy responded but with unexpected content");
-				}
-			} else {
-				println!("   ❌ Failed to read HTTP response");
-			}
-		} else {
-			println!("   ❌ Failed to send HTTP request");
-		}
-	}
-	
-	// Test 3: Check environment variables
-	println!("\n3️⃣ Environment Variables Test:");
-	let proxy_vars = ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"];
-	let mut vars_set = 0;
-	for var in &proxy_vars {
-		if let Ok(value) = std::env::var(var) {
-			println!("   ✅ {}: {}", var, value);
-			vars_set += 1;
-		} else {
-			println!("   ❌ {} not set", var);
-		}
-	}
-	
-	if vars_set > 0 {
-		println!("   📊 {}/{} proxy variables configured", vars_set, proxy_vars.len());
-	}
-	
-	// Test 4: PAC file test with protocol validation
-	println!("\n4️⃣ PAC File Test (RBCursive-validated):");
-	let pac_url = format!("http://{}:{}/proxy.pac", host, port);
-	if let Ok(mut stream) = std::net::TcpStream::connect(format!("{}:{}", host, port)) {
-		use std::io::{Read, Write};
-		let pac_request = format!("GET /proxy.pac HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n", host, port);
-		
-		// Validate PAC request through RBCursive
-		let detection = rbcursive.detect_protocol(pac_request.as_bytes());
-		println!("   🔍 PAC request: {:?}", detection);
-		
-		if stream.write_all(pac_request.as_bytes()).is_ok() {
-			let mut response = Vec::new();
-			if stream.read_to_end(&mut response).is_ok() {
-				let response_str = String::from_utf8_lossy(&response);
-				if response_str.contains("FindProxyForURL") {
-					println!("   ✅ PAC file available at {}", pac_url);
-					
-					// Validate PAC content with pattern matching
-					match rbcursive.match_regex(response.as_slice(), r"function\s+FindProxyForURL") {
-						Ok(result) if result.matched => {
-							println!("   ✅ PAC function structure validated");
-						}
-						_ => {
-							println!("   ⚠ PAC function structure may be invalid");
-						}
-					}
-				} else {
-					println!("   ⚠ PAC endpoint responds but content may be invalid");
-				}
-			}
-		}
-	}
-	
-	println!("\n🏁 Proxy test completed (RBCursive-channelized)");
-}
-
-fn run_version_check(_args: &[String]) {
-	println!("🔍 LiteBike Version Check");
-	
-	const VERSION: &str = env!("CARGO_PKG_VERSION");
-	println!("Current version: {}", VERSION);
-	
-	// Check binary location
-	if let Ok(exe_path) = std::env::current_exe() {
-		println!("Binary location: {:?}", exe_path);
-		
-		// Check if it's the universal install location
-		let universal_path = std::env::var("HOME").unwrap_or_default() + "/.litebike/bin/litebike";
-		if exe_path.to_string_lossy().contains(".litebike/bin") {
-			println!("✅ Using universal installation");
-		} else {
-			println!("⚠ Not using universal installation");
-			println!("💡 Consider: cp {} {}", exe_path.display(), universal_path);
-		}
-	}
-	
-	// Check for aging issues
-	println!("\n🕒 Age Check:");
-	if let Ok(metadata) = std::fs::metadata(std::env::current_exe().unwrap()) {
-		if let Ok(modified) = metadata.modified() {
-			let age = std::time::SystemTime::now().duration_since(modified).unwrap_or_default();
-			let days = age.as_secs() / 86400;
-			
-			if days > 7 {
-				println!("⚠ Binary is {} days old - consider rebuilding", days);
-				println!("💡 Run: cargo build --release && cp target/release/litebike ~/.litebike/bin/");
-			} else {
-				println!("✅ Binary is {} days old (fresh)", days);
-			}
-		}
-	}
-	
-	// Check RBCursive capabilities
-	println!("\n🔧 RBCursive Capabilities:");
-	let rbcursive = RBCursive::new();
-	let caps = rbcursive.pattern_capabilities();
-	println!("  Pattern matching: ✅");
-	println!("  SIMD acceleration: ✅");
-	println!("  Protocol detection: ✅");
-	println!("  Max pattern length: {}", caps.max_pattern_length);
-	println!("  Max data size: {} MB", caps.max_data_size / 1024 / 1024);
-	
-	// Test compile-time protocol validation
-	println!("\n⚡ Compile-time Protocol Validation:");
-	println!("  All proxy operations are channelized through RBCursive");
-	println!("  Protocol acceptance validated at compile-time");
-	println!("  Type-safe protocol handling enabled");
-	
-	println!("\n✅ Version check completed");
-}
-
-#[cfg(feature = "intel-console")]
-fn run_intel_console(args: &[String]) {
-	if args.is_empty() || (args.len() == 1 && args[0] == "--help") {
-		println!("🔬 Intel Console - Protocol Reverse Engineering with DSEL");
-		println!("   Combining Wireshark-style filtering + strace-style tracing\n");
-		
-		println!("COMMANDS:");
-		println!("  start [--port N]         Start intel console server (default: 9999)");
-		println!("  filter <dsel-expr>       Apply protocol filters using DSEL");
-		println!("  trace <strace-expr>      System call tracing with glob patterns");
-		println!("  analyze <session-id>     Deep protocol analysis with RBCursive");
-		println!("  replay <session-id>      Session replay and modification");
-		println!("  export <format>          Export analysis results\n");
-		
-		println!("DSEL (Domain-Specific Expression Language):");
-		println!("  Primary: Glob-based patterns (preferred for speed)");
-		println!("  Secondary: Regex support when precision is needed\n");
-		
-		println!("FILTER EXPRESSIONS (Wireshark-style with Globs):");
-		println!("  Protocol Filtering:");
-		println!("    http.*                    All HTTP traffic patterns");
-		println!("    tcp.port == 80            Specific port matching");
-		println!("    http.method == 'GET'      HTTP method filtering");
-		println!("    tls.version >= 1.2        TLS version comparison");
-		println!("    dns.query.name ~ '*.com'  DNS query glob matching");
-		
-		println!("  Content Filtering (Glob-first approach):");
-		println!("    http.uri ~ '/api/*'       API endpoint patterns");
-		println!("    http.header ~ '*auth*'    Authentication headers");
-		println!("    payload ~ '*password*'    Sensitive data detection");
-		println!("    json.* ~ '{\"type\":*}'     JSON structure matching");
-		
-		println!("  Advanced Combinations:");
-		println!("    http.* && tcp.port in {80,443,8080}    Multiple conditions");
-		println!("    not (dns.* || dhcp.*)                  Exclusion patterns");
-		println!("    frame.len > 1500 && tcp.*              Large packet filtering\n");
-		
-		println!("TRACE EXPRESSIONS (strace-style with Globs):");
-		println!("  System Call Patterns:");
-		println!("    trace=network             Network-related syscalls");
-		println!("    trace=file,!futex         File ops, exclude futex");
-		println!("    trace=%net*               Network syscalls by glob");
-		println!("    trace=*socket*            Socket operations");
-		
-		println!("  File Operations:");
-		println!("    trace=file:**/*.conf      Configuration file access");
-		println!("    trace=open:/etc/*         System config monitoring");
-		println!("    trace=write:*/tmp/*       Temporary file writes");
-		
-		println!("  Network Syscalls:");
-		println!("    trace=connect:*:80        HTTP connections");
-		println!("    trace=sendto:*.local      Local network traffic");
-		println!("    trace=recv:*              All receive operations\n");
-		
-		println!("ANCHOR MATRIX INTEGRATION:");
-		println!("  • Structural anchor visualization for protocol data");
-		println!("  • SIMD-accelerated pattern matching in captured traffic");
-		println!("  • Zero-copy filtering using anchor coordinate system");
-		println!("  • Real-time protocol detection and classification\n");
-		
-		println!("EXAMPLES:");
-		println!("  # Start intel console with Wireshark-style filtering");
-		println!("  litebike intel-console start --port 9999");
-		
-		println!("  # Filter HTTP API traffic using globs");
-		println!("  litebike intel-console filter 'http.uri ~ \"/api/*\" && http.method == \"POST\"'");
-		
-		println!("  # Trace network syscalls with pattern exclusion");
-		println!("  litebike intel-console trace 'trace=%net*,!futex'");
-		
-		println!("  # Analyze captured session with RBCursive");
-		println!("  litebike intel-console analyze session-001\n");
-		
-		println!("PERFORMANCE OPTIMIZATION:");
-		println!("  • Glob patterns preferred over regex for speed");
-		println!("  • Anchor matrix enables O(1) structure navigation");
-		println!("  • SIMD acceleration with --features full");
-		println!("  • Real-time filtering with minimal memory allocation");
-		
-		return;
-	}
-	
-	let cmd = &args[0];
-	match cmd.as_str() {
-		"start" => {
-			println!("🚧 Intel Console is experimental and under development");
-			println!("This feature will provide:");
-			println!("  • Protocol interception and analysis");
-			println!("  • Wireshark-style filtering");
-			println!("  • strace-style tracing");
-			println!("  • RBCursive anchor matrix visualization");
-		}
-		"filter" | "trace" | "analyze" | "replay" | "export" => {
-			println!("🚧 Intel Console command '{}' is not yet implemented", cmd);
-			println!("This is an experimental feature under active development");
-		}
-		_ => {
-			println!("Unknown intel-console command: {}", cmd);
-		}
-	}
 }
