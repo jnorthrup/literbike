@@ -113,8 +113,6 @@ AI: DO NOT TOUCH
 		}
 		```
 
-
-
 ## Features
 
 - **Bonjour-Powered Auto-Discovery:** The key to a seamless, plug-and-play experience.
@@ -130,4 +128,47 @@ LiteBike is designed to intelligently manage network interfaces for optimal prox
 
 - **Default Ingress:** The proxy typically listens on WiFi interfaces, often matching patterns like `s?wlan*`.
 - **Default Egress:** Outgoing traffic is routed through mobile data interfaces, commonly `rmnet*`, with built-in backoff logic for reliable connectivity.
- 
+
+---
+
+## Gap Analysis Tool
+
+The Gap Analysis Tool scans the repository and reports key metrics such as lines of code (LOC), special markers (e.g., TODO, FIXME), and highlights the top files by marker count. This helps identify areas needing attention or further development.
+
+### Usage
+
+Run the script from the project root:
+
+```bash
+python3 scripts/gap_analysis.py
+```
+
+To specify a different root directory:
+
+```bash
+python3 scripts/gap_analysis.py --root /path/to/repo
+```
+
+### Example Output
+
+```json
+{
+  "total_loc": 12345,
+  "total_markers": 42,
+  "top_files": [
+    {
+      "file": "src/main.py",
+      "loc": 500,
+      "markers": 10
+    },
+    {
+      "file": "src/utils.py",
+      "loc": 300,
+      "markers": 8
+    }
+  ],
+  "marker_types": {
+    "TODO": 30,
+    "FIXME": 12
+  }
+}

@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  htx-gateway:
+    image: litebike/htx-tunnel:latest
+    container_name: litebike-htx-tunnel
+    restart: always
+    network_mode: host
+    privileged: true
+    environment:
+      - HTX_TUNNEL_MODE=adaptive
+      - DPI_EVASION=true
+      - KNOX_BYPASS=enabled
+    volumes:
+      - ./configs:/etc/litebike
+    ports:
+      - "443:443"
+      - "8443:8443"
+      - "2096:2096"
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+    
+    # Knox-specific network configuration
+    sysctls:
+      - net.ipv4.ip_local_port_range=1024 65000
+    
+    # Advanced traffic shaping and DPI evasion
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    
+    command: >
+      /bin/sh -c "
+      litebike-tunnel \
+        --mode=knox-bypass \
+        --protocol=htx \
+        --port-strategy=adaptive \
+        --dpi-evasion=true \
+        --tls-mirror=chrome-stable \
+        --fallback-ports=8080,2095,8880
+      "

@@ -60,11 +60,14 @@ impl MockHttpServer {
                     Ok(n) => {
                         state.record_bytes(n as u64);
                         debug!("HTTP server received {} bytes from {}", n, addr);
-                        
-                        if let Err(e) = stream.write_all(response.as_bytes()).await {
-                            state.record_error(format!("Failed to write response: {}", e));
-                        } else {
-                            state.record_bytes(response.len() as u64);
+
+                        // Only respond if it looks like HTTP
+                        if String::from_utf8_lossy(&buffer[..n]).contains("HTTP") {
+                            if let Err(e) = stream.write_all(response.as_bytes()).await {
+                                state.record_error(format!("Failed to write response: {}", e));
+                            } else {
+                                state.record_bytes(response.len() as u64);
+                            }
                         }
                     }
                     Err(e) => {
@@ -414,17 +417,14 @@ impl MockDnsServer {
                     
                     let request = String::from_utf8_lossy(&buffer[..n]);
                     
-                    let response = if request.contains("/dns-query") {
+                    let response: &[u8] = if request.contains("/dns-query") {
                         // DoH response
-                        b"HTTP/1.1 200 OK\r\n\                        Content-Type: application/dns-message\r\n\                        Content-Length: 32\r\n\                        \r\n\                        \x00\x00\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\
-                        \x03www\x07example\x03com\x00\x00\x01\x00\x01\
-                        \xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\
-                        \x5d\xb8\xd8\x22"
+                        b"HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: 48\r\n\r\n\x00\x00\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\x03www\x07example\x03com\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x5d\xb8\xd8\x22"
                     } else {
                         b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
                     };
                     
-                    if let Err(e) = stream.write_all(response.as_bytes()).await {
+                    if let Err(e) = stream.write_all(response).await {
                         state.record_error(format!("Failed to write DNS response: {}", e));
                     } else {
                         state.record_bytes(response.len() as u64);

@@ -244,7 +244,7 @@ impl ConcurrentTester {
         test_data: Arc<Vec<Vec<u8>>>
     ) -> PerformanceMetrics
     where
-        D: litebike::protocol_registry::ProtocolDetector + Send + Sync + 'static,
+        D: litebike::universal_listener::ProtocolDetector + Send + Sync + 'static + std::panic::RefUnwindSafe,
     {
         let mut tasks = Vec::new();
         let start_time = Instant::now();

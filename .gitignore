@@ -23,3 +23,4 @@ litebike-proxy
 
 # Logs
 *.log**/*.o
+.aider*

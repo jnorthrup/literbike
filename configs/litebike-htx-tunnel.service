@@ -1,0 +1,40 @@
+[Unit]
+Description=LITEBIKE HTX Knox-Resistant Tunnel
+After=network.target
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5s
+
+# Knox Bypass Configuration
+Environment="HTX_TUNNEL_MODE=adaptive"
+Environment="DPI_EVASION=true"
+
+# Primary tunnel executable
+ExecStart=/usr/local/bin/litebike-tunnel \
+    --mode=knox-bypass \
+    --protocol=htx \
+    --port-strategy=adaptive \
+    --dpi-evasion=true \
+    --tls-mirror=chrome-stable \
+    --log-level=info
+
+# Fallback tunnel mechanism
+ExecStartPost=/usr/local/bin/litebike-tunnel-fallback \
+    --primary-tunnel-pid=$MAINPID \
+    --fallback-ports=8080,2095,8880
+
+# Advanced Knox DPI Bypass Mechanisms
+ExecStartPost=/usr/local/bin/dpi-camouflage \
+    --noise-pattern=http-emulation \
+    --timing-jitter=true
+
+# Monitoring and Auto-Recovery
+WatchdogSec=30
+StartLimitAction=none
+
+[Install]
+WantedBy=multi-user.target
