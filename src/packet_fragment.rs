@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use rand::Rng;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::time::sleep;
 
 /// Fragment configuration for DPI evasion

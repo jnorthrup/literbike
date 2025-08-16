@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 use log::{debug, info};
 
 
-use crate::posix_sockets::{posix_peek, PosixTcpStream};
+use crate::posix_sockets::posix_peek;
 
 /// Protocol detection result
 #[derive(Debug)]
@@ -342,7 +342,6 @@ pub async fn handle_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncWriteExt;
 
     #[tokio::test]
     async fn test_detect_http_get() {

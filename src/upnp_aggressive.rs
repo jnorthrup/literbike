@@ -6,6 +6,8 @@ use std::time::Duration;
 use std::thread;
 use std::io::{Write, Read};
 
+use tokio::stream;
+
 /// Aggressive UPnP controller for carrier bypass
 pub struct AggressiveUPnP {
     gateway_ip: String,

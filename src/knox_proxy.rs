@@ -11,7 +11,6 @@ use crate::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
 use crate::universal_listener::{Protocol, detect_protocol_posix, PrefixedStream};
 use crate::posix_sockets::{posix_peek, PosixTcpStream};
 use crate::tcp_fingerprint::{TcpFingerprintManager, MobileProfile};
-use crate::packet_fragment::{PacketFragmenter, MobileFragmentPattern};
 use crate::tls_fingerprint::{TlsFingerprintManager, MobileBrowserProfile};
 
 /// Knox proxy configuration

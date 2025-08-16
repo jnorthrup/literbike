@@ -8,7 +8,7 @@ use nix::sys::socket::{getsockopt, sockopt};
 
 use std::io::{self, Error, ErrorKind};
 
-use std::os::fd::AsRawFd;
+use std::os::fd::{self, AsRawFd};
 
 use tokio::net::TcpStream;
 

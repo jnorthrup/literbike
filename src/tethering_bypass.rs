@@ -356,7 +356,7 @@ impl TetheringBypass {
         let dns_servers = ["8.8.8.8", "1.1.1.1", "9.9.9.9"];
         
         for domain in test_domains {
-            for dns_server in dns_servers {
+            for _dns_server in dns_servers {
                 // Simple DNS resolution test
                 if let Err(_) = std::net::ToSocketAddrs::to_socket_addrs(
                     &format!("{}:80", domain)

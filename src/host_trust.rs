@@ -1,7 +1,7 @@
 // LITEBIKE Direct Host Trust Mechanisms
 // For private networks and carrier freedom environments
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 use std::fs;
