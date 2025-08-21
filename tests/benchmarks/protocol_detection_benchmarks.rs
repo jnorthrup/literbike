@@ -4,8 +4,8 @@
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
 use std::time::Duration;
 
-use litebike::protocol_registry::ProtocolDetector;
-use litebike::protocol_handlers::{
+use literbike::protocol_registry::ProtocolDetector;
+use literbike::protocol_handlers::{
     HttpDetector, Socks5Detector, TlsDetector, DohDetector
 };
 

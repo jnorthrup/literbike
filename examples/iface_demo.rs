@@ -1,4 +1,4 @@
-use litebike::syscall_net::{get_default_gateway, list_interfaces};
+use literbike::syscall_net::{get_default_gateway, list_interfaces};
 
 fn main() -> std::io::Result<()> {
     let ifaces = list_interfaces()?;

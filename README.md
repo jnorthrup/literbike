@@ -97,7 +97,7 @@ AI: DO NOT TOUCH
 - Integration/unit/bench scaffolding in `tests/`
 - Example: list interfaces and default gateway
 		```rust
-		use litebike::syscall_net::{list_interfaces, get_default_gateway};
+		use literbike::syscall_net::{list_interfaces, get_default_gateway};
 		fn main() -> std::io::Result<()> {
 			let ifaces = list_interfaces()?;
 			for (name, iface) in ifaces {

@@ -1,4 +1,4 @@
-use litebike::syscall_net::{
+use literbike::syscall_net::{
 	get_default_gateway,
 	get_default_gateway_v6,
 	get_default_local_ipv4,
@@ -20,14 +20,14 @@ use std::time::SystemTime;
 use std::process::Command;
 use std::net::{TcpStream, UdpSocket, SocketAddr};
 use std::io::{Read, Write};
-use litebike::rbcursive::protocols::ProtocolType;
-use litebike::rbcursive::{RBCursive, Classify, Signal};
-use litebike::rbcursive::protocols::Listener;
-use litebike::rbcursive::protocols;
-use litebike::git_sync;
-use litebike::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
-use litebike::knox_proxy::{KnoxProxyConfig, start_knox_proxy};
-use litebike::posix_sockets::PosixTcpStream;
+use literbike::rbcursive::protocols::ProtocolType;
+use literbike::rbcursive::{RBCursive, Classify, Signal};
+use literbike::rbcursive::protocols::Listener;
+use literbike::rbcursive::protocols;
+use literbike::git_sync;
+use literbike::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
+use literbike::knox_proxy::{KnoxProxyConfig, start_knox_proxy};
+use literbike::posix_sockets::PosixTcpStream;
 
 /// WAM-style dispatch table for densified command subsumption
 /// Each entry is a 2-ary tuple (pattern, action) for O(1) unification
@@ -36,7 +36,7 @@ type CommandAction = fn(&[String]);
 const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	// Network utilities (most common first for cache efficiency)
 	("ifconfig", run_ifconfig),
-	("route", run_route),
+	("route", run_route_cmd),
 	("netstat", run_netstat),
 	("ip", run_ip),
 	
@@ -52,11 +52,11 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	
 	// Network discovery and monitoring
 	("watch", run_watch),
-	("probe", run_probe),
-	("domains", run_domains),
-	("carrier", run_carrier),
+	("probe", run_probe_cmd),
+	("domains", run_domains_cmd),
+	("carrier", run_carrier_cmd),
 	("radios", run_radios),
-	("scan-ports", run_scan_ports),
+	("scan-ports", run_scan_ports_cmd),
 	
 	// Git and deployment
 	("git-push", run_git_push),
@@ -67,7 +67,7 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	// Specialized operations
 	("snapshot", run_snapshot),
 	("upnp-gateway", run_upnp_gateway),
-	("bonjour-discover", run_bonjour_discover),
+	("bonjour-discover", run_bonjour_discover_cmd),
 	("completion", run_completion),
 	("carrier-bypass", run_carrier_bypass),
 	("raw-connect", run_raw_connect),
@@ -87,6 +87,14 @@ fn wam_dispatch(cmd: &str, subargs: &[String]) -> bool {
 	}
 	false
 }
+
+// Wrapper functions to match dispatch table function pointer signature
+fn run_route_cmd(_args: &[String]) { run_route(); }
+fn run_probe_cmd(_args: &[String]) { run_probe(); }
+fn run_domains_cmd(_args: &[String]) { run_domains(); }
+fn run_carrier_cmd(_args: &[String]) { run_carrier(); }
+fn run_scan_ports_cmd(_args: &[String]) { run_scan_ports(); }
+fn run_bonjour_discover_cmd(_args: &[String]) { run_bonjour_discover(); }
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
@@ -428,7 +436,7 @@ fn print_proc_net_sockets_filtered(show_tcp: bool, show_udp: bool, listening_onl
 #[allow(unused)]
 fn print_external_netstat(cmd: &[&str]) -> bool {
 	use std::process::Command;
-use litebike::syscall_net::{InterfaceAddr, Interface, list_interfaces};
+use literbike::syscall_net::{InterfaceAddr, Interface, list_interfaces};
 	if cmd.is_empty() { return false; }
 	let (prog, args) = (cmd[0], &cmd[1..]);
 	if let Ok(out) = Command::new(prog).args(args).output() {
@@ -668,7 +676,7 @@ fn run_domains() {
 fn run_carrier() {
 	#[cfg(any(target_os = "android"))]
 	{
-		let props = litebike::syscall_net::android_carrier_props();
+	let props = literbike::syscall_net::android_carrier_props();
 		if props.is_empty() { println!("carrier: no getprop keys visible (managed device?)"); return; }
 		println!("carrier props:");
 		for (k,v) in props { println!("{} = {}", k, v); }
@@ -792,10 +800,10 @@ fn run_radios(args: &[String]) {
 		match out1 {
 			Ok(o) if o.status.success() => {
 				let text = String::from_utf8_lossy(&o.stdout);
-				match serde_json::from_str::<litebike::radios::RadiosReport>(&text) {
+				match serde_json::from_str::<literbike::radios::RadiosReport>(&text) {
 					Ok(report) => {
 						if want_json { println!("{}", serde_json::to_string_pretty(&report).unwrap_or_else(|_| text.to_string())); }
-						else { litebike::radios::print_radios_human(&report); }
+						else { literbike::radios::print_radios_human(&report); }
 					}
 					Err(e) => {
 						eprintln!("radios: failed to parse remote JSON: {}", e);
@@ -811,9 +819,9 @@ fn run_radios(args: &[String]) {
 				if let Ok(o2) = out2 {
 					if o2.status.success() {
 						let text = String::from_utf8_lossy(&o2.stdout);
-						if let Some(report) = litebike::radios::from_ip_j_addr(&text) {
+						if let Some(report) = literbike::radios::from_ip_j_addr(&text) {
 							if want_json { println!("{}", serde_json::to_string_pretty(&report).unwrap_or_else(|_| text.to_string())); }
-							else { litebike::radios::print_radios_human(&report); }
+							else { literbike::radios::print_radios_human(&report); }
 							return;
 						}
 					}
@@ -825,9 +833,9 @@ fn run_radios(args: &[String]) {
 				match out3 {
 					Ok(o3) if o3.status.success() => {
 						let text = String::from_utf8_lossy(&o3.stdout);
-						let report = litebike::radios::from_ifconfig_text(&text);
+						let report = literbike::radios::from_ifconfig_text(&text);
 						if want_json { println!("{}", serde_json::to_string_pretty(&report).unwrap_or_else(|_| text.to_string())); }
-						else { litebike::radios::print_radios_human(&report); }
+						else { literbike::radios::print_radios_human(&report); }
 					}
 					Ok(o3) => {
 						let stderr = String::from_utf8_lossy(&o3.stderr);
@@ -840,14 +848,14 @@ fn run_radios(args: &[String]) {
 		return;
 	}
 
-	let report = litebike::radios::gather_radios();
+						let report = literbike::radios::gather_radios();
 	if want_json {
 		match serde_json::to_string_pretty(&report) {
 			Ok(s) => println!("{}", s),
 			Err(e) => eprintln!("radios --json: {}", e),
 		}
 	} else {
-		litebike::radios::print_radios_human(&report);
+	literbike::radios::print_radios_human(&report);
 	}
 }
 
@@ -937,7 +945,7 @@ fn run_snapshot(args: &[String]) {
 	out.push_str("[carrier_props]\n");
 	#[cfg(any(target_os = "android"))]
 	{
-		let props = litebike::syscall_net::android_carrier_props();
+		let props = literbike::syscall_net::android_carrier_props();
 		if props.is_empty() { out.push_str("(none)\n"); }
 		let mut keys: Vec<_> = props.keys().cloned().collect();
 		keys.sort();

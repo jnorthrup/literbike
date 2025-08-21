@@ -1,8 +1,8 @@
 // Enhanced Protocol Detection Tests
 // Comprehensive testing with property-based testing, SIMD validation, and edge cases
 
-use litebike::protocol_registry::{ProtocolDetectionResult, ProtocolDetector};
-use litebike::protocol_handlers::{
+use literbike::protocol_registry::{ProtocolDetectionResult, ProtocolDetector};
+use literbike::protocol_handlers::{
     HttpDetector, Socks5Detector, TlsDetector, DohDetector
 };
 

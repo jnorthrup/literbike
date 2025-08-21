@@ -1,4 +1,4 @@
-// LITEBIKE Direct Host Trust Mechanisms
+// LITERBIKE Direct Host Trust Mechanisms
 // For private networks and carrier freedom environments
 
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::time::Duration;
 use std::fs;
 use std::path::Path;
 
-/// Host trust manager for litebike carrier freedom
+/// Host trust manager for literbike carrier freedom
 pub struct HostTrust {
     trusted_hosts: HashMap<String, TrustLevel>,
     trusted_networks: Vec<TrustedNetwork>,
@@ -364,7 +364,7 @@ impl HostTrust {
         println!("💾 Saving trusted hosts to {}", path);
         
         let mut content = String::new();
-        content.push_str("# LiteBike Trusted Hosts\n");
+    content.push_str("# LiterBike Trusted Hosts\n");
         content.push_str("# Format: host:trust_level\n\n");
         
         for (host, level) in &self.trusted_hosts {

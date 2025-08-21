@@ -1,4 +1,4 @@
-// LITEBIKE Gate System (AGPL Licensed)
+// LITERBIKE Gate System (AGPL Licensed)
 // Hierarchical gating for protocols and crypto
 
 use std::sync::Arc;
@@ -9,7 +9,7 @@ pub mod shadowsocks_gate;
 pub mod crypto_gate;
 pub mod htx_gate;
 
-/// Master gate trait for LITEBIKE
+/// Master gate trait for LITERBIKE
 #[async_trait]
 pub trait Gate: Send + Sync {
     /// Check if gate allows passage

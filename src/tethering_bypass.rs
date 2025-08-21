@@ -1,4 +1,4 @@
-// LITEBIKE Tethering Detection Bypass Systems
+// LITERBIKE Tethering Detection Bypass Systems
 // Circumvent carrier tethering restrictions and TTL detection
 
 use std::collections::HashMap;
@@ -132,7 +132,7 @@ impl TetheringBypass {
             );
             
             // Create temporary pfctl rule file
-            let rule_file = "/tmp/litebike-ttl.conf";
+            let rule_file = "/tmp/literbike-ttl.conf";
             std::fs::write(rule_file, pf_rule)
                 .map_err(|e| format!("Failed to write pf rule: {}", e))?;
                 
@@ -213,7 +213,7 @@ impl TetheringBypass {
             }
             
             let backup_result = Command::new("cp")
-                .args(["/etc/resolv.conf", "/etc/resolv.conf.litebike.bak"])
+                .args(["/etc/resolv.conf", "/etc/resolv.conf.literbike.bak"])
                 .output();
                 
             if backup_result.is_ok() {
@@ -417,9 +417,9 @@ impl TetheringBypass {
             }
             
             // Restore original resolv.conf if backup exists
-            if std::path::Path::new("/etc/resolv.conf.litebike.bak").exists() {
+            if std::path::Path::new("/etc/resolv.conf.literbike.bak").exists() {
                 let _ = Command::new("mv")
-                    .args(["/etc/resolv.conf.litebike.bak", "/etc/resolv.conf"])
+                    .args(["/etc/resolv.conf.literbike.bak", "/etc/resolv.conf"])
                     .output();
             }
         }

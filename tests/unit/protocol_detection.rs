@@ -1,8 +1,8 @@
 // Comprehensive Protocol Detection Unit Tests
 // Tests all protocol detectors for accuracy, edge cases, and false positives
 
-use litebike::protocol_registry::{ProtocolDetectionResult, ProtocolDetector};
-use litebike::protocol_handlers::{
+use literbike::protocol_registry::{ProtocolDetectionResult, ProtocolDetector};
+use literbike::protocol_handlers::{
     HttpDetector, Socks5Detector, TlsDetector, DohDetector
 };
 

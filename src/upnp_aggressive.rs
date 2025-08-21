@@ -1,4 +1,4 @@
-// LITEBIKE Aggressive UPnP Port Manipulation
+// LITERBIKE Aggressive UPnP Port Manipulation
 // Designed for carrier freedom and bypassing tethering restrictions
 
 use std::net::{UdpSocket, TcpStream, SocketAddr};
@@ -470,14 +470,14 @@ impl AggressiveUPnP {
                 external_port: 80,
                 internal_port: 8080,
                 protocol: "TCP".to_string(),
-                description: "LiteBike-HTTP".to_string(),
+                description: "LiterBike-HTTP".to_string(),
                 duration: 86400, // 24 hours
             },
             PortMapping {
                 external_port: 443,
                 internal_port: 8443,
                 protocol: "TCP".to_string(),
-                description: "LiteBike-HTTPS".to_string(),
+                description: "LiterBike-HTTPS".to_string(),
                 duration: 86400,
             },
             // SSH and common service ports
@@ -485,14 +485,14 @@ impl AggressiveUPnP {
                 external_port: 22,
                 internal_port: 2222,
                 protocol: "TCP".to_string(),
-                description: "LiteBike-SSH".to_string(),
+                description: "LiterBike-SSH".to_string(),
                 duration: 86400,
             },
             PortMapping {
                 external_port: 8022,
                 internal_port: 8022,
                 protocol: "TCP".to_string(),
-                description: "LiteBike-SSH-Alt".to_string(),
+                description: "LiterBike-SSH-Alt".to_string(),
                 duration: 86400,
             },
             // DNS (UDP for tunneling)
@@ -500,7 +500,7 @@ impl AggressiveUPnP {
                 external_port: 53,
                 internal_port: 5353,
                 protocol: "UDP".to_string(),
-                description: "LiteBike-DNS".to_string(),
+                description: "LiterBike-DNS".to_string(),
                 duration: 86400,
             },
             // High numbered ports (less likely to be blocked)
@@ -508,14 +508,14 @@ impl AggressiveUPnP {
                 external_port: 49152,
                 internal_port: 49152,
                 protocol: "TCP".to_string(),
-                description: "LiteBike-Dynamic".to_string(),
+                description: "LiterBike-Dynamic".to_string(),
                 duration: 86400,
             },
             PortMapping {
                 external_port: 8888,
                 internal_port: 8888,
                 protocol: "TCP".to_string(),
-                description: "LiteBike-Proxy".to_string(),
+                description: "LiterBike-Proxy".to_string(),
                 duration: 86400,
             },
         ];

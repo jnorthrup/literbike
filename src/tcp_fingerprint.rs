@@ -6,7 +6,17 @@ use std::net::TcpStream;
 use std::os::fd::AsRawFd;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
-use libc::{setsockopt, SOL_TCP, SO_SNDBUF, SO_RCVBUF, TCP_NODELAY, TCP_KEEPINTVL, TCP_KEEPIDLE};
+// Platform-conditional TCP constants: macOS doesn't export SOL_TCP/TCP_KEEPIDLE
+use libc::{setsockopt, SO_SNDBUF, SO_RCVBUF, TCP_NODELAY, TCP_KEEPINTVL};
+
+#[cfg(target_os = "macos")]
+use libc::TCP_KEEPALIVE as TCP_KEEPIDLE;
+
+#[cfg(not(target_os = "macos"))]
+use libc::SOL_TCP;
+
+#[cfg(not(target_os = "macos"))]
+use libc::TCP_KEEPIDLE;
 
 /// Mobile device TCP characteristics
 pub struct TcpFingerprint {
@@ -197,7 +207,12 @@ impl TcpFingerprintManager {
             let nodelay = if fingerprint.nodelay { 1i32 } else { 0i32 };
             if setsockopt(
                 fd,
-                SOL_TCP,
+                {
+                    #[cfg(target_os = "macos")]
+                    { libc::IPPROTO_TCP }
+                    #[cfg(not(target_os = "macos"))]
+                    { SOL_TCP }
+                },
                 TCP_NODELAY,
                 &nodelay as *const _ as *const libc::c_void,
                 std::mem::size_of::<i32>() as u32,
@@ -209,7 +224,12 @@ impl TcpFingerprintManager {
             let keepalive_idle = fingerprint.keepalive_idle as i32;
             if setsockopt(
                 fd,
-                SOL_TCP,
+                {
+                    #[cfg(target_os = "macos")]
+                    { libc::IPPROTO_TCP }
+                    #[cfg(not(target_os = "macos"))]
+                    { SOL_TCP }
+                },
                 TCP_KEEPIDLE,
                 &keepalive_idle as *const _ as *const libc::c_void,
                 std::mem::size_of::<i32>() as u32,
@@ -220,7 +240,12 @@ impl TcpFingerprintManager {
             let keepalive_interval = fingerprint.keepalive_interval as i32;
             if setsockopt(
                 fd,
-                SOL_TCP,
+                {
+                    #[cfg(target_os = "macos")]
+                    { libc::IPPROTO_TCP }
+                    #[cfg(not(target_os = "macos"))]
+                    { SOL_TCP }
+                },
                 TCP_KEEPINTVL,
                 &keepalive_interval as *const _ as *const libc::c_void,
                 std::mem::size_of::<i32>() as u32,

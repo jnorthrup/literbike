@@ -7,7 +7,7 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::thread;
 use std::time::Duration;
-use litebike::syscall_net::{socket_create, socket_bind, socket_listen, socket_accept, socket_connect, socket_read, socket_write, socket_close};
+use literbike::syscall_net::{socket_create, socket_bind, socket_listen, socket_accept, socket_connect, socket_read, socket_write, socket_close};
 use libc;
 
 /// Test scenario for a standard loopback interface.

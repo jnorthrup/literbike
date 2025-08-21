@@ -1,8 +1,8 @@
-# P2P Litebike Node - Complete Subsumption Specification
+# P2P Literbike Node - Complete Subsumption Specification
 
 ## Single Executable Deliverable
 
-**Binary:** `litebike` (self-contained, self-replicating agent)
+**Binary:** `literbike` (self-contained, self-replicating agent)
 **Size:** ~10MB (all dependencies statically linked)
 **Features:** All Knox bypass, network tools, git sync, SSH deploy
 
@@ -10,11 +10,11 @@
 
 ### Level 0: Argv[0] Dispatch (SysV Tool Emulation)
 ```
-ifconfig -> litebike (argv[0] = "ifconfig")
-route    -> litebike (argv[0] = "route")  
-netstat  -> litebike (argv[0] = "netstat")
-ip       -> litebike (argv[0] = "ip")
-watch    -> litebike (argv[0] = "watch")
+ifconfig -> literbike (argv[0] = "ifconfig")
+route    -> literbike (argv[0] = "route")  
+netstat  -> literbike (argv[0] = "netstat")
+ip       -> literbike (argv[0] = "ip")
+watch    -> literbike (argv[0] = "watch")
 ```
 
 ### Level 1: Core Network Operations

@@ -1,16 +1,15 @@
-pub mod syscall_net;
-pub mod types;
-pub mod radios;
-pub mod rbcursive;
-pub mod universal_listener;
-pub mod gates;
-pub mod git_sync;
-pub mod upnp_aggressive;
-pub mod raw_telnet;
-pub mod tethering_bypass;
-pub mod posix_sockets;
-pub mod knox_proxy;
-pub mod tcp_fingerprint;
-pub mod packet_fragment;
-pub mod tls_fingerprint;
-pub mod host_trust;
+pub mod adapters;
+pub mod channel;
+pub mod quic;
+pub mod reactor;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoke() {
+        // Simple smoke test to confirm crate builds and modules link
+        let _ = adapters::ssh::ssh_adapter_name();
+    }
+}

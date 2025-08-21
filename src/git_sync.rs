@@ -302,7 +302,7 @@ fn cmd_sync_status(path: Option<PathBuf>) -> Result<(), String> {
     println!("\nRecommended Strategy: {:?}", recommended);
     
     if state.needs_cleanup() {
-        println!("\n⚠ Cleanup recommended: run 'litebike git-sync clean'");
+    println!("\n⚠ Cleanup recommended: run 'literbike git-sync clean'");
     }
     
     Ok(())
@@ -947,10 +947,10 @@ fn provide_migration_recommendations(_state: &GitRepoState, complexity_score: u3
 }
 
 fn show_git_sync_help() {
-    println!("litebike git-sync - Advanced Git Synchronization Tool");
+    println!("literbike git-sync - Advanced Git Synchronization Tool");
     println!();
     println!("USAGE:");
-    println!("  litebike git-sync <command> [options] [url]");
+    println!("  literbike git-sync <command> [options] [url]");
     println!();
     println!("COMMANDS:");
     println!("  status                 Show repository and remote status");
@@ -971,13 +971,13 @@ fn show_git_sync_help() {
     println!("  --path <path>          Repository path (default: current directory)");
     println!();
     println!("EXAMPLES:");
-    println!("  litebike git-sync status");
-    println!("  litebike git-sync clean");
-    println!("  litebike git-sync pijul-analyze");
-    println!("  litebike git-sync user@host:/path/to/repo.git");
-    println!("  litebike git-sync clone ssh://user@host:2222/repo.git");
-    println!("  litebike git-sync push --force user@host:/repo.git");
-    println!("  litebike git-sync sync --strategy shallow origin");
+    println!("  literbike git-sync status");
+    println!("  literbike git-sync clean");
+    println!("  literbike git-sync pijul-analyze");
+    println!("  literbike git-sync user@host:/path/to/repo.git");
+    println!("  literbike git-sync clone ssh://user@host:2222/repo.git");
+    println!("  literbike git-sync push --force user@host:/repo.git");
+    println!("  literbike git-sync sync --strategy shallow origin");
     println!();
     println!("STRATEGIES:");
     println!("  full     - Complete clone/sync with full history");

@@ -438,7 +438,7 @@ fn android_getprop_gateway() -> Option<Ipv4Addr> {
     .into_iter()
     .map(|s| s.to_string())
     .collect();
-    if let Ok(hint) = std::env::var("LITEBIKE_INTERFACE") {
+    if let Ok(hint) = std::env::var("LITERBIKE_INTERFACE") {
         let hint = hint.trim().to_string();
         if !hint.is_empty() {
             candidates.insert(0, hint);

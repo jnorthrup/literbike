@@ -169,7 +169,7 @@ impl BenchmarkRunner {
     /// Benchmark protocol detection specifically
     pub fn benchmark_detection<D>(&self, detector: &D, test_data: &[Vec<u8>]) -> PerformanceMetrics
     where
-        D: litebike::protocol_registry::ProtocolDetector,
+        D: literbike::protocol_registry::ProtocolDetector,
     {
         self.benchmark(
             &format!("Protocol Detection ({})", detector.protocol_name()),
@@ -183,7 +183,7 @@ impl BenchmarkRunner {
     /// Compare multiple detectors on the same data
     pub fn compare_detectors<D>(&self, detectors: &[D], test_data: &[Vec<u8>]) -> HashMap<String, PerformanceMetrics>
     where
-        D: litebike::protocol_registry::ProtocolDetector,
+        D: literbike::protocol_registry::ProtocolDetector,
     {
         let mut results = HashMap::new();
         
@@ -244,7 +244,7 @@ impl ConcurrentTester {
         test_data: Arc<Vec<Vec<u8>>>
     ) -> PerformanceMetrics
     where
-        D: litebike::universal_listener::ProtocolDetector + Send + Sync + 'static + std::panic::RefUnwindSafe,
+        D: literbike::universal_listener::ProtocolDetector + Send + Sync + 'static + std::panic::RefUnwindSafe,
     {
         let mut tasks = Vec::new();
         let start_time = Instant::now();

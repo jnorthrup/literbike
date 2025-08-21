@@ -201,8 +201,8 @@ async fn test_protocol_detection_accuracy() {
     ];
     
     // Import protocol detectors (these would be from your actual modules)
-    use litebike::protocol_handlers::{HttpDetector, Socks5Detector, TlsDetector};
-    use litebike::protocol_registry::ProtocolDetector;
+    use literbike::protocol_handlers::{HttpDetector, Socks5Detector, TlsDetector};
+    use literbike::protocol_registry::ProtocolDetector;
     
     let http_detector = HttpDetector::new();
     let socks5_detector = Socks5Detector::new();

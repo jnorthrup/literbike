@@ -1,15 +1,15 @@
 [package]
-name = "litebike-proxy"
+name = "literbike-proxy"
 version = "0.1.0"
 edition = "2021"
 authors = ["jnorthrup"]
 description = "Lightweight proxy server with HTTP/HTTPS and SOCKS5 support for Termux"
-repository = "https://github.com/jnorthrup/litebike"
+repository = "https://github.com/jnorthrup/literbike"
 license = "MIT"
 readme = "README.md"
 
 [[bin]]
-name = "litebike-proxy"
+name = "literbike-proxy"
 path = "src/main.rs"
 
 [dependencies]
