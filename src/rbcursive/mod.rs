@@ -1,12 +1,18 @@
 // RBCursive - Rust port of BBCursive for network parser combinators
 // High-performance SIMD-accelerated parsing with continuation-based streaming
 
+// Litebike governance note:
+// The `rbcursive` module is maintained under the Litebike project.
+// Non-bounty or Betanet-specific design notes have been moved to `docs/betanet-densifier.md`.
+// For micro-protocol authors, see `src/rbcursive/micro_protocol_template.rs` and `src/rbcursive/README.md`.
+
 pub mod simd;
 pub mod combinators;
 pub mod protocols;
 pub mod continuation;
 pub mod scanner;
 pub mod patterns;
+pub mod micro_protocol_template;
 
 pub use simd::*;
 pub use combinators::*;
