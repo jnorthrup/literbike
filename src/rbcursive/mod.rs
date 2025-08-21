@@ -12,7 +12,7 @@ pub mod protocols;
 pub mod continuation;
 pub mod scanner;
 pub mod patterns;
-pub mod micro_protocol_template;
+// pub mod micro_protocol_template;
 
 pub use simd::*;
 pub use combinators::*;

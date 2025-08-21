@@ -31,7 +31,8 @@ pub fn clear_ssh_proxy_command() -> std::io::Result<()> {
 
 /// Client logic with SSH fallback
 pub fn client_auto(host: Option<&str>, http_port: u16, socks_port: u16, user: &str, ssh_port: u16, script_path: &str) {
-    let gateway = host.unwrap_or(&get_gateway_ip());
+    let binding = get_gateway_ip();
+    let gateway = host.unwrap_or(&binding);
     println!("[CLIENT] Configuring client for: {}", gateway);
     // Test proxy
     let http_test = Command::new("curl")
@@ -110,7 +111,10 @@ pub fn ssh_diagnostics(host: &str, user: &str, port: u16) {
 }
 pub fn get_rmnet_interfaces() -> Vec<String> {
     // TODO: Replace with direct ioctl for interface enumeration
-    let output = Command::new("ifconfig").output().ok()?;
+    let output = match Command::new("ifconfig").output() {
+        Ok(output) => output,
+        Err(_) => return vec![],
+    };
     let s = String::from_utf8_lossy(&output.stdout);
     s.lines()
         .filter(|l| l.starts_with("rmnet_data"))
@@ -120,7 +124,10 @@ pub fn get_rmnet_interfaces() -> Vec<String> {
 
 pub fn get_rmnet_ips() -> Vec<String> {
     // TODO: Replace with direct ioctl for IP address enumeration
-    let output = Command::new("ifconfig").output().ok()?;
+    let output = match Command::new("ifconfig").output() {
+        Ok(output) => output,
+        Err(_) => return vec![],
+    };
     let s = String::from_utf8_lossy(&output.stdout);
     let mut ips = Vec::new();
     let mut current_iface = "";
@@ -178,7 +185,7 @@ pub fn test_connection(host: &str, http_port: u16, socks_port: u16) {
         .output();
     println!("SOCKS5 proxy test: {}", if socks_test.map_or(false, |o| !o.stdout.is_empty()) { "success" } else { "fail" });
 }
-//! SSH session troubleshooting and instrumentation tools ported from s/proxy-bridge
+/// SSH session troubleshooting and instrumentation tools ported from s/proxy-bridge
 
 use std::process::Command;
 use std::env;
@@ -201,7 +208,10 @@ pub fn get_local_ip() -> String {
         "termux" => {
             // TODO: Replace with direct syscall/ioctl
             // Fallback: parse ifconfig output
-            let output = Command::new("ifconfig").output().ok()?;
+            let output = match Command::new("ifconfig").output() {
+                Ok(output) => output,
+                Err(_) => return "127.0.0.1".to_string(),
+            };
             let s = String::from_utf8_lossy(&output.stdout);
             for line in s.lines() {
                 if line.contains("swlan0") {
