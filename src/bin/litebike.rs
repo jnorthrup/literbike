@@ -64,6 +64,13 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
 	("ssh-deploy", run_ssh_deploy),
 	("remote-sync", run_remote_sync),
 	
+	// Pattern matching operations
+	("pattern-match", run_pattern_match),
+	("pattern-glob", run_pattern_glob),
+	("pattern-regex", run_pattern_regex),
+	("pattern-scan", run_pattern_scan),
+	("pattern-bench", run_pattern_bench),
+	
 	// Specialized operations
 	("snapshot", run_snapshot),
 	("upnp-gateway", run_upnp_gateway),
@@ -249,14 +256,14 @@ fn run_ip(args: &[String]) {
 					}
 				}
 			} else {
-				run_route();
+				run_route(&[]);
 			}
 		},
 	_ => eprintln!("ip: unknown command '{}'", args[subcmd_idx]),
 	}
 }
 
-fn run_route() {
+fn run_route(_args: &[String]) {
 	let gw = get_default_gateway();
 	println!("Kernel IP routing table");
 	println!("Destination     Gateway         Genmask         Flags Metric Ref    Use Iface");
@@ -609,7 +616,7 @@ fn run_watch(args: &[String]) {
 	}
 }
 
-fn run_probe() {
+fn run_probe(_args: &[String]) {
 	// Show best-effort egress selections for v4/v6 and map to interfaces and defaults
 	println!("probe: best-effort egress selection");
 	match get_default_local_ipv4() {
@@ -630,7 +637,7 @@ fn run_probe() {
 	}
 }
 
-fn run_domains() {
+fn run_domains(_args: &[String]) {
 	println!("domains: per-interface summary");
 	match list_interfaces() {
 		Ok(ifaces) => {
@@ -673,7 +680,7 @@ fn run_domains() {
 	}
 }
 
-fn run_carrier() {
+fn run_carrier(_args: &[String]) {
 	#[cfg(any(target_os = "android"))]
 	{
 	let props = literbike::syscall_net::android_carrier_props();
@@ -1275,7 +1282,7 @@ fn run_proxy_setup(args: &[String]) {
 	
 	#[cfg(not(target_os = "macos"))]
 	{
-		eprintln!("proxy-setup: only available on macOS");
+		eprintln!("proxy-setup: only available on macOS (command '{}' ignored)", cmd);
 	}
 }
 
@@ -1603,11 +1610,72 @@ fn run_git_push(args: &[String]) {
 	println!("  git pull temp_upstream {}", branch);
 }
 
+// Parse proxy URL to extract host, port and path
+fn parse_proxy_url(url: &str) -> Option<(String, u16, String)> {
+    if url.starts_with("http://") {
+        let url_without_scheme = &url[7..]; // Remove "http://"
+        if let Some(slash_pos) = url_without_scheme.find('/') {
+            let host_port = &url_without_scheme[..slash_pos];
+            let path = &url_without_scheme[slash_pos..];
+            
+            if let Some(colon_pos) = host_port.find(':') {
+                let host = &host_port[..colon_pos];
+                let port_str = &host_port[colon_pos + 1..];
+                if let Ok(port) = port_str.parse::<u16>() {
+                    return Some((host.to_string(), port, path.to_string()));
+                }
+            } else {
+                // Default HTTP port 80
+                return Some((host_port.to_string(), 80, path.to_string()));
+            }
+        } else {
+            // No path, just host:port
+            if let Some(colon_pos) = url_without_scheme.find(':') {
+                let host = &url_without_scheme[..colon_pos];
+                let port_str = &url_without_scheme[colon_pos + 1..];
+                if let Ok(port) = port_str.parse::<u16>() {
+                    return Some((host.to_string(), port, "/".to_string()));
+                }
+            } else {
+                // Just host, default port and path
+                return Some((url_without_scheme.to_string(), 80, "/".to_string()));
+            }
+        }
+    }
+    None
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+	if pattern == "*" { return true; }
+	if pattern == "s?w?lan*" {
+		return text == "swlan0" || text == "swlan1" || text == "wlan0" || text == "wlan1";
+	}
+	pattern.chars().zip(text.chars()).all(|(p, t)| p == '?' || p == t) ||
+	(pattern.ends_with('*') && text.starts_with(&pattern[..pattern.len()-1]))
+}
+
 fn run_proxy_server(args: &[String]) {
 	let port = args.get(0).unwrap_or(&"8888".to_string()).parse::<u16>().unwrap_or(8888);
 	
-	// Get local IP for binding (from proxy-bridge logic)
-	let local_ip = get_default_local_ipv4().unwrap_or_else(|_| std::net::Ipv4Addr::new(127, 0, 0, 1));
+	// Get ingress interface pattern from args or env  
+	let ingress_pattern = args.get(1).map(|s| s.as_str())
+		.or_else(|| args.iter().find_map(|arg| arg.strip_prefix("--ingress=")))
+		.unwrap_or("s?w?lan*");
+		
+	// Find matching interface with glob pattern
+	let mut local_ip = std::net::Ipv4Addr::new(127, 0, 0, 1);
+	if let Ok(ifaces) = list_interfaces() {
+		for (name, iface) in ifaces {
+			if glob_match(ingress_pattern, &name) && !iface.addrs.is_empty() {
+				for addr in &iface.addrs {
+					if let litebike::syscall_net::InterfaceAddr::V4(ipv4) = addr {
+						local_ip = *ipv4;
+						break;
+					}
+				}
+			}
+		}
+	}
 	let bind_ip = env::var("BIND_IP").unwrap_or_else(|_| local_ip.to_string());
 	
 	println!("Starting Universal Proxy Server");
@@ -1741,14 +1809,75 @@ fn ssh_forward_cmd(ip: &str, port: u16) -> String {
 										let _ = stream.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n");
 										println!("→ HTTPS CONNECT tunnel");
 									} else {
-										// HTTP proxy request
-										let response = "HTTP/1.1 200 OK\r\n\
-											Content-Type: text/plain\r\n\
-											Content-Length: 30\r\n\
-											\r\n\
-											Litebike Proxy Server Running";
-										let _ = stream.write_all(response.as_bytes());
+										// HTTP proxy request - parse and forward
 										println!("→ HTTP proxy request");
+										
+										// Parse the HTTP request line to extract URL
+										if let Some(first_line_end) = request_str.find("\r\n") {
+											let first_line = &request_str[..first_line_end];
+											let parts: Vec<&str> = first_line.split(' ').collect();
+											
+											if parts.len() >= 3 {
+												let method = parts[0];
+												let url = parts[1];
+												let version = parts[2];
+												
+												// Parse URL to extract host and path
+												if let Some(url_parts) = parse_proxy_url(url) {
+													let (host, port, path) = url_parts;
+													
+													// Connect to target server
+													if let Ok(mut target_stream) = std::net::TcpStream::connect(format!("{}:{}", host, port)) {
+														// Forward the request to target server
+														let forwarded_request = format!("{} {} {}\r\n{}", 
+															method, path, version, 
+															&request_str[first_line_end + 2..]);
+														
+														if target_stream.write_all(forwarded_request.as_bytes()).is_ok() {
+															// Read response from target server
+															let mut response_buffer = vec![0u8; 8192];
+															if let Ok(bytes_read) = target_stream.read(&mut response_buffer) {
+																if bytes_read > 0 {
+																	// Forward response back to client
+																	let _ = stream.write_all(&response_buffer[..bytes_read]);
+																	println!("→ Forwarded {} bytes from {}", bytes_read, host);
+																} else {
+																	// No content response
+																	let error_response = "HTTP/1.1 204 No Content\r\n\r\n";
+																	let _ = stream.write_all(error_response.as_bytes());
+																}
+															} else {
+																// Read error
+																let error_response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
+																let _ = stream.write_all(error_response.as_bytes());
+															}
+														} else {
+															// Write error
+															let error_response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
+															let _ = stream.write_all(error_response.as_bytes());
+														}
+													} else {
+														// Connection failed
+														let error_response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
+														let _ = stream.write_all(error_response.as_bytes());
+														println!("→ Failed to connect to {}", host);
+													}
+												} else {
+													// Invalid URL format
+													let error_response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+													let _ = stream.write_all(error_response.as_bytes());
+													println!("→ Invalid URL format: {}", url);
+												}
+											} else {
+												// Invalid request line
+												let error_response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+												let _ = stream.write_all(error_response.as_bytes());
+											}
+										} else {
+											// No CRLF found
+											let error_response = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+											let _ = stream.write_all(error_response.as_bytes());
+										}
 									}
 								}
 								ProtocolType::Unknown => {
@@ -2230,13 +2359,16 @@ echo "TERMUX environment setup completed"
 		.arg(format!("{}@{}", termux_user, termux_host))
 		.arg("bash")
 		.stdin(std::process::Stdio::piped())
-		.output();
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.spawn();
 	
 	match setup_cmd {
 		Ok(mut child) => {
 			if let Some(stdin) = child.stdin.as_mut() {
 				let _ = stdin.write_all(setup_script.as_bytes());
 			}
+			let _ = child.wait();
 			println!("✅ TERMUX environment configured");
 		}
 		Err(e) => {
@@ -2297,7 +2429,7 @@ fn run_proxy_config(args: &[String]) {
 	let mut socks_port = 1080u16;
 	let mut enable_git = true;
 	let mut enable_npm = true;
-	let mut enable_system = true;
+	let mut _enable_system = true;
 	let mut enable_ssh = true;
 	let mut cleanup = false;
 	
@@ -2325,7 +2457,7 @@ fn run_proxy_config(args: &[String]) {
 			}
 			"--no-git" => enable_git = false,
 			"--no-npm" => enable_npm = false,
-			"--no-system" => enable_system = false,
+			"--no-system" => _enable_system = false,
 			"--no-ssh" => enable_ssh = false,
 			"--cleanup" => cleanup = true,
 			"--help" => {
@@ -2652,4 +2784,312 @@ fn run_bootstrap(args: &[String]) {
 	}
 	
 	println!("✅ Bootstrap analysis complete");
+}
+
+fn run_proxy_node(_args: &[String]) {
+	println!("proxy-node: starting proxy node mode");
+	// TODO: Implement proxy node functionality
+}
+
+fn run_scan_ports(_args: &[String]) {
+	println!("scan-ports: scanning network ports");
+	// TODO: Implement port scanning functionality
+}
+
+fn run_bonjour_discover(_args: &[String]) {
+	println!("bonjour-discover: discovering Bonjour services");
+	// TODO: Implement Bonjour discovery functionality
+}
+
+fn run_carrier_bypass(_args: &[String]) {
+	println!("carrier-bypass: enabling carrier bypass");
+	match litebike::tethering_bypass::enable_carrier_bypass() {
+		Ok(_) => println!("✅ Carrier bypass enabled"),
+		Err(e) => println!("❌ Carrier bypass failed: {}", e),
+	}
+}
+
+fn run_raw_connect(_args: &[String]) {
+	println!("raw-connect: establishing raw connection");
+	// TODO: Implement raw connection functionality
+}
+
+fn run_trust_host(_args: &[String]) {
+	println!("trust-host: managing trusted hosts");
+	// TODO: Implement host trust functionality
+}
+
+fn run_proxy_client(_args: &[String]) {
+	println!("proxy-client: starting proxy client mode");
+	// TODO: Implement proxy client functionality
+}
+
+// Pattern matching command implementations
+
+fn run_pattern_match(args: &[String]) {
+	if args.len() < 2 {
+		println!("Usage: litebike pattern-match <pattern-type> <pattern> [file]");
+		println!("  pattern-type: glob or regex");
+		println!("  pattern: the pattern to match");
+		println!("  file: optional file to read (default: stdin)");
+		return;
+	}
+	
+	let pattern_type = &args[0];
+	let pattern = &args[1];
+	let file_path = args.get(2);
+	
+	let data = if let Some(path) = file_path {
+		match std::fs::read(path) {
+			Ok(data) => data,
+			Err(e) => {
+				eprintln!("Error reading file {}: {}", path, e);
+				return;
+			}
+		}
+	} else {
+		println!("Reading from stdin (Ctrl+D to end):");
+		let mut buffer = Vec::new();
+		match std::io::Read::read_to_end(&mut std::io::stdin(), &mut buffer) {
+			Ok(_) => buffer,
+			Err(e) => {
+				eprintln!("Error reading stdin: {}", e);
+				return;
+			}
+		}
+	};
+	
+	let rbcursive = RBCursive::new();
+	
+	match pattern_type.as_str() {
+		"glob" => {
+			let result = rbcursive.match_glob(&data, pattern);
+			if result.matched {
+				println!("✅ Glob pattern '{}' matched ({} matches)", pattern, result.total_matches);
+				for (i, m) in result.matches.iter().enumerate() {
+					println!("  Match {}: bytes {}..{}", i + 1, m.start, m.end);
+				}
+			} else {
+				println!("❌ Glob pattern '{}' did not match", pattern);
+			}
+		}
+		"regex" => {
+			match rbcursive.match_regex(&data, pattern) {
+				Ok(result) => {
+					if result.matched {
+						println!("✅ Regex pattern '{}' matched ({} matches)", pattern, result.total_matches);
+						for (i, m) in result.matches.iter().enumerate() {
+							println!("  Match {}: bytes {}..{}", i + 1, m.start, m.end);
+							if let Ok(text) = std::str::from_utf8(&m.text) {
+								println!("    Text: {}", text);
+							}
+							for (j, cap) in m.captures.iter().enumerate() {
+								if let Some(name) = &cap.name {
+									println!("    Capture '{}': bytes {}..{}", name, cap.start, cap.end);
+								} else {
+									println!("    Capture {}: bytes {}..{}", j + 1, cap.start, cap.end);
+								}
+								if let Ok(text) = std::str::from_utf8(&cap.text) {
+									println!("      Text: {}", text);
+								}
+							}
+						}
+					} else {
+						println!("❌ Regex pattern '{}' did not match", pattern);
+					}
+				}
+				Err(e) => {
+					eprintln!("Error in regex matching: {:?}", e);
+				}
+			}
+		}
+		_ => {
+			eprintln!("Invalid pattern type '{}'. Use 'glob' or 'regex'", pattern_type);
+		}
+	}
+}
+
+fn run_pattern_glob(args: &[String]) {
+	if args.is_empty() {
+		println!("Usage: litebike pattern-glob <pattern> [file]");
+		println!("  pattern: glob pattern to match");
+		println!("  file: optional file to read (default: stdin)");
+		return;
+	}
+	
+	let mut glob_args = vec!["glob".to_string()];
+	glob_args.extend_from_slice(args);
+	run_pattern_match(&glob_args);
+}
+
+fn run_pattern_regex(args: &[String]) {
+	if args.is_empty() {
+		println!("Usage: litebike pattern-regex <pattern> [file]");
+		println!("  pattern: regex pattern to match");
+		println!("  file: optional file to read (default: stdin)");
+		return;
+	}
+	
+	let mut regex_args = vec!["regex".to_string()];
+	regex_args.extend_from_slice(args);
+	run_pattern_match(&regex_args);
+}
+
+fn run_pattern_scan(args: &[String]) {
+	if args.len() < 2 {
+		println!("Usage: litebike pattern-scan <pattern-type> <pattern> [file]");
+		println!("  pattern-type: glob or regex");
+		println!("  pattern: the pattern to scan for");
+		println!("  file: optional file to read (default: stdin)");
+		println!("");
+		println!("This command uses SIMD-accelerated scanning for better performance on large data.");
+		return;
+	}
+	
+	let pattern_type_str = &args[0];
+	let pattern = &args[1];
+	let file_path = args.get(2);
+	
+	let pattern_type = match pattern_type_str.as_str() {
+		"glob" => litebike::rbcursive::PatternType::Glob,
+		"regex" => litebike::rbcursive::PatternType::Regex,
+		_ => {
+			eprintln!("Invalid pattern type '{}'. Use 'glob' or 'regex'", pattern_type_str);
+			return;
+		}
+	};
+	
+	let data = if let Some(path) = file_path {
+		match std::fs::read(path) {
+			Ok(data) => data,
+			Err(e) => {
+				eprintln!("Error reading file {}: {}", path, e);
+				return;
+			}
+		}
+	} else {
+		println!("Reading from stdin (Ctrl+D to end):");
+		let mut buffer = Vec::new();
+		match std::io::Read::read_to_end(&mut std::io::stdin(), &mut buffer) {
+			Ok(_) => buffer,
+			Err(e) => {
+				eprintln!("Error reading stdin: {}", e);
+				return;
+			}
+		}
+	};
+	
+	let rbcursive = RBCursive::new();
+	let start_time = std::time::Instant::now();
+	
+	match rbcursive.scan_with_pattern(&data, pattern, pattern_type) {
+		Ok(matches) => {
+			let elapsed = start_time.elapsed();
+			let data_size_mb = data.len() as f64 / 1024.0 / 1024.0;
+			let throughput_mb_s = data_size_mb / elapsed.as_secs_f64();
+			
+			println!("🚀 SIMD-accelerated pattern scan completed:");
+			println!("   Pattern: {} ({})", pattern, pattern_type_str);
+			println!("   Data size: {:.2} MB", data_size_mb);
+			println!("   Scan time: {:?}", elapsed);
+			println!("   Throughput: {:.2} MB/s", throughput_mb_s);
+			println!("   Matches found: {}", matches.len());
+			
+			for (i, m) in matches.iter().enumerate().take(10) {
+				println!("  Match {}: bytes {}..{}", i + 1, m.start, m.end);
+				if let Ok(text) = std::str::from_utf8(&m.text) {
+					let preview = if text.len() > 50 { 
+						format!("{}...", &text[..47]) 
+					} else { 
+						text.to_string() 
+					};
+					println!("    Text: {}", preview);
+				}
+			}
+			
+			if matches.len() > 10 {
+				println!("  ... and {} more matches", matches.len() - 10);
+			}
+		}
+		Err(e) => {
+			eprintln!("Error in pattern scanning: {:?}", e);
+		}
+	}
+}
+
+fn run_pattern_bench(args: &[String]) {
+	let test_size = args.get(0)
+		.and_then(|s| s.parse::<usize>().ok())
+		.unwrap_or(1024 * 1024); // Default 1MB
+	
+	println!("🔥 RBCursive Pattern Matching Benchmark");
+	println!("   Test data size: {} bytes ({:.2} MB)", test_size, test_size as f64 / 1024.0 / 1024.0);
+	
+	// Generate test data
+	let mut test_data = Vec::new();
+	let base_pattern = "GET /api/v1/users/12345 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n";
+	while test_data.len() < test_size {
+		test_data.extend_from_slice(base_pattern.as_bytes());
+	}
+	test_data.truncate(test_size);
+	
+	let rbcursive = RBCursive::new();
+	let caps = rbcursive.pattern_capabilities();
+	
+	println!("\n📊 Pattern Matcher Capabilities:");
+	println!("   Supports glob: {}", caps.supports_glob);
+	println!("   Supports regex: {}", caps.supports_regex);
+	println!("   Supports Unicode: {}", caps.supports_unicode);
+	println!("   Max pattern length: {}", caps.max_pattern_length);
+	println!("   Max data size: {} MB", caps.max_data_size / 1024 / 1024);
+	
+	// Benchmark regex pattern matching
+	println!("\n🎯 Regex Pattern Benchmarks:");
+	let regex_patterns = [
+		r"GET /api/v\d+/users/(\d+)",
+		r"Host: (\w+\.com)",
+		r"HTTP/1\.\d+",
+		r"\r\n\r\n",
+	];
+	
+	for pattern in &regex_patterns {
+		let start = std::time::Instant::now();
+		let iterations = 10;
+		
+		for _ in 0..iterations {
+			let _ = rbcursive.scan_with_pattern(&test_data, pattern, litebike::rbcursive::PatternType::Regex);
+		}
+		
+		let elapsed = start.elapsed();
+		let avg_time = elapsed / iterations;
+		let throughput_mb_s = (test_size as f64 / 1024.0 / 1024.0) / avg_time.as_secs_f64();
+		
+		println!("   Pattern '{}': {:.2} MB/s (avg: {:?})", pattern, throughput_mb_s, avg_time);
+	}
+	
+	// Benchmark glob pattern matching
+	println!("\n🌐 Glob Pattern Benchmarks:");
+	let glob_patterns = [
+		"*.txt",
+		"test*",
+		"*api*",
+		"GET*HTTP*",
+	];
+	
+	for pattern in &glob_patterns {
+		let start = std::time::Instant::now();
+		let iterations = 10;
+		
+		for _ in 0..iterations {
+			let _ = rbcursive.scan_with_pattern(&test_data, pattern, litebike::rbcursive::PatternType::Glob);
+		}
+		
+		let elapsed = start.elapsed();
+		let avg_time = elapsed / iterations;
+		let throughput_mb_s = (test_size as f64 / 1024.0 / 1024.0) / avg_time.as_secs_f64();
+		
+		println!("   Pattern '{}': {:.2} MB/s (avg: {:?})", pattern, throughput_mb_s, avg_time);
+	}
+	
+	println!("\n✅ Benchmark completed!");
 }

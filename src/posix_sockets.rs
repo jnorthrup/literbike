@@ -2,7 +2,7 @@
 // Bypasses /proc filesystem restrictions by using direct syscalls
 
 
-use libc::{recv, MSG_PEEK, c_int, c_void, size_t, ssize_t};
+use libc::{recv, MSG_PEEK, c_void, size_t};
 
 use nix::sys::socket::{getsockopt, sockopt};
 

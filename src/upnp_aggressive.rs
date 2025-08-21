@@ -3,7 +3,6 @@
 
 use std::net::{UdpSocket, TcpStream, SocketAddr};
 use std::time::Duration;
-use std::thread;
 use std::io::{Write, Read};
 
 use tokio::stream;

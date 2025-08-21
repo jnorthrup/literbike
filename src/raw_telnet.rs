@@ -47,7 +47,7 @@ impl RawTelnet {
         let addr = self.resolve_target()?;
         
         // Attempt connection with carrier bypass techniques
-        let mut stream = if self.carrier_bypass {
+        let stream = if self.carrier_bypass {
             self.connect_with_bypass(&addr)?
         } else {
             TcpStream::connect_timeout(&addr, self.timeout)

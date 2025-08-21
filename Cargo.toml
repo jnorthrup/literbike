@@ -71,6 +71,8 @@ idna_adapter = "1.2.1"
 idna = "1.0.3"
 url = "2.5.4"
 rand = "0.8"
+regex = "1.10"
+glob = "0.3"
 
 [build-dependencies]
 cc = "1.0"
