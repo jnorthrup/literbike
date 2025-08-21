@@ -1,8 +1,7 @@
 // LITEBIKE Tethering Detection Bypass Systems
 // Circumvent carrier tethering restrictions and TTL detection
 
-use std::collections::HashMap;
-use std::net::{UdpSocket, Ipv4Addr};
+use std::net::UdpSocket;
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 

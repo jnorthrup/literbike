@@ -1,7 +1,6 @@
 // TCP Fingerprint Mitigation for Knox Bypass
 // Mimics mobile device TCP characteristics to evade carrier detection
 
-use std::collections::HashMap;
 use std::net::TcpStream;
 use std::os::fd::AsRawFd;
 use std::time::{SystemTime, UNIX_EPOCH};

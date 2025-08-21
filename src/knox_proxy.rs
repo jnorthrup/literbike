@@ -4,14 +4,11 @@
 use std::io;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use log::{info, warn, error, debug};
 
 use crate::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
-use crate::universal_listener::{Protocol, detect_protocol_posix, PrefixedStream};
-use crate::posix_sockets::{posix_peek, PosixTcpStream};
-use crate::tcp_fingerprint::{TcpFingerprintManager, MobileProfile};
-use crate::tls_fingerprint::{TlsFingerprintManager, MobileBrowserProfile};
+use crate::universal_listener::{Protocol, detect_protocol_posix};
 
 /// Knox proxy configuration
 pub struct KnoxProxyConfig {
@@ -133,7 +130,7 @@ impl KnoxProxy {
             // Fallback to regular detection
             let mut buffer = vec![0u8; 512];
             let n = {
-                let mut stream_ref = &mut stream;
+                let stream_ref = &mut stream;
                 stream_ref.read(&mut buffer).await?
             };
             
