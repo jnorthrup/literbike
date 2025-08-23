@@ -7,8 +7,8 @@ use tokio::time::{timeout, Duration};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use litebike::protocol_registry::ProtocolRegistry;
-use litebike::protocol_handlers::{
+use literbike::protocol_registry::ProtocolRegistry;
+use literbike::protocol_handlers::{
     HttpDetector, HttpHandler, Socks5Detector, Socks5Handler,
     TlsDetector, TlsHandler, DohDetector, DohHandler
 };

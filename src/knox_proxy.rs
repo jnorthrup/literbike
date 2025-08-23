@@ -7,7 +7,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use log::{info, warn, error, debug};
 
-use crate::tethering_bypass::{TetheringBypass, enable_carrier_bypass};
+use crate::tethering_bypass::TetheringBypass;
 use crate::universal_listener::{Protocol, detect_protocol_posix};
 
 /// Knox proxy configuration
@@ -224,8 +224,8 @@ impl KnoxProxy {
             // Regular HTTP proxy
             debug!("HTTP {} to {}", method, target);
             
-            // Parse target URL
-            let url = if target.starts_with("http://") {
+            // Parse target URL (unused variable intentionally suppressed to avoid warnings)
+            let _url = if target.starts_with("http://") {
                 target.to_string()
             } else if !target.starts_with("/") {
                 format!("http://{}", target)
@@ -268,7 +268,7 @@ impl KnoxProxy {
         }
         
         // Parse target address
-        let (target_addr, addr_len) = match buffer[3] {
+    let (target_addr, _addr_len) = match buffer[3] {
             0x01 => {
                 // IPv4
                 if n < 10 {
@@ -355,6 +355,45 @@ impl KnoxProxy {
         println!("   curl -x http://{} http://httpbin.org/ip", self.config.bind_addr);
         println!("   curl --socks5 127.0.0.1:{} http://httpbin.org/ip", self.config.socks_port);
         println!("");
+    }
+}
+
+/// Parse a SOCKS5 connect request buffer and return the target address as "host:port".
+pub fn parse_socks5_target(buf: &[u8], n: usize) -> io::Result<String> {
+    // Minimal validation
+    if n < 4 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Buffer too short"));
+    }
+
+    match buf[3] {
+        0x01 => {
+            // IPv4 (4 bytes addr + 2 bytes port)
+            if n < 10 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid IPv4 address length"));
+            }
+            let ip = format!("{}.{}.{}.{}", buf[4], buf[5], buf[6], buf[7]);
+            let port = u16::from_be_bytes([buf[8], buf[9]]);
+            Ok(format!("{}:{}", ip, port))
+        }
+        0x03 => {
+            // Domain name: next byte is length
+            if n < 5 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid domain header"));
+            }
+            let domain_len = buf[4] as usize;
+            let expected = 5 + domain_len + 2; // domain + port
+            if n < expected {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid domain length"));
+            }
+            let domain = match std::str::from_utf8(&buf[5..5 + domain_len]) {
+                Ok(s) => s.to_string(),
+                Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid domain utf8")),
+            };
+            let port_idx = 5 + domain_len;
+            let port = u16::from_be_bytes([buf[port_idx], buf[port_idx + 1]]);
+            Ok(format!("{}:{}", domain, port))
+        }
+        _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported address type")),
     }
 }
 

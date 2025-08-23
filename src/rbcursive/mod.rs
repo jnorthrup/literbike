@@ -12,6 +12,7 @@ pub mod protocols;
 pub mod continuation;
 pub mod scanner;
 pub mod patterns;
+pub mod tunnel_config;
 // pub mod micro_protocol_template;
 
 pub use simd::*;
@@ -20,6 +21,7 @@ pub use protocols::*;
 pub use continuation::*;
 pub use scanner::*;
 pub use patterns::*;
+pub use tunnel_config::*;
 
 // Remove unused import
 

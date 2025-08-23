@@ -1,7 +1,6 @@
 /// Configure SSH ProxyCommand for ~/.ssh/config
 pub fn configure_ssh_proxy_command(host: &str, socks_port: u16) -> std::io::Result<()> {
     use std::fs::{OpenOptions, create_dir_all};
-    use std::path::Path;
     let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
     let ssh_dir = format!("{}/.ssh", home);
     create_dir_all(&ssh_dir)?;
@@ -97,7 +96,7 @@ pub fn beastmode_install(host: &str, user: &str, port: u16, script_path: &str) {
     println!("[BEASTMODE] Aggressive install and troubleshooting complete.");
 }
 pub fn ssh_diagnostics(host: &str, user: &str, port: u16) {
-    let ssh_cmd = format!("ssh -p {} {}@{} echo OK", port, user, host);
+    let _ssh_cmd = format!("ssh -p {} {}@{} echo OK", port, user, host);
     let status = Command::new("ssh")
         .arg("-p").arg(port.to_string())
         .arg(format!("{}@{}", user, host))

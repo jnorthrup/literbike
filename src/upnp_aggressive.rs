@@ -5,7 +5,7 @@ use std::net::{UdpSocket, TcpStream, SocketAddr};
 use std::time::Duration;
 use std::io::{Write, Read};
 
-use tokio::stream;
+// tokio::stream removed — not used in this module
 
 /// Aggressive UPnP controller for carrier bypass
 pub struct AggressiveUPnP {

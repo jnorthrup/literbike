@@ -1,4 +1,4 @@
-use crate::protocol::{ProtocolDetector, TrafficMirror};
+use crate::traffic_mirror::TrafficMirror;
 use std::net::{SocketAddr, TcpStream};
 
 /// Knox-Resistant Tunnel Configuration
@@ -17,10 +17,10 @@ pub struct KnoxResistantTunnel {
 #[derive(Clone)]
 pub struct PortHoppingConfig {
     /// Primary ports for HTX traffic
-    primary_ports: Vec<u16>,
+    pub primary_ports: Vec<u16>,
     
     /// Fallback ports for traffic redirection
-    fallback_ports: Vec<u16>,
+    pub fallback_ports: Vec<u16>,
     
     /// Adaptive port selection algorithm
     selection_strategy: PortSelectionStrategy,
@@ -79,9 +79,27 @@ impl PortHoppingConfig {
     
     /// Adaptive port selection
     pub fn select_port(&self) -> u16 {
-        // Implement weighted random port selection
-        // with preference for less-monitored ports
-        unimplemented!("Adaptive port selection")
+        use rand::Rng;
+
+        let mut rng = rand::thread_rng();
+
+        // Simple weighted selection: 70% chance choose from primary_ports,
+        // 30% chance choose from fallback_ports. If chosen list is empty,
+        // fall back to the other list.
+        let pick_primary = rng.gen_bool(0.7);
+
+        if pick_primary && !self.primary_ports.is_empty() {
+            let idx = rng.gen_range(0..self.primary_ports.len());
+            return self.primary_ports[idx];
+        }
+
+        if !self.fallback_ports.is_empty() {
+            let idx = rng.gen_range(0..self.fallback_ports.len());
+            return self.fallback_ports[idx];
+        }
+
+        // Last resort: return first primary or 443
+        self.primary_ports.get(0).cloned().unwrap_or(443)
     }
 }
 
