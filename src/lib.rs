@@ -20,6 +20,9 @@ pub mod ssh_tools;
 pub mod tls_fingerprint;
 pub mod universal_listener;
 pub mod packet_fragment;
+pub mod protocol_registry;
+pub mod traffic_mirror;
+pub mod couchdb;
 
 #[cfg(test)]
 mod tests {

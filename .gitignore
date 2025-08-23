@@ -1,4 +1,30 @@
-# Rust
+# Ignore Rust/Cargo build artifacts
+/target/
+**/target/
+
+# Editor directories and OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Temp and backup files
+*.tmp
+*.temp
+*.swp
+*~
+
+# Logs
+*.log
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+
+# Misc
+/tmp/
+/.cache/# Rust
 target/
 Cargo.lock
 *.rs.bk

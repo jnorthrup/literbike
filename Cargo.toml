@@ -28,62 +28,20 @@ percent-encoding = "2.3.1"
 nix = { version = "0.27", features = ["socket"] }
 env_logger = "0.10"
 lock_api = "0.4.13"
-walkdir = "2.5.0"
-form_urlencoded = "1.2.1"
-log = "0.4.27"
-itoa = "1.0.15"
-pin-project-lite = "0.2.16"
-bitflags = "2.9.1"
-memchr = "2.7.5"
-ryu = "1.0.20"
-bytes = "1.10.1"
-quote = "1.0.40"
-syn = { version = "2.0.104", features = ["full"] }
-crossbeam-channel = "0.5.15"
-socket2 = "0.6.0"
-signal-hook-registry = "1.4.6"
-fsevent-sys = "4.1.0"
-mio = "1.0.4"
-filetime = "0.2.25"
-notify = "6.1.1"
-parking_lot = "0.12.4"
-synstructure = "0.13.2"
-zerovec-derive = "0.11.1"
-displaydoc = "0.2.5"
-serde_derive = "1.0.219"
-tokio-macros = "2.5.0"
-async-trait = "0.1.88"
-zerofrom-derive = "0.1.6"
-yoke-derive = "0.8.0"
-tokio = { version = "1.47.1", features = ["full"] }
-zerofrom = "0.1.6"
-yoke = "0.8.0"
-zerovec = "0.11.4"
-zerotrie = "0.2.2"
-tinystr = "0.8.1"
-potential_utf = "0.1.2"
-icu_collections = "2.0.0"
-icu_locale_core = "2.0.0"
-icu_provider = "2.0.0"
-icu_normalizer = "2.0.0"
-icu_properties = "2.0.1"
-idna_adapter = "1.2.1"
-idna = "1.0.3"
-url = "2.5.4"
-rand = "0.8"
-regex = "1.10"
-glob = "0.3"
-
-[build-dependencies]
-cc = "1.0"
-
-[profile.release]
-lto = true
-codegen-units = 1
-strip = true
-
-[dev-dependencies]
-base64 = "0.22.1"
-env_logger = "0.11.8"
-rand = "0.8"
-tokio-test = "0.4.4"
+tokio = { version = "1.41", features = ["full"] }
+warp = "0.3"
+notify = "6.1"
+git2 = "0.18"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6.1"
+bytes = "1.0"
+futures = "0.3"
+mime = "0.3"
+base64 = "0.22"
+regex = "1.0"
+[workspace]
+members = [
+	"tools/selfhosted",
+	"tools/config_tester",
+]

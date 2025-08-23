@@ -1,7 +1,7 @@
 use std::env;
 use std::net::IpAddr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub bind_addr: IpAddr,
     pub bind_port: u16,
@@ -74,14 +74,35 @@ impl Config {
 
         cfg
     }
+}
 
-    pub fn apply_env_side_effects(&self) {
-        // Keep current handlers compatible by exporting EGRESS_* if provided via config.
-        if let Some(ref iface) = self.egress_interface {
-            env::set_var("EGRESS_INTERFACE", iface);
+#[cfg(test)]
+mod tests {
+    use super::Config;
+    use std::env;
+
+    #[test]
+    fn from_env_applies_bind_addr_and_interface_independently() {
+        let orig_interface = env::var("LITEBIKE_INTERFACE").ok();
+        let orig_bind_addr = env::var("LITEBIKE_BIND_ADDR").ok();
+
+        env::set_var("LITEBIKE_INTERFACE", "eth0");
+        env::set_var("LITEBIKE_BIND_ADDR", "127.0.0.2");
+
+        let cfg = Config::from_env();
+
+        assert_eq!(cfg.interface, "eth0");
+        assert_eq!(cfg.bind_addr.to_string(), "127.0.0.2");
+
+        if let Some(v) = orig_interface {
+            env::set_var("LITEBIKE_INTERFACE", v);
+        } else {
+            env::remove_var("LITEBIKE_INTERFACE");
         }
-        if let Some(ip) = self.egress_bind_ip {
-            env::set_var("EGRESS_BIND_IP", ip.to_string());
+        if let Some(v) = orig_bind_addr {
+            env::set_var("LITEBIKE_BIND_ADDR", v);
+        } else {
+            env::remove_var("LITEBIKE_BIND_ADDR");
         }
     }
 }

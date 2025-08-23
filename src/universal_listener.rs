@@ -6,6 +6,9 @@ use log::{debug, info};
 
 use crate::posix_sockets::posix_peek;
 
+// Re-export protocol trait so tests can reference it from this module
+pub use crate::protocol_registry::ProtocolDetector;
+
 /// Protocol detection result
 #[derive(Debug)]
 pub enum Protocol {

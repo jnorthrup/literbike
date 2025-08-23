@@ -811,6 +811,28 @@ pub fn socket_close(fd: RawFd) -> io::Result<()> {
     }
 }
 
+/// Returns the local socket address (IPv4) for a bound socket file descriptor.
+pub fn socket_local_addr(fd: RawFd) -> io::Result<SocketAddrV4> {
+    let mut sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+
+    let ret = unsafe {
+        libc::getsockname(
+            fd,
+            &mut sockaddr as *mut _ as *mut libc::sockaddr,
+            &mut len,
+        )
+    };
+
+    if ret == -1 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let ip = Ipv4Addr::from(u32::from_be(sockaddr.sin_addr.s_addr));
+    let port = u16::from_be(sockaddr.sin_port);
+    Ok(SocketAddrV4::new(ip, port))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -838,15 +860,24 @@ mod tests {
         use std::net::Ipv4Addr;
         use std::thread;
         use std::time::Duration;
+        // Bind to port 0 to avoid collisions; the OS will assign an available port.
+        use std::sync::mpsc::channel;
 
-        let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080);
+        let (tx, rx) = channel();
 
         // Server side
         let server_thread = thread::spawn(move || {
             let listener_fd = socket_create(libc::AF_INET, libc::SOCK_STREAM, 0)
                 .expect("Failed to create listener socket");
-            socket_bind(listener_fd, &addr).expect("Failed to bind listener socket");
+
+            // Bind to 127.0.0.1:0 so the OS chooses a free port
+            let bind_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0);
+            socket_bind(listener_fd, &bind_addr).expect("Failed to bind listener socket");
             socket_listen(listener_fd, 1).expect("Failed to listen on socket");
+
+            // Get the actual port assigned and send it to the client
+            let actual = socket_local_addr(listener_fd).expect("Failed to get local addr");
+            tx.send(actual.port()).expect("Failed to send port to client");
 
             let (conn_fd, peer_addr) = socket_accept(listener_fd)
                 .expect("Failed to accept connection");
@@ -865,13 +896,14 @@ mod tests {
             socket_close(listener_fd).expect("Failed to close listener socket");
         });
 
-        // Give server a moment to start listening
-        thread::sleep(Duration::from_millis(100));
+        // Receive the assigned port from the server
+        let assigned_port = rx.recv().expect("Failed to receive assigned port from server");
 
         // Client side
         let client_fd = socket_create(libc::AF_INET, libc::SOCK_STREAM, 0)
             .expect("Failed to create client socket");
-        socket_connect(client_fd, &addr).expect("Failed to connect client socket");
+        let client_addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), assigned_port);
+        socket_connect(client_fd, &client_addr).expect("Failed to connect client socket");
 
         let message = b"Hello from client!";
         socket_write(client_fd, message).expect("Failed to write to socket");

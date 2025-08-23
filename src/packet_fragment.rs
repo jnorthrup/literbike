@@ -204,6 +204,25 @@ impl PacketFragmenter {
             remaining = &remaining[chunk_size..];
             sequence = sequence.wrapping_add(1);
         }
+
+        // Merge any fragments that are smaller than the configured minimum
+        // into the previous fragment. This avoids very small tail fragments
+        // (important for Conservative patterns where min_fragment_size is large).
+        if fragments.len() > 1 {
+            let min_size = self.config.min_fragment_size;
+            let mut i = fragments.len();
+            while i > 0 {
+                i -= 1;
+                if fragments[i].data.len() < min_size && i > 0 {
+                    // Merge into previous fragment
+                    let tail = fragments.remove(i);
+                    let prev = &mut fragments[i - 1];
+                    prev.data.extend_from_slice(&tail.data);
+                    // Preserve is_last flag from tail
+                    prev.is_last = tail.is_last;
+                }
+            }
+        }
         
         // Randomize order if configured
         if self.config.randomize_order && fragments.len() > 2 {
