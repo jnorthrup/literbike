@@ -1,26 +1,47 @@
 [package]
-name = "litebike-proxy"
+name = "literbike"
 version = "0.1.0"
 edition = "2021"
-authors = ["jnorthrup"]
-description = "Lightweight proxy server with HTTP/HTTPS and SOCKS5 support for Termux"
-repository = "https://github.com/jnorthrup/litebike"
-license = "MIT"
-readme = "README.md"
 
-[[bin]]
-name = "litebike-proxy"
-path = "src/main.rs"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libc = "0.2"
-
-[profile.release]
-lto = true
-opt-level = 3
-codegen-units = 1
-strip = true
-panic = "abort"
-
-# No tokio, no async, no frameworks
-# Just raw speed
+proc-macro2 = "1.0.95"
+unicode-ident = "1.0.18"
+stable_deref_trait = "1.2.0"
+libc = "0.2.174"
+writeable = "0.6.1"
+smallvec = "1.15.1"
+litemap = "0.8.0"
+icu_properties_data = "2.0.1"
+icu_normalizer_data = "2.0.0"
+cfg-if = "1.0.1"
+autocfg = "1.5"
+parking_lot_core = "0.9.11"
+crossbeam-utils = "0.8.21"
+scopeguard = "1.2.0"
+serde = { version = "1.0.219", features = ["derive"] }
+same-file = "1.0.6"
+utf8_iter = "1.0.4"
+serde_json = "1.0.142"
+percent-encoding = "2.3.1"
+nix = { version = "0.27", features = ["socket"] }
+env_logger = "0.10"
+lock_api = "0.4.13"
+tokio = { version = "1.41", features = ["full"] }
+warp = "0.3"
+notify = "6.1"
+git2 = "0.19"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6.1"
+bytes = "1.0"
+futures = "0.3"
+mime = "0.3"
+base64 = "0.22"
+regex = "1.0"
+[workspace]
+members = [
+	"tools/selfhosted",
+	"tools/config_tester",
+]
