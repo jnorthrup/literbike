@@ -1,3 +1,21 @@
 pub mod quic_protocol;
+pub mod quic_engine;
+pub mod quic_error;
+pub mod quic_server;
+pub mod quic_failure_log;
+pub mod quic_bedrock;
+pub mod quic_densified;
+pub mod chrome_quic;
+pub mod quic_config;
+pub mod quic_congruence;
+pub mod quic_stream;
+pub mod quic_session_cache;
+pub mod quic_request_factory;
+pub mod quic_ccek;
+pub mod quic_ccek_types;
+pub mod quic_wam;
 
-pub use quic_protocol::encode_varint;
+pub use quic_protocol::{encode_varint, QuicProtocol, QuicPacket, QuicHeader, QuicFrame, QuicPacketType};
+pub use quic_engine::QuicEngine;
+pub use quic_error::QuicError;
+pub use quic_server::QuicServer;
