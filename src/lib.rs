@@ -20,6 +20,9 @@ pub mod syscall_net;
 // Structured concurrency (Kotlin coroutines pattern)
 pub mod concurrency;
 
+// Betanet patterns (ported from Kotlin MPP)
+pub mod betanet_patterns;
+
 #[cfg(feature = "git2")]
 pub mod git_sync;
 

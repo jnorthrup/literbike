@@ -29,6 +29,9 @@ futures = "0.3"
 tokio-stream = "0.1"
 async-stream = "0.3"
 async-channel = "2.5"
+sha2 = "0.10"
+num-bigint = "0.4"
+data-encoding = "2.4"
 dashmap = "6.1"
 
 # Time/UUID
@@ -99,3 +102,4 @@ required-features = ["couchdb"]
 [[bin]]
 name = "litebike"
 required-features = ["warp", "git2"]
+rand = "0.8"  # For betanet_patterns
