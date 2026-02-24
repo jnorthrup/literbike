@@ -17,6 +17,9 @@ pub mod reactor;
 pub mod rbcursive;
 pub mod syscall_net;
 
+// Structured concurrency (Kotlin coroutines pattern)
+pub mod concurrency;
+
 #[cfg(feature = "git2")]
 pub mod git_sync;
 
@@ -65,7 +68,8 @@ pub mod protocol_registry;
 #[cfg(feature = "quic")]
 pub mod traffic_mirror;
 
-#[cfg(feature = "tensor")]
+// WAM engine requires tensor feature
+#[cfg(all(feature = "quic", feature = "tensor"))]
 pub mod wam_engine;
 
 #[cfg(test)]

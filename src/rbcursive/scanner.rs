@@ -7,22 +7,22 @@
 pub trait SimdScanner: Send + Sync {
     /// Scan for all occurrences of a single byte
     fn scan_bytes(&self, data: &[u8], targets: &[u8]) -> Vec<usize>;
-    
+
     /// Scan for structural characters (JSON/HTTP delimiters)
     fn scan_structural(&self, data: &[u8]) -> Vec<usize>;
-    
+
     /// Scan for quote characters
     fn scan_quotes(&self, data: &[u8]) -> Vec<usize>;
-    
+
     /// Scan for any of multiple target bytes
     fn scan_any_byte(&self, data: &[u8], targets: &[u8]) -> Vec<usize>;
-    
+
     /// Gather bytes at specific positions (SIMD gather operation)
     fn gather_bytes(&self, data: &[u8], positions: &[usize]) -> Vec<u8>;
-    
+
     /// Population count (count set bits in bitmap)
     fn popcount(&self, bitmap: &[u32]) -> u32;
-    
+
     /// Get scanner capabilities
     fn capabilities(&self) -> ScannerCapabilities;
 }
@@ -49,7 +49,7 @@ impl ScalarScanner {
 impl SimdScanner for ScalarScanner {
     fn scan_bytes(&self, data: &[u8], targets: &[u8]) -> Vec<usize> {
         let mut positions = Vec::new();
-        
+
         if targets.len() == 1 {
             let target = targets[0];
             for (i, &byte) in data.iter().enumerate() {
@@ -64,35 +64,36 @@ impl SimdScanner for ScalarScanner {
                 }
             }
         }
-        
+
         positions
     }
-    
+
     fn scan_structural(&self, data: &[u8]) -> Vec<usize> {
         // JSON/HTTP structural characters: {}[](),:;"<space><tab><cr><lf>
         const STRUCTURAL: &[u8] = b"{}[](),:;\" \t\r\n";
         self.scan_bytes(data, STRUCTURAL)
     }
-    
+
     fn scan_quotes(&self, data: &[u8]) -> Vec<usize> {
         self.scan_bytes(data, &[b'"'])
     }
-    
+
     fn scan_any_byte(&self, data: &[u8], targets: &[u8]) -> Vec<usize> {
         self.scan_bytes(data, targets)
     }
-    
+
     fn gather_bytes(&self, data: &[u8], positions: &[usize]) -> Vec<u8> {
-        positions.iter()
+        positions
+            .iter()
             .filter_map(|&pos| data.get(pos))
             .copied()
             .collect()
     }
-    
+
     fn popcount(&self, bitmap: &[u32]) -> u32 {
         bitmap.iter().map(|x| x.count_ones()).sum()
     }
-    
+
     fn capabilities(&self) -> ScannerCapabilities {
         ScannerCapabilities {
             name: "Scalar",
@@ -116,7 +117,7 @@ impl AutovecScanner {
 impl SimdScanner for AutovecScanner {
     fn scan_bytes(&self, data: &[u8], targets: &[u8]) -> Vec<usize> {
         let mut positions = Vec::new();
-        
+
         if targets.len() == 1 {
             let target = targets[0];
             // Compiler should auto-vectorize this loop
@@ -131,59 +132,60 @@ impl SimdScanner for AutovecScanner {
             for &target in targets {
                 lookup[target as usize] = true;
             }
-            
+
             for (i, &byte) in data.iter().enumerate() {
                 if lookup[byte as usize] {
                     positions.push(i);
                 }
             }
         }
-        
+
         positions
     }
-    
+
     fn scan_structural(&self, data: &[u8]) -> Vec<usize> {
         // Use lookup table for better auto-vectorization
         let mut is_structural = [false; 256];
         for &ch in b"{}[](),:;\" \t\r\n" {
             is_structural[ch as usize] = true;
         }
-        
+
         let mut positions = Vec::new();
         for (i, &byte) in data.iter().enumerate() {
             if is_structural[byte as usize] {
                 positions.push(i);
             }
         }
-        
+
         positions
     }
-    
+
     fn scan_quotes(&self, data: &[u8]) -> Vec<usize> {
         self.scan_bytes(data, &[b'"'])
     }
-    
+
     fn scan_any_byte(&self, data: &[u8], targets: &[u8]) -> Vec<usize> {
         self.scan_bytes(data, targets)
     }
-    
+
     fn gather_bytes(&self, data: &[u8], positions: &[usize]) -> Vec<u8> {
         // Auto-vectorizable gather
-        positions.iter()
+        positions
+            .iter()
             .filter_map(|&pos| data.get(pos))
             .copied()
             .collect()
     }
-    
+
     fn popcount(&self, bitmap: &[u32]) -> u32 {
         // Should auto-vectorize with SIMD popcount instructions
         bitmap.iter().map(|x| x.count_ones()).sum()
     }
-    
+
     fn capabilities(&self) -> ScannerCapabilities {
         ScannerCapabilities {
             name: "Autovec",
-            vector_bits: 128, // Assume 128-bit vectors
+            vector_bits: 128,               // Assume 128-bit vectors
             estimated_throughput_gbps: 0.5, // ~500 MB/s with good auto-vectorization
             supports_gather: true,
             supports_popcount: true,
@@ -204,17 +206,18 @@ impl ScannerBenchmark {
             data_size_mb: data.len() as f64 / 1024.0 / 1024.0,
         }
     }
-    
+
     pub fn benchmark_structural_scan(&self, data: &[u8], iterations: usize) -> BenchmarkResult {
         let start = std::time::Instant::now();
-        
+
         for _ in 0..iterations {
             let _positions = self.scanner.scan_structural(data);
         }
-        
+
         let elapsed = start.elapsed();
-        let throughput_gbps = (self.data_size_mb * iterations as f64) / elapsed.as_secs_f64() / 1024.0;
-        
+        let throughput_gbps =
+            (self.data_size_mb * iterations as f64) / elapsed.as_secs_f64() / 1024.0;
+
         BenchmarkResult {
             operation: "Structural Scan".to_string(),
             iterations,
@@ -223,17 +226,18 @@ impl ScannerBenchmark {
             capabilities: self.scanner.capabilities(),
         }
     }
-    
+
     pub fn benchmark_quote_scan(&self, data: &[u8], iterations: usize) -> BenchmarkResult {
         let start = std::time::Instant::now();
-        
+
         for _ in 0..iterations {
             let _positions = self.scanner.scan_quotes(data);
         }
-        
+
         let elapsed = start.elapsed();
-        let throughput_gbps = (self.data_size_mb * iterations as f64) / elapsed.as_secs_f64() / 1024.0;
-        
+        let throughput_gbps =
+            (self.data_size_mb * iterations as f64) / elapsed.as_secs_f64() / 1024.0;
+
         BenchmarkResult {
             operation: "Quote Scan".to_string(),
             iterations,
@@ -261,7 +265,10 @@ impl BenchmarkResult {
         println!("Iterations: {}", self.iterations);
         println!("Elapsed: {:?}", self.elapsed);
         println!("Throughput: {:.2} GB/s", self.throughput_gbps);
-        println!("Estimated: {:.2} GB/s", self.capabilities.estimated_throughput_gbps);
+        println!(
+            "Estimated: {:.2} GB/s",
+            self.capabilities.estimated_throughput_gbps
+        );
         println!();
     }
 }
@@ -274,13 +281,13 @@ mod tests {
     fn test_scalar_scanner() {
         let scanner = ScalarScanner::new();
         let data = b"GET /test HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        
+
         let quotes = scanner.scan_quotes(data);
         assert_eq!(quotes.len(), 0); // No quotes in this data
-        
+
         let structural = scanner.scan_structural(data);
         assert!(structural.len() > 0); // Should find spaces, colons, etc.
-        
+
         let spaces = scanner.scan_bytes(data, &[b' ']);
         assert!(spaces.len() >= 2); // At least 2 spaces in HTTP request
     }
@@ -288,14 +295,15 @@ mod tests {
     #[test]
     fn test_autovec_scanner() {
         let scanner = AutovecScanner::new();
-        let data = b"POST /api HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"key\": \"value\"}";
-        
+        let data =
+            b"POST /api HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"key\": \"value\"}";
+
         let quotes = scanner.scan_quotes(data);
         assert!(quotes.len() >= 4); // At least 4 quotes in JSON
-        
+
         let structural = scanner.scan_structural(data);
         assert!(structural.len() > 0); // Should find various structural chars
-        
+
         let braces = scanner.scan_bytes(data, &[b'{', b'}']);
         assert_eq!(braces.len(), 2); // One opening, one closing brace
     }
@@ -305,7 +313,7 @@ mod tests {
         let scanner = ScalarScanner::new();
         let data = b"abcdefghij";
         let positions = vec![0, 2, 4, 6, 8];
-        
+
         let gathered = scanner.gather_bytes(data, &positions);
         assert_eq!(gathered, b"acegi");
     }
@@ -313,13 +321,15 @@ mod tests {
     #[test]
     fn test_benchmark() {
         let scanner = Box::new(ScalarScanner::new());
-    let mut data = Vec::new();
-    for _ in 0..1000 { data.extend_from_slice(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"); }
-    let data = data;
-        
+        let mut data = Vec::new();
+        for _ in 0..1000 {
+            data.extend_from_slice(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
+        }
+        let data = data;
+
         let benchmark = ScannerBenchmark::new(scanner, &data);
         let result = benchmark.benchmark_structural_scan(&data, 10);
-        
+
         result.print_summary();
         assert!(result.throughput_gbps > 0.0);
     }

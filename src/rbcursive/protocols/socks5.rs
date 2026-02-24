@@ -1,12 +1,8 @@
 // SOCKS5 protocol parser using RBCursive combinators
 // Binary protocol parsing with precise byte handling
 
-use crate::rbcursive::{
-    scanner::SimdScanner,
-    combinators::*,
-    simd::create_optimal_scanner,
-};
-use super::{Socks5Handshake, Socks5Connect, Socks5AuthMethod};
+use super::{Socks5AuthMethod, Socks5Connect, Socks5Handshake};
+use crate::rbcursive::{combinators::*, scanner::SimdScanner, simd::create_optimal_scanner};
 
 /// SOCKS5 protocol parser
 pub struct Socks5Parser {
@@ -19,25 +15,25 @@ impl Socks5Parser {
             _scanner: create_optimal_scanner(),
         }
     }
-    
+
     /// Parse SOCKS5 handshake request
-    pub fn parse_handshake<'a>(&self, input: &'a [u8]) -> ParseResult< Socks5Handshake, ParseError> {
+    pub fn parse_handshake<'a>(&self, input: &'a [u8]) -> ParseResult<Socks5Handshake, ParseError> {
         if input.len() < 3 {
             return ParseResult::Incomplete(input.len());
         }
-        
+
         // SOCKS5 version must be 0x05
         if input[0] != 0x05 {
             return ParseResult::Error(ParseError::InvalidProtocol, 0);
         }
-        
+
         let version = input[0];
         let method_count = input[1] as usize;
-        
+
         if input.len() < 2 + method_count {
             return ParseResult::Incomplete(input.len());
         }
-        
+
         let mut methods = Vec::with_capacity(method_count);
         for i in 0..method_count {
             let method_byte = input[2 + i];
@@ -53,29 +49,26 @@ impl Socks5Parser {
             };
             methods.push(method);
         }
-        
-        ParseResult::Complete(
-            Socks5Handshake { version, methods },
-            2 + method_count
-        )
+
+        ParseResult::Complete(Socks5Handshake { version, methods }, 2 + method_count)
     }
-    
+
     /// Parse SOCKS5 connect request
-    pub fn parse_connect<'a>(&self, input: &'a [u8]) -> ParseResult< Socks5Connect<'a>, ParseError> {
+    pub fn parse_connect<'a>(&self, input: &'a [u8]) -> ParseResult<Socks5Connect<'a>, ParseError> {
         if input.len() < 4 {
             return ParseResult::Incomplete(input.len());
         }
-        
+
         // Check SOCKS5 version
         if input[0] != 0x05 {
             return ParseResult::Error(ParseError::InvalidProtocol, 0);
         }
-        
+
         let version = input[0];
         let command = input[1];
         let _reserved = input[2]; // Should be 0x00, but we don't enforce
         let address_type = input[3];
-        
+
         let (address, address_len) = match address_type {
             0x01 => {
                 // IPv4 address (4 bytes)
@@ -106,17 +99,14 @@ impl Socks5Parser {
                 return ParseResult::Error(ParseError::InvalidInput, 3);
             }
         };
-        
+
         let port_offset = 4 + address_len;
         if input.len() < port_offset + 2 {
             return ParseResult::Incomplete(input.len());
         }
-        
-        let port = u16::from_be_bytes([
-            input[port_offset],
-            input[port_offset + 1]
-        ]);
-        
+
+        let port = u16::from_be_bytes([input[port_offset], input[port_offset + 1]]);
+
         ParseResult::Complete(
             Socks5Connect {
                 version,
@@ -125,50 +115,50 @@ impl Socks5Parser {
                 address,
                 port,
             },
-            port_offset + 2
+            port_offset + 2,
         )
     }
-    
+
     /// Detect if data looks like SOCKS5 protocol
     pub fn is_socks5(&self, input: &[u8]) -> bool {
         if input.len() < 3 {
             return false;
         }
-        
+
         // Check version byte
         if input[0] != 0x05 {
             return false;
         }
-        
+
         // Check method count is reasonable
         let method_count = input[1] as usize;
         if method_count == 0 || method_count > 255 {
             return false;
         }
-        
+
         // Check we have enough bytes for the methods
         if input.len() < 2 + method_count {
             return false;
         }
-        
+
         // Basic validation passed
         true
     }
-    
+
     /// Parse either handshake or connect request
-    pub fn parse_request<'a>(&self, input: &'a [u8]) -> ParseResult< Socks5Request<'a>, ParseError> {
+    pub fn parse_request<'a>(&self, input: &'a [u8]) -> ParseResult<Socks5Request<'a>, ParseError> {
         if input.len() < 3 {
             return ParseResult::Incomplete(input.len());
         }
-        
+
         if input[0] != 0x05 {
             return ParseResult::Error(ParseError::InvalidProtocol, 0);
         }
-        
+
         // Heuristic: if second byte is a small number (< 10), it's likely method count (handshake)
         // If it's 0x01 (CONNECT), it's likely a connect request
         let second_byte = input[1];
-        
+
         if second_byte == 0x01 && input.len() >= 4 && input[2] == 0x00 {
             // Looks like CONNECT request (cmd=0x01, reserved=0x00)
             match self.parse_connect(input) {
@@ -200,18 +190,17 @@ pub enum Socks5Request<'a> {
     Connect(Socks5Connect<'a>),
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_socks5_handshake_parsing() {
-    let parser = Socks5Parser::new();
-        
+        let parser = Socks5Parser::new();
+
         // SOCKS5 handshake: version=5, method_count=2, methods=[NoAuth, UserPass]
         let input = &[0x05, 0x02, 0x00, 0x02];
-        
+
         match parser.parse_handshake(input) {
             ParseResult::Complete(handshake, consumed) => {
                 assert_eq!(handshake.version, 0x05);
@@ -226,16 +215,16 @@ mod tests {
 
     #[test]
     fn test_socks5_connect_ipv4() {
-    let parser = Socks5Parser::new();
-        
+        let parser = Socks5Parser::new();
+
         // SOCKS5 connect: version=5, cmd=1(CONNECT), reserved=0, atyp=1(IPv4)
         // address=192.168.1.1, port=80
         let input = &[
-            0x05, 0x01, 0x00, 0x01,  // header
-            192, 168, 1, 1,           // IPv4 address
-            0x00, 0x50                // port 80
+            0x05, 0x01, 0x00, 0x01, // header
+            192, 168, 1, 1, // IPv4 address
+            0x00, 0x50, // port 80
         ];
-        
+
         match parser.parse_connect(input) {
             ParseResult::Complete(connect, consumed) => {
                 assert_eq!(connect.version, 0x05);
@@ -251,17 +240,20 @@ mod tests {
 
     #[test]
     fn test_socks5_connect_domain() {
-    let parser = Socks5Parser::new();
-        
+        let parser = Socks5Parser::new();
+
         // SOCKS5 connect with domain name "example.com"
         let domain = b"example.com";
         let mut input = vec![
-            0x05, 0x01, 0x00, 0x03,  // header with domain type
-            domain.len() as u8        // domain length
+            0x05,
+            0x01,
+            0x00,
+            0x03,               // header with domain type
+            domain.len() as u8, // domain length
         ];
         input.extend_from_slice(domain);
         input.extend_from_slice(&[0x01, 0xBB]); // port 443
-        
+
         match parser.parse_connect(&input) {
             ParseResult::Complete(connect, consumed) => {
                 assert_eq!(connect.version, 0x05);
@@ -277,20 +269,20 @@ mod tests {
 
     #[test]
     fn test_socks5_detection() {
-    let parser = Socks5Parser::new();
-        
+        let parser = Socks5Parser::new();
+
         // Valid SOCKS5 handshake
         let valid_socks5 = &[0x05, 0x01, 0x00];
         assert!(parser.is_socks5(valid_socks5));
-        
+
         // Invalid version
         let invalid_version = &[0x04, 0x01, 0x00];
         assert!(!parser.is_socks5(invalid_version));
-        
+
         // Invalid method count
         let invalid_methods = &[0x05, 0x00, 0x00];
         assert!(!parser.is_socks5(invalid_methods));
-        
+
         // Too short
         let too_short = &[0x05];
         assert!(!parser.is_socks5(too_short));
@@ -298,8 +290,8 @@ mod tests {
 
     #[test]
     fn test_socks5_incomplete() {
-    let parser = Socks5Parser::new();
-        
+        let parser = Socks5Parser::new();
+
         // Incomplete handshake
         let incomplete = &[0x05, 0x02]; // Missing method bytes
         match parser.parse_handshake(incomplete) {
@@ -308,7 +300,7 @@ mod tests {
             }
             other => panic!("Expected incomplete result, got {:?}", other),
         }
-        
+
         // Incomplete connect
         let incomplete_connect = &[0x05, 0x01, 0x00, 0x01, 192]; // Missing address bytes
         match parser.parse_connect(incomplete_connect) {
@@ -321,8 +313,8 @@ mod tests {
 
     #[test]
     fn test_socks5_request_parsing() {
-    let parser = Socks5Parser::new();
-        
+        let parser = Socks5Parser::new();
+
         // Test handshake detection
         let handshake_data = &[0x05, 0x01, 0x00];
         match parser.parse_request(handshake_data) {
@@ -331,12 +323,12 @@ mod tests {
             }
             other => panic!("Expected handshake request, got {:?}", other),
         }
-        
+
         // Test connect detection
         let connect_data = &[
-            0x05, 0x01, 0x00, 0x01,  // CONNECT to IPv4
-            127, 0, 0, 1,             // localhost
-            0x00, 0x50                // port 80
+            0x05, 0x01, 0x00, 0x01, // CONNECT to IPv4
+            127, 0, 0, 1, // localhost
+            0x00, 0x50, // port 80
         ];
         match parser.parse_request(connect_data) {
             ParseResult::Complete(Socks5Request::Connect(_), _) => {

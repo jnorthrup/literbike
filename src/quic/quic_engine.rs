@@ -1,14 +1,12 @@
-use super::quic_protocol::{*, serialize_packet};
+use super::quic_protocol::{*, serialize_packet, ConnectionState};
 use super::quic_error::*;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use rand::Rng;
-use tokio::net::UdpSocket; // Import UdpSocket
-use std::net::SocketAddr; // Import SocketAddr
+use tokio::net::UdpSocket;
+use std::net::SocketAddr;
 
 pub enum Role { Client, Server }
-
-// Use ConnectionState from quic_protocol
 
 pub struct QuicEngine {
     role: Role,
@@ -50,8 +48,8 @@ impl QuicEngine {
                     QuicFrame::Ack(ack_frame) => {
                         self.process_ack_frame(ack_frame, &mut state_guard);
                         // Transition to Connected state after receiving an ACK (simplified handshake)
-                        if state_guard.connection_state == crate::quic_protocol::ConnectionState::Handshaking {
-                            state_guard.connection_state = crate::quic_protocol::ConnectionState::Connected;
+                        if state_guard.connection_state == ConnectionState::Handshaking {
+                            state_guard.connection_state = ConnectionState::Connected;
                             tracing::info!("Connection state transitioned to Connected.");
                         }
                     },

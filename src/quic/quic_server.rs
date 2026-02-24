@@ -123,8 +123,9 @@ impl QuicServer {
                                         }
                                     },
                                     Err(e) => {
-                                        qfail::log_error("server","deserialize", &e, serde_json::json!({"remote": remote_addr, "len": len}));
-                                        tracing::error!("Failed to deserialize packet: {}", e);
+                                        let quic_err = QuicError::Protocol(e);
+                                        qfail::log_error("server","deserialize", &quic_err, serde_json::json!({"remote": remote_addr, "len": len}));
+                                        tracing::error!("Failed to deserialize packet");
                                     }
                                 }
                             }
@@ -135,8 +136,9 @@ impl QuicServer {
                         }
                     },
                     Err(e) => {
-                        qfail::log_error("server","recv_from", &e, serde_json::json!({}));
-                        tracing::error!("UDP socket receive error: {}", e);
+                        let quic_err = QuicError::Io(e);
+                        qfail::log_error("server","recv_from", &quic_err, serde_json::json!({}));
+                        tracing::error!("UDP socket receive error");
                     }
                 }
             }

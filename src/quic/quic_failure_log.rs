@@ -3,6 +3,7 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
+use super::quic_error::QuicError;
 
 #[derive(Serialize)]
 struct FailureEvent<'a> {
@@ -30,7 +31,7 @@ fn append_line(line: &str) {
     }
 }
 
-pub fn log_error(component: &'static str, category: &'static str, err: &dyn QuicError, context: serde_json::Value) {
+pub fn log_error(component: &'static str, category: &'static str, err: &QuicError, context: serde_json::Value) {
     let ev = FailureEvent {
         ts_ms: now_ms(),
         component,

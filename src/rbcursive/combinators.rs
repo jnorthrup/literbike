@@ -51,9 +51,9 @@ impl<T, E> ParseResult<T, E> {
     /// Get consumed bytes count
     pub fn consumed(&self) -> usize {
         match self {
-            Self::Complete(_, consumed)
-            | Self::Incomplete(consumed)
-            | Self::Error(_, consumed) => *consumed,
+            Self::Complete(_, consumed) | Self::Incomplete(consumed) | Self::Error(_, consumed) => {
+                *consumed
+            }
         }
     }
 
@@ -265,12 +265,10 @@ where
         match self.first.parse(input) {
             ParseResult::Complete(first_result, first_consumed) => {
                 match self.second.parse(&input[first_consumed..]) {
-                    ParseResult::Complete(second_result, second_consumed) => {
-                        ParseResult::Complete(
-                            (first_result, second_result),
-                            first_consumed + second_consumed,
-                        )
-                    }
+                    ParseResult::Complete(second_result, second_consumed) => ParseResult::Complete(
+                        (first_result, second_result),
+                        first_consumed + second_consumed,
+                    ),
                     ParseResult::Incomplete(consumed) => {
                         ParseResult::Incomplete(first_consumed + consumed)
                     }
@@ -322,7 +320,11 @@ pub struct MapParser<P, F, T> {
 
 impl<P, F, T> MapParser<P, F, T> {
     pub fn new(parser: P, mapper: F) -> Self {
-        Self { parser, mapper, _phantom: PhantomData }
+        Self {
+            parser,
+            mapper,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -345,15 +347,34 @@ where
 }
 
 /// Convenience functions for common parsers
-pub fn byte(target: u8) -> ByteParser { ByteParser::new(target) }
+pub fn byte(target: u8) -> ByteParser {
+    ByteParser::new(target)
+}
 /// Alias for byte() to emphasize character literal intent in protocol grammars
-pub fn chlit(target: u8) -> ByteParser { byte(target) }
-pub fn take(count: usize) -> TakeParser { TakeParser::new(count) }
-pub fn take_until<'s>(delimiter: u8, scanner: &'s dyn SimdScanner) -> TakeUntilParser<'s> { TakeUntilParser::new(delimiter, scanner) }
-pub fn take_while<F>(predicate: F) -> TakeWhileParser<F> where F: Fn(u8) -> bool { TakeWhileParser::new(predicate) }
-pub fn tag(tag: &[u8]) -> TagParser { TagParser::new(tag) }
-pub fn sequence<A, B>(first: A, second: B) -> SequenceParser<A, B> { SequenceParser::new(first, second) }
-pub fn alternative<A, B>(first: A, second: B) -> AlternativeParser<A, B> { AlternativeParser::new(first, second) }
+pub fn chlit(target: u8) -> ByteParser {
+    byte(target)
+}
+pub fn take(count: usize) -> TakeParser {
+    TakeParser::new(count)
+}
+pub fn take_until<'s>(delimiter: u8, scanner: &'s dyn SimdScanner) -> TakeUntilParser<'s> {
+    TakeUntilParser::new(delimiter, scanner)
+}
+pub fn take_while<F>(predicate: F) -> TakeWhileParser<F>
+where
+    F: Fn(u8) -> bool,
+{
+    TakeWhileParser::new(predicate)
+}
+pub fn tag(tag: &[u8]) -> TagParser {
+    TagParser::new(tag)
+}
+pub fn sequence<A, B>(first: A, second: B) -> SequenceParser<A, B> {
+    SequenceParser::new(first, second)
+}
+pub fn alternative<A, B>(first: A, second: B) -> AlternativeParser<A, B> {
+    AlternativeParser::new(first, second)
+}
 
 // ----------------- RangeWhile and Confix combinators -----------------
 
@@ -367,7 +388,12 @@ pub struct ByteRangeWhileParser {
 
 impl ByteRangeWhileParser {
     pub fn new(start: u8, end: u8, min: usize, max: Option<usize>) -> Self {
-        Self { start, end, min, max }
+        Self {
+            start,
+            end,
+            min,
+            max,
+        }
     }
 }
 
@@ -375,16 +401,24 @@ impl<'a> Parser<'a, &'a [u8]> for ByteRangeWhileParser {
     type Error = ParseError;
 
     fn parse(&self, input: &'a [u8]) -> ParseResult<&'a [u8], Self::Error> {
-        if input.is_empty() { return ParseResult::Incomplete(0); }
+        if input.is_empty() {
+            return ParseResult::Incomplete(0);
+        }
         let mut len = 0usize;
         let bound = self.max.map(|m| m.min(input.len())).unwrap_or(input.len());
         while len < bound {
             let b = input[len];
-            if b < self.start || b > self.end { break; }
+            if b < self.start || b > self.end {
+                break;
+            }
             len += 1;
         }
         if len < self.min {
-            if input.len() < self.min { ParseResult::Incomplete(input.len()) } else { ParseResult::Error(ParseError::InvalidInput, len) }
+            if input.len() < self.min {
+                ParseResult::Incomplete(input.len())
+            } else {
+                ParseResult::Error(ParseError::InvalidInput, len)
+            }
         } else {
             ParseResult::Complete(&input[..len], len)
         }
@@ -392,7 +426,9 @@ impl<'a> Parser<'a, &'a [u8]> for ByteRangeWhileParser {
 }
 
 /// Convenience constructor for ByteRangeWhileParser
-pub fn range_while(start: u8, end: u8, min: usize, max: Option<usize>) -> ByteRangeWhileParser { ByteRangeWhileParser::new(start, end, min, max) }
+pub fn range_while(start: u8, end: u8, min: usize, max: Option<usize>) -> ByteRangeWhileParser {
+    ByteRangeWhileParser::new(start, end, min, max)
+}
 
 /// Parse content enclosed by open/close bytes. If allow_nested, balances pairs.
 pub struct ConfixParser {
@@ -402,7 +438,13 @@ pub struct ConfixParser {
 }
 
 impl ConfixParser {
-    pub fn new(open: u8, close: u8, allow_nested: bool) -> Self { Self { open, close, allow_nested } }
+    pub fn new(open: u8, close: u8, allow_nested: bool) -> Self {
+        Self {
+            open,
+            close,
+            allow_nested,
+        }
+    }
 }
 
 impl<'a> Parser<'a, &'a [u8]> for ConfixParser {
@@ -410,12 +452,18 @@ impl<'a> Parser<'a, &'a [u8]> for ConfixParser {
 
     fn parse(&self, input: &'a [u8]) -> ParseResult<&'a [u8], Self::Error> {
         if input.first() != Some(&self.open) {
-            return if input.is_empty() { ParseResult::Incomplete(0) } else { ParseResult::Error(ParseError::InvalidInput, 0) };
+            return if input.is_empty() {
+                ParseResult::Incomplete(0)
+            } else {
+                ParseResult::Error(ParseError::InvalidInput, 0)
+            };
         }
         if !self.allow_nested {
             // Simple scan to next close
             for (i, b) in input.iter().enumerate().skip(1) {
-                if *b == self.close { return ParseResult::Complete(&input[..=i], i + 1); }
+                if *b == self.close {
+                    return ParseResult::Complete(&input[..=i], i + 1);
+                }
             }
             return ParseResult::Incomplete(input.len());
         }
@@ -424,10 +472,13 @@ impl<'a> Parser<'a, &'a [u8]> for ConfixParser {
         let mut i = 1usize;
         while i < input.len() {
             let b = input[i];
-            if b == self.open { depth += 1; }
-            else if b == self.close {
+            if b == self.open {
+                depth += 1;
+            } else if b == self.close {
                 depth -= 1;
-                if depth == 0 { return ParseResult::Complete(&input[..=i], i + 1); }
+                if depth == 0 {
+                    return ParseResult::Complete(&input[..=i], i + 1);
+                }
             }
             i += 1;
         }
@@ -436,15 +487,27 @@ impl<'a> Parser<'a, &'a [u8]> for ConfixParser {
 }
 
 /// Convenience constructor for ConfixParser
-pub fn confix(open: u8, close: u8, allow_nested: bool) -> ConfixParser { ConfixParser::new(open, close, allow_nested) }
+pub fn confix(open: u8, close: u8, allow_nested: bool) -> ConfixParser {
+    ConfixParser::new(open, close, allow_nested)
+}
 
-pub fn map<P, F, T>(parser: P, mapper: F) -> MapParser<P, F, T> { MapParser::new(parser, mapper) }
+pub fn map<P, F, T>(parser: P, mapper: F) -> MapParser<P, F, T> {
+    MapParser::new(parser, mapper)
+}
 
 /// Common character classes for network protocols
-pub fn is_space(byte: u8) -> bool { matches!(byte, b' ' | b'\t') }
-pub fn is_crlf(byte: u8) -> bool { matches!(byte, b'\r' | b'\n') }
-pub fn is_alpha(byte: u8) -> bool { matches!(byte, b'A'..=b'Z' | b'a'..=b'z') }
-pub fn is_digit(byte: u8) -> bool { matches!(byte, b'0'..=b'9') }
+pub fn is_space(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t')
+}
+pub fn is_crlf(byte: u8) -> bool {
+    matches!(byte, b'\r' | b'\n')
+}
+pub fn is_alpha(byte: u8) -> bool {
+    matches!(byte, b'A'..=b'Z' | b'a'..=b'z')
+}
+pub fn is_digit(byte: u8) -> bool {
+    matches!(byte, b'0'..=b'9')
+}
 pub fn is_token_char(byte: u8) -> bool {
     // HTTP token characters (RFC 7230)
     matches!(byte,

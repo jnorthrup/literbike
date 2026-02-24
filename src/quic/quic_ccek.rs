@@ -1,13 +1,12 @@
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
-use crate::quic_ccek_types::{CcekPolicy};
-use crate::rbcursive::{Indexed, Join};
+use crate::quic::quic_ccek_types::{CcekPolicy};
 
 /// Key graph for protocol transition reactor continuations
-/// Categorical composition: KeyGraph = Join<StateKey, TransitionMap>
+/// Simple tuple of (StateKey, TransitionMap)
 type StateKey = u64;
 type TransitionMap = HashMap<StateKey, ProtocolTransition>;
-type KeyGraph = Join<StateKey, TransitionMap>;
+type KeyGraph = (StateKey, TransitionMap);
 
 /// Protocol transition with reactor continuation context
 #[derive(Clone, Debug)]
@@ -19,7 +18,7 @@ pub struct ProtocolTransition {
 }
 
 /// CCEK reactor context with key graph navigation
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CcekContext {
     pub current_state: StateKey,
     pub last_transition: Instant,
@@ -70,7 +69,7 @@ impl QuicCcek {
             },
         });
         
-        let key_graph = KeyGraph(initial_state, transition_map);
+        let key_graph: KeyGraph = (initial_state, transition_map);
         
         Self {
             policy: CcekPolicy::default(),
