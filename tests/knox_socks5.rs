@@ -1,3 +1,5 @@
+#![cfg(feature = "warp")]
+
 use literbike::knox_proxy;
 use std::io;
 

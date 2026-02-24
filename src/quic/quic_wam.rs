@@ -1,15 +1,7 @@
-/// QUIC Protocol WAM Implementation - CoroutineContext.Element Progressions
-/// 
-/// WAM blocks structured as Kotlin CoroutineContext.Element with:
-/// - Params: Input parameters for each operation
-/// - Captures: Values captured from listeners/environment  
-/// - Effects: Side effects and state mutations
-/// - Purity: Pure functional transformations
-/// - CAS/RAS: Compare-And-Swap/Read-And-Set atomics
-/// - CAD/CAR: Cons-cell Car/Cdr list operations
-///
-/// Each block progression follows CoroutineContext.Element lifecycle
+/// QUIC Protocol WAM Implementation - Placeholder
+/// WAM engine integration requires full implementation
 
+#[cfg(feature = "tensor")]
 use crate::wam_engine::{
     WAMEngine, WAMInstruction, WAMResult, Register, Functor, Predicate,
     Constant, Label, ProtocolType
@@ -20,32 +12,20 @@ use std::collections::HashMap;
 use parking_lot::RwLock;
 
 /// QUIC Protocol with CoroutineContext.Element Structure
+#[cfg(feature = "tensor")]
 pub struct QUICProtocol {
     wam_engine: WAMEngine,
-    
-    // Context element progression state
     context_elements: QUICContextElements,
-    
-    // Connection lifecycle management
     connections: RwLock<HashMap<u64, QUICConnection>>,
-    
-    // Packet processing pipeline
     packet_pipeline: PacketPipeline,
-    
-    // Congestion control state
     congestion_state: CongestionState,
 }
 
 /// QUIC Context Elements - CoroutineContext.Element Pattern
 #[derive(Debug)]
 pub struct QUICContextElements {
-    // Connection context with CAS/RAS atomics
     connection_context: ConnectionContextElement,
-    
-    // Stream multiplexing context
     stream_context: StreamContextElement,
-    
-    // Crypto context for TLS handshake
     crypto_context: CryptoContextElement,
     
     // Flow control context
@@ -944,3 +924,6 @@ mod tests {
 ///
 /// This structure provides complete separation of concerns while
 /// maintaining the CoroutineContext.Element progression pattern.
+
+/// Placeholder struct to ensure module compiles
+pub struct WamPlaceholder;

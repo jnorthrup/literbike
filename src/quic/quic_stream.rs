@@ -1,11 +1,11 @@
-use crate::quic_error::QuicError;
+use crate::quic::quic_error::QuicError;
 use crate::rbcursive::{RbCursor, NetTuple, Protocol as RbProtocol, Signal as RbSignal};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use bytes::Bytes;
 use std::sync::Arc;
 use std::net::SocketAddr;
-use crate::quic_engine::QuicEngine; // Import QuicEngine
+use crate::quic::quic_engine::QuicEngine; // Import QuicEngine
 
 // Global RbCursive scanner for observational classification on stream payloads
 static RB_STREAM_SCANNER: Lazy<Mutex<RbCursor>> = Lazy::new(|| Mutex::new(RbCursor::new()));

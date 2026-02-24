@@ -6,24 +6,148 @@
 // Non-bounty or Betanet-specific design notes have been moved to `docs/betanet-densifier.md`.
 // For micro-protocol authors, see `src/rbcursive/micro_protocol_template.rs` and `src/rbcursive/README.md`.
 
-pub mod simd;
 pub mod combinators;
-pub mod protocols;
 pub mod continuation;
-pub mod scanner;
 pub mod patterns;
+pub mod protocols;
+pub mod scanner;
+pub mod simd;
 pub mod tunnel_config;
 // pub mod micro_protocol_template;
 
-pub use simd::*;
 pub use combinators::*;
-pub use protocols::*;
 pub use continuation::*;
-pub use scanner::*;
 pub use patterns::*;
+pub use protocols::*;
+pub use scanner::*;
+pub use simd::*;
 pub use tunnel_config::*;
 
-// Remove unused import
+use std::net::SocketAddr;
+
+/// Network tuple for connection identification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct NetTuple {
+    pub local_addr: [u8; 4],
+    pub local_port: u16,
+    pub remote_addr: [u8; 4],
+    pub remote_port: u16,
+    pub protocol: Protocol,
+}
+
+impl NetTuple {
+    pub fn from_socket_addr(addr: SocketAddr, protocol: Protocol) -> Self {
+        let (ip, port) = match addr {
+            SocketAddr::V4(v4) => (v4.ip().octets(), v4.port()),
+            SocketAddr::V6(_) => ([0, 0, 0, 0], 0), // IPv6 not supported in NetTuple
+        };
+        Self {
+            local_addr: [0, 0, 0, 0],
+            local_port: 0,
+            remote_addr: ip,
+            remote_port: port,
+            protocol,
+        }
+    }
+}
+
+/// Protocol enumeration for network classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Protocol {
+    #[default]
+    Unknown,
+    HtxQuic,
+    Http,
+    Socks5,
+    Tls,
+    WebSocket,
+    Dns,
+    Quic,
+}
+
+/// Recognition signal for protocol classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Signal {
+    Accept(Protocol),
+    NeedMore,
+    Reject,
+}
+
+/// Indexed trait for position-based access
+pub trait Indexed<T> {
+    fn get(&self, index: usize) -> Option<&T>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<T> Indexed<T> for Vec<T> {
+    fn get(&self, index: usize) -> Option<&T> {
+        self.as_slice().get(index)
+    }
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+
+impl<T> Indexed<T> for [T] {
+    fn get(&self, index: usize) -> Option<&T> {
+        self.get(index)
+    }
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
+/// Join trait for combining/concatenating
+pub trait Join<T> {
+    fn join(&self, separator: &str) -> String;
+}
+
+impl Join<String> for Vec<String> {
+    fn join(&self, separator: &str) -> String {
+        // Call inherent Vec::join method, not the trait method
+        Vec::join(self, separator)
+    }
+}
+
+impl Join<&str> for Vec<&str> {
+    fn join(&self, separator: &str) -> String {
+        // Call inherent Vec::join method, not the trait method
+        Vec::join(self, separator)
+    }
+}
+
+/// Cursor-based recognizer (alias for RBCursive for backwards compatibility)
+pub type RbCursor = RBCursive;
+
+impl RBCursive {
+    /// Recognize protocol from data hint
+    pub fn recognize(&mut self, _tuple: NetTuple, data: &[u8]) -> Signal {
+        if data.is_empty() {
+            return Signal::NeedMore;
+        }
+
+        let detection = self.detect_protocol(data);
+        match detection {
+            ProtocolDetection::Http(_) => Signal::Accept(Protocol::Http),
+            ProtocolDetection::Socks5 => Signal::Accept(Protocol::Socks5),
+            ProtocolDetection::Tls => Signal::Accept(Protocol::Tls),
+            ProtocolDetection::WebSocket => Signal::Accept(Protocol::WebSocket),
+            ProtocolDetection::Dns => Signal::Accept(Protocol::Dns),
+            ProtocolDetection::Json => Signal::Accept(Protocol::Http),
+            ProtocolDetection::Unknown => {
+                // Check for QUIC
+                if data.len() >= 5 && data[0] == 0x43 && data[1] == 0x46 {
+                    Signal::Accept(Protocol::Quic)
+                } else {
+                    Signal::Reject
+                }
+            }
+        }
+    }
+}
 
 /// Core RBCursive framework - the main entry point
 pub struct RBCursive {
@@ -35,97 +159,119 @@ impl RBCursive {
     /// Create new RBCursive instance with optimal SIMD strategy for current platform
     pub fn new() -> Self {
         use crate::rbcursive::simd::create_optimal_scanner;
-        
+
         Self {
             scanner: create_optimal_scanner(),
             pattern_scanner: PatternScanner::new(),
         }
     }
-    
+
     /// Get scanner reference
     pub fn scanner(&self) -> &dyn SimdScanner {
         self.scanner.as_ref()
     }
-    
+
     /// Create HTTP parser using this RBCursive instance
     pub fn http_parser(&self) -> HttpParser {
         HttpParser::new()
     }
-    
+
     /// Create SOCKS5 parser using this RBCursive instance
     pub fn socks5_parser(&self) -> Socks5Parser {
         Socks5Parser::new()
     }
-    
+
     /// Create JSON parser for PAC files
     pub fn json_parser(&self) -> JsonParser {
         JsonParser::new()
     }
-    
+
     /// Detect protocol from data using SIMD scanning
     pub fn detect_protocol(&self, data: &[u8]) -> ProtocolDetection {
         // Use SIMD to quickly scan for protocol markers
         let structural = self.scanner.scan_structural(data);
         let _quotes = self.scanner.scan_quotes(data);
-        
+
         // Analyze patterns to determine protocol
         if data.len() >= 2 && data[0] == 0x05 {
             return ProtocolDetection::Socks5;
         }
-        
+
         // Check for HTTP methods using SIMD-accelerated search
         if let Some(method) = self.detect_http_method(data) {
             return ProtocolDetection::Http(method);
         }
-        
+
         // Check for JSON (PAC files)
         if !structural.is_empty() && data.get(0) == Some(&b'{') {
             return ProtocolDetection::Json;
         }
-        
+
         ProtocolDetection::Unknown
     }
-    
+
     /// Detect HTTP method using SIMD scanning
     fn detect_http_method(&self, data: &[u8]) -> Option<HttpMethod> {
         // SIMD scan for HTTP method terminators (space characters)
         let spaces = self.scanner.scan_bytes(data, &[b' ']);
-        
+
         if let Some(&first_space) = spaces.first() {
             if first_space < data.len() {
                 let method_bytes = &data[..first_space];
                 return HttpMethod::from_bytes(method_bytes);
             }
         }
-        
+
         None
     }
-    
+
     /// Match glob patterns against data using SIMD acceleration
     pub fn match_glob(&self, data: &[u8], pattern: &str) -> PatternMatchResult {
-        self.pattern_scanner.pattern_matcher.match_glob(data, pattern)
+        self.pattern_scanner
+            .pattern_matcher
+            .match_glob(data, pattern)
     }
-    
+
     /// Match regex patterns against data using SIMD acceleration
-    pub fn match_regex(&self, data: &[u8], pattern: &str) -> Result<PatternMatchResult, PatternError> {
-        self.pattern_scanner.pattern_matcher.match_regex(data, pattern)
+    pub fn match_regex(
+        &self,
+        data: &[u8],
+        pattern: &str,
+    ) -> Result<PatternMatchResult, PatternError> {
+        self.pattern_scanner
+            .pattern_matcher
+            .match_regex(data, pattern)
     }
-    
+
     /// Find all glob pattern matches in data
     pub fn find_all_glob(&self, data: &[u8], pattern: &str) -> Vec<PatternMatch> {
-        self.pattern_scanner.pattern_matcher.find_all_glob(data, pattern)
+        self.pattern_scanner
+            .pattern_matcher
+            .find_all_glob(data, pattern)
     }
-    
+
     /// Find all regex pattern matches in data
-    pub fn find_all_regex(&self, data: &[u8], pattern: &str) -> Result<Vec<PatternMatch>, PatternError> {
-        self.pattern_scanner.pattern_matcher.find_all_regex(data, pattern)
+    pub fn find_all_regex(
+        &self,
+        data: &[u8],
+        pattern: &str,
+    ) -> Result<Vec<PatternMatch>, PatternError> {
+        self.pattern_scanner
+            .pattern_matcher
+            .find_all_regex(data, pattern)
     }
-    
+
     /// SIMD-accelerated pattern scanning (optimized for large data)
-    pub fn scan_with_pattern(&self, data: &[u8], pattern: &str, pattern_type: PatternType) -> Result<Vec<PatternMatch>, PatternError> {
-        self.pattern_scanner.simd_guided_pattern_scan(data, pattern, pattern_type)
+    pub fn scan_with_pattern(
+        &self,
+        data: &[u8],
+        pattern: &str,
+        pattern_type: PatternType,
+    ) -> Result<Vec<PatternMatch>, PatternError> {
+        self.pattern_scanner
+            .simd_guided_pattern_scan(data, pattern, pattern_type)
     }
-    
+
     /// Get pattern matching capabilities
     pub fn pattern_capabilities(&self) -> PatternCapabilities {
         self.pattern_scanner.pattern_matcher.pattern_capabilities()
@@ -191,7 +337,7 @@ impl HttpMethod {
             _ => None,
         }
     }
-    
+
     /// Convert to bytes
     pub fn as_bytes(&self) -> &'static [u8] {
         match self {
@@ -215,7 +361,7 @@ pub fn detect_optimal_strategy() -> ScanStrategy {
         // Apple Silicon and ARM64 - use NEON
         ScanStrategy::Simd
     }
-    
+
     #[cfg(target_arch = "x86_64")]
     {
         // x86-64 - check for AVX2 support, fallback to autovec
@@ -225,7 +371,7 @@ pub fn detect_optimal_strategy() -> ScanStrategy {
             ScanStrategy::Autovec
         }
     }
-    
+
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     {
         // Other architectures - use autovec
@@ -240,10 +386,10 @@ pub fn create_simd_scanner(strategy: ScanStrategy) -> Box<dyn SimdScanner> {
         ScanStrategy::Simd => {
             #[cfg(target_arch = "aarch64")]
             return Box::new(simd::neon::NeonScanner::new());
-            
+
             #[cfg(target_arch = "x86_64")]
             return Box::new(simd::avx2::Avx2Scanner::new());
-            
+
             #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
             return Box::new(scanner::ScalarScanner::new());
         }
@@ -258,14 +404,14 @@ mod tests {
     #[test]
     fn test_rbcursive_creation() {
         let rbcursive = RBCursive::new();
-    let _ = rbcursive; // smoke test
+        let _ = rbcursive; // smoke test
     }
 
     #[test]
     fn test_http_method_detection() {
         let rbcursive = RBCursive::new();
         let data = b"GET /test HTTP/1.1\r\n";
-        
+
         match rbcursive.detect_protocol(data) {
             ProtocolDetection::Http(HttpMethod::Get) => (),
             other => panic!("Expected HTTP GET, got {:?}", other),
@@ -276,7 +422,7 @@ mod tests {
     fn test_socks5_detection() {
         let rbcursive = RBCursive::new();
         let data = b"\x05\x01\x00"; // SOCKS5 handshake
-        
+
         match rbcursive.detect_protocol(data) {
             ProtocolDetection::Socks5 => (),
             other => panic!("Expected SOCKS5, got {:?}", other),
@@ -286,13 +432,13 @@ mod tests {
     #[test]
     fn test_glob_pattern_matching() {
         let rbcursive = RBCursive::new();
-        
+
         // Test matching file extensions
         let filename = b"config.json";
         let result = rbcursive.match_glob(filename, "*.json");
         assert!(result.matched);
         assert_eq!(result.total_matches, 1);
-        
+
         // Test non-matching pattern
         let result = rbcursive.match_glob(filename, "*.txt");
         assert!(!result.matched);
@@ -302,13 +448,15 @@ mod tests {
     #[test]
     fn test_regex_pattern_matching() {
         let rbcursive = RBCursive::new();
-        
+
         // Test HTTP request parsing
         let http_data = b"GET /api/v1/users/123 HTTP/1.1";
-        let result = rbcursive.match_regex(http_data, r"GET /api/v\d+/users/(\d+)").unwrap();
+        let result = rbcursive
+            .match_regex(http_data, r"GET /api/v\d+/users/(\d+)")
+            .unwrap();
         assert!(result.matched);
         assert_eq!(result.total_matches, 1);
-        
+
         // Verify capture group
         if let Some(match_result) = result.matches.first() {
             assert!(!match_result.captures.is_empty());
@@ -318,15 +466,19 @@ mod tests {
     #[test]
     fn test_pattern_scanner_integration() {
         let rbcursive = RBCursive::new();
-        
+
         // Test SIMD-accelerated pattern scanning
         let log_data = b"2024-01-01 10:00:00 INFO Starting server\n2024-01-01 10:00:01 ERROR Failed to connect";
-        let matches = rbcursive.scan_with_pattern(log_data, r"\d{4}-\d{2}-\d{2}", PatternType::Regex).unwrap();
+        let matches = rbcursive
+            .scan_with_pattern(log_data, r"\d{4}-\d{2}-\d{2}", PatternType::Regex)
+            .unwrap();
         assert!(matches.len() >= 2); // Should find at least 2 dates
-        
+
         // Test glob pattern scanning
         let file_list = b"test.log";
-        let matches = rbcursive.scan_with_pattern(file_list, "*.log", PatternType::Glob).unwrap();
+        let matches = rbcursive
+            .scan_with_pattern(file_list, "*.log", PatternType::Glob)
+            .unwrap();
         assert_eq!(matches.len(), 1);
     }
 
@@ -334,7 +486,7 @@ mod tests {
     fn test_pattern_capabilities() {
         let rbcursive = RBCursive::new();
         let caps = rbcursive.pattern_capabilities();
-        
+
         assert!(caps.supports_glob);
         assert!(caps.supports_regex);
         assert!(caps.max_pattern_length > 0);
