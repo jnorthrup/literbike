@@ -1,0 +1,18 @@
+[package]
+name = "literbike-quic-capi"
+version = "0.1.0"
+edition = "2021"
+description = "ctypes-friendly C ABI for Literbike QUIC transport"
+license = "AGPL-3.0"
+
+[lib]
+name = "literbike_quic"
+crate-type = ["cdylib"]
+
+[features]
+default = ["quic"]
+quic = ["literbike/quic"]
+
+[dependencies]
+literbike = { path = "..", default-features = false, features = ["quic"] }
+

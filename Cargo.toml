@@ -8,6 +8,7 @@ repository = "https://github.com/literbike/literbike"
 [features]
 default = ["quic"]
 quic = ["dep:bincode", "dep:bytes", "dep:rand", "dep:parking_lot", "dep:socket2", "dep:tracing", "dep:log", "dep:glob", "dep:base64"]
+quic-crypto = ["quic"]
 full = ["quic", "couchdb", "gates"]
 couchdb = ["dep:sled", "dep:utoipa", "dep:utoipa-swagger-ui", "dep:axum", "dep:tower", "dep:tower-http", "dep:base64", "dep:ndarray"]
 gates = ["dep:async-trait", "dep:parking_lot"]
@@ -90,6 +91,7 @@ glob = { version = "0.3", optional = true }
 members = [
     "literbike-py",
     "literbike-ffi",
+	"literbike-quic-capi",
 	"tools/selfhosted",
 	"tools/config_tester",
 ]

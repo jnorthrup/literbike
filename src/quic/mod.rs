@@ -1,4 +1,5 @@
 pub mod quic_protocol;
+pub mod quic_crypto;
 pub mod quic_engine;
 pub mod quic_error;
 pub mod quic_server;
@@ -14,6 +15,9 @@ pub mod quic_ccek_types;
 #[cfg(feature = "tensor")]
 pub mod quic_wam;
 
+#[cfg(feature = "quic-crypto")]
+pub use quic_crypto::FeatureGatedCryptoProvider;
+pub use quic_crypto::{HandshakePhase, NoopQuicCryptoProvider, QuicCryptoProvider};
 pub use quic_protocol::{QuicProtocol, QuicPacket, QuicHeader, QuicFrame, QuicPacketType};
 pub use quic_engine::QuicEngine;
 pub use quic_error::QuicError;
