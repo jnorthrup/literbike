@@ -1,0 +1,8 @@
+{
+  "track_id": "quic-interop-foundation_20260225",
+  "type": "feature",
+  "status": "in_progress",
+  "created_at": "2026-02-25T09:55:33Z",
+  "updated_at": "2026-02-25T10:15:53Z",
+  "description": "Add packet number reconstruction and header protection hooks in quic_engine.rs, start a feature-gated handshake/crypto path, and add a separate cdylib C ABI for the freqtrade ctypes wrapper."
+}
