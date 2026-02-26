@@ -16,6 +16,9 @@ ipfs = ["dep:ipfs-api-backend-hyper", "dep:cid"]
 tensor = ["dep:ndarray", "dep:ndarray-linalg"]
 
 [dependencies]
+# Proxy foundation (dependency inversion: literbike builds on litebike)
+litebike = { path = "../litebike" }
+
 # Core (always needed)
 tokio = { version = "1.41", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

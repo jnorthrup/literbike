@@ -68,6 +68,9 @@ pub mod tls_fingerprint;
 pub mod universal_listener;
 
 #[cfg(feature = "quic")]
+pub mod quic_proxy;
+
+#[cfg(feature = "quic")]
 pub mod packet_fragment;
 
 #[cfg(feature = "quic")]
