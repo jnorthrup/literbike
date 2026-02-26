@@ -1,15 +1,16 @@
-pub mod quic_protocol;
-pub mod quic_crypto;
-pub mod quic_engine;
-pub mod quic_error;
-pub mod quic_server;
-pub mod quic_failure_log;
-pub mod quic_config;
-pub mod quic_stream;
-pub mod quic_session_cache;
-pub mod quic_request_factory;
 pub mod quic_ccek;
 pub mod quic_ccek_types;
+pub mod quic_config;
+pub mod quic_crypto;
+pub mod quic_engine;
+pub mod quic_engine_hybrid;
+pub mod quic_error;
+pub mod quic_failure_log;
+pub mod quic_protocol;
+pub mod quic_request_factory;
+pub mod quic_server;
+pub mod quic_session_cache;
+pub mod quic_stream;
 
 // WAM module requires tensor feature
 #[cfg(feature = "tensor")]
@@ -18,7 +19,8 @@ pub mod quic_wam;
 #[cfg(feature = "quic-crypto")]
 pub use quic_crypto::FeatureGatedCryptoProvider;
 pub use quic_crypto::{HandshakePhase, NoopQuicCryptoProvider, QuicCryptoProvider};
-pub use quic_protocol::{QuicProtocol, QuicPacket, QuicHeader, QuicFrame, QuicPacketType};
-pub use quic_engine::QuicEngine;
+pub use quic_engine::{QuicEngine, QuicEngineDiagnosticsSnapshot};
+pub use quic_engine_hybrid::{QuicEngineHybrid, QuicState, QuicStats};
 pub use quic_error::QuicError;
+pub use quic_protocol::{QuicFrame, QuicHeader, QuicPacket, QuicPacketType, QuicProtocol};
 pub use quic_server::QuicServer;

@@ -12,7 +12,9 @@ pub mod ipfs_integration;
 
 // Core modules always available
 pub mod adapters;
+pub mod cas_storage;
 pub mod channel;
+pub mod dht;
 pub mod reactor;
 pub mod rbcursive;
 pub mod syscall_net;
@@ -46,6 +48,9 @@ pub mod upnp_aggressive;
 
 pub mod config;
 pub mod types;
+pub mod model_serving_taxonomy;
+pub mod provider_facade_models;
+pub mod env_facade_parity;
 
 #[cfg(feature = "quic")]
 pub mod radios;

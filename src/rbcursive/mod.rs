@@ -139,7 +139,10 @@ impl RBCursive {
             ProtocolDetection::Json => Signal::Accept(Protocol::Http),
             ProtocolDetection::Unknown => {
                 // Check for QUIC
-                if data.len() >= 5 && data[0] == 0x43 && data[1] == 0x46 {
+                // QUIC v1 packets (short and long header) carry the fixed bit (0x40).
+                // This heuristic is intentionally broad because preflight is only
+                // used as a lightweight classifier before protocol-specific parsing.
+                if (data[0] & 0x40) != 0 {
                     Signal::Accept(Protocol::Quic)
                 } else {
                     Signal::Reject

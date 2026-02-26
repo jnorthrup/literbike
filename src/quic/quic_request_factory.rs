@@ -10,7 +10,7 @@ impl QuicClient {
     pub fn new(_config: Arc<QuicConfig>) -> Result<Self, std::io::Error> {
         Ok(QuicClient)
     }
-    
+
     #[allow(dead_code)]
     pub async fn connect(&self, _addr: SocketAddr, _host: &str) -> Result<(), std::io::Error> {
         Ok(())

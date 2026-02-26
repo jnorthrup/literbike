@@ -1,9 +1,9 @@
+use super::quic_error::QuicError;
 use serde::Serialize;
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
-use super::quic_error::QuicError;
 
 #[derive(Serialize)]
 struct FailureEvent<'a> {
@@ -26,12 +26,21 @@ fn log_path() -> String {
 }
 
 fn append_line(line: &str) {
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path()) {
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
         let _ = writeln!(file, "{}", line);
     }
 }
 
-pub fn log_error(component: &'static str, category: &'static str, err: &QuicError, context: serde_json::Value) {
+pub fn log_error(
+    component: &'static str,
+    category: &'static str,
+    err: &QuicError,
+    context: serde_json::Value,
+) {
     let ev = FailureEvent {
         ts_ms: now_ms(),
         component,
@@ -44,7 +53,12 @@ pub fn log_error(component: &'static str, category: &'static str, err: &QuicErro
     }
 }
 
-pub fn log_message(component: &'static str, category: &'static str, message: impl AsRef<str>, context: serde_json::Value) {
+pub fn log_message(
+    component: &'static str,
+    category: &'static str,
+    message: impl AsRef<str>,
+    context: serde_json::Value,
+) {
     let ev = FailureEvent {
         ts_ms: now_ms(),
         component,

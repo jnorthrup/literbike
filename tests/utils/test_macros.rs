@@ -7,7 +7,9 @@ use std::time::Duration;
 #[macro_export]
 macro_rules! setup_test_server {
     ($server_type:expr, $config:expr) => {{
-        let server = $server_type($config).await.expect("Failed to create test server");
+        let server = $server_type($config)
+            .await
+            .expect("Failed to create test server");
         let addr = server.addr();
         let handle = tokio::spawn(async move { server.run().await });
         (addr, handle)
@@ -19,10 +21,17 @@ macro_rules! setup_test_server {
 macro_rules! test_protocol_detection {
     ($detector:expr, $input:expr, $expected_protocol:expr, $min_confidence:expr) => {{
         let result = $detector.detect($input);
-        assert_eq!(result.protocol_name, $expected_protocol,
-                  "Expected protocol '{}', got '{}'", $expected_protocol, result.protocol_name);
-        assert!(result.confidence >= $min_confidence,
-               "Expected confidence >= {}, got {}", $min_confidence, result.confidence);
+        assert_eq!(
+            result.protocol_name, $expected_protocol,
+            "Expected protocol '{}', got '{}'",
+            $expected_protocol, result.protocol_name
+        );
+        assert!(
+            result.confidence >= $min_confidence,
+            "Expected confidence >= {}, got {}",
+            $min_confidence,
+            result.confidence
+        );
         result
     }};
 }
@@ -32,8 +41,11 @@ macro_rules! test_protocol_detection {
 macro_rules! test_protocol_detection_unknown {
     ($detector:expr, $input:expr) => {{
         let result = $detector.detect($input);
-        assert_eq!(result.protocol_name, "unknown",
-                  "Expected 'unknown', got '{}'", result.protocol_name);
+        assert_eq!(
+            result.protocol_name, "unknown",
+            "Expected 'unknown', got '{}'",
+            result.protocol_name
+        );
         result
     }};
 }
@@ -42,14 +54,16 @@ macro_rules! test_protocol_detection_unknown {
 #[macro_export]
 macro_rules! setup_proxy_test {
     ($registry:expr, $timeout:expr) => {{
-        use tokio::net::TcpListener;
         use std::sync::Arc;
-        
-        let proxy_listener = TcpListener::bind("127.0.0.1:0").await
+        use tokio::net::TcpListener;
+
+        let proxy_listener = TcpListener::bind("127.0.0.1:0")
+            .await
             .expect("Failed to bind proxy listener");
-        let proxy_addr = proxy_listener.local_addr()
+        let proxy_addr = proxy_listener
+            .local_addr()
             .expect("Failed to get proxy address");
-        
+
         let registry = Arc::new($registry);
         let server_handle = tokio::spawn(async move {
             while let Ok((stream, _)) = proxy_listener.accept().await {
@@ -59,10 +73,10 @@ macro_rules! setup_proxy_test {
                 });
             }
         });
-        
+
         // Wait for server to start
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         (proxy_addr, server_handle)
     }};
 }
@@ -83,7 +97,7 @@ macro_rules! test_with_timeout {
 macro_rules! run_concurrent_tests {
     ($($test_name:ident: $test_expr:expr),* $(,)?) => {{
         let mut handles = Vec::new();
-        
+
         $(
             let handle = tokio::spawn(async move {
                 let result = $test_expr.await;
@@ -91,7 +105,7 @@ macro_rules! run_concurrent_tests {
             });
             handles.push(handle);
         )*
-        
+
         let mut results = Vec::new();
         for handle in handles {
             match handle.await {
@@ -110,7 +124,7 @@ macro_rules! run_concurrent_tests {
                 }
             }
         }
-        
+
         if !results.is_empty() {
             panic!("Some concurrent tests failed: {:?}", results);
         }
@@ -122,12 +136,12 @@ macro_rules! run_concurrent_tests {
 macro_rules! benchmark_detection {
     ($detector:expr, $test_data:expr, $iterations:expr) => {{
         use std::time::Instant;
-        
+
         // Warmup
         for data in $test_data.iter().take(10) {
             let _ = $detector.detect(data);
         }
-        
+
         let start = Instant::now();
         for _ in 0..$iterations {
             for data in &$test_data {
@@ -135,13 +149,15 @@ macro_rules! benchmark_detection {
             }
         }
         let duration = start.elapsed();
-        
+
         let total_detections = $iterations * $test_data.len();
         let per_detection = duration / total_detections as u32;
-        
-        println!("Benchmarked {} detections in {:?} ({:?} per detection)",
-                total_detections, duration, per_detection);
-        
+
+        println!(
+            "Benchmarked {} detections in {:?} ({:?} per detection)",
+            total_detections, duration, per_detection
+        );
+
         (duration, per_detection)
     }};
 }
@@ -180,9 +196,12 @@ pub fn maybe_setup_logging() {
 /// Helper to assert error contains expected message
 pub fn assert_error_contains<E: std::fmt::Display>(error: E, expected_substring: &str) {
     let error_string = error.to_string();
-    assert!(error_string.contains(expected_substring),
-           "Error '{}' does not contain expected substring '{}'",
-           error_string, expected_substring);
+    assert!(
+        error_string.contains(expected_substring),
+        "Error '{}' does not contain expected substring '{}'",
+        error_string,
+        expected_substring
+    );
 }
 
 /// Helper to create temporary data for testing
@@ -195,38 +214,55 @@ pub fn verify_metrics(
     state: &crate::utils::TestState,
     expected_connections: u64,
     min_bytes: u64,
-    max_errors: usize
+    max_errors: usize,
 ) {
     let metrics = state.get_metrics();
-    
-    assert_eq!(metrics.connections_count, expected_connections,
-              "Expected {} connections, got {}", expected_connections, metrics.connections_count);
-    
-    assert!(metrics.bytes_transferred >= min_bytes,
-           "Expected at least {} bytes transferred, got {}", min_bytes, metrics.bytes_transferred);
-    
-    assert!(metrics.errors.len() <= max_errors,
-           "Expected at most {} errors, got {}: {:?}", max_errors, metrics.errors.len(), metrics.errors);
+
+    assert_eq!(
+        metrics.connections_count, expected_connections,
+        "Expected {} connections, got {}",
+        expected_connections, metrics.connections_count
+    );
+
+    assert!(
+        metrics.bytes_transferred >= min_bytes,
+        "Expected at least {} bytes transferred, got {}",
+        min_bytes,
+        metrics.bytes_transferred
+    );
+
+    assert!(
+        metrics.errors.len() <= max_errors,
+        "Expected at most {} errors, got {}: {:?}",
+        max_errors,
+        metrics.errors.len(),
+        metrics.errors
+    );
 }
 
 /// Helper to create realistic HTTP requests
-pub fn create_http_request(method: &str, path: &str, headers: &[(&str, &str)], body: Option<&str>) -> Vec<u8> {
+pub fn create_http_request(
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: Option<&str>,
+) -> Vec<u8> {
     let mut request = format!("{} {} HTTP/1.1\r\n", method, path);
-    
+
     for (name, value) in headers {
         request.push_str(&format!("{}: {}\r\n", name, value));
     }
-    
+
     if let Some(body) = body {
         request.push_str(&format!("Content-Length: {}\r\n", body.len()));
     }
-    
+
     request.push_str("\r\n");
-    
+
     if let Some(body) = body {
         request.push_str(body);
     }
-    
+
     request.into_bytes()
 }
 
@@ -253,14 +289,14 @@ where
     Fut: std::future::Future<Output = bool>,
 {
     let start = std::time::Instant::now();
-    
+
     while start.elapsed() < timeout_duration {
         if condition().await {
             return Ok(());
         }
         tokio::time::sleep(check_interval).await;
     }
-    
+
     Err("Condition not met within timeout")
 }
 
@@ -273,7 +309,7 @@ where
     let initial_memory = get_memory_usage();
     let result = f();
     let final_memory = get_memory_usage();
-    
+
     (result, final_memory.saturating_sub(initial_memory))
 }
 
@@ -288,11 +324,9 @@ pub fn create_size_range_tests(min_size: usize, max_size: usize, steps: usize) -
     if steps <= 1 {
         return vec![min_size];
     }
-    
+
     let step_size = (max_size - min_size) / (steps - 1);
-    (0..steps)
-        .map(|i| min_size + i * step_size)
-        .collect()
+    (0..steps).map(|i| min_size + i * step_size).collect()
 }
 
 /// Helper to validate test results across multiple iterations
@@ -302,14 +336,16 @@ where
     T: PartialEq + std::fmt::Debug + Clone,
 {
     let first_result = test_fn();
-    
+
     for i in 1..iterations {
         let result = test_fn();
-        assert_eq!(result, first_result,
-                  "Inconsistent result on iteration {}: {:?} != {:?}",
-                  i, result, first_result);
+        assert_eq!(
+            result, first_result,
+            "Inconsistent result on iteration {}: {:?} != {:?}",
+            i, result, first_result
+        );
     }
-    
+
     first_result
 }
 
@@ -325,7 +361,7 @@ where
     E: std::fmt::Debug,
 {
     let mut last_error = None;
-    
+
     for attempt in 0..=max_retries {
         match test_fn().await {
             Ok(result) => return Ok(result),
@@ -338,6 +374,6 @@ where
             }
         }
     }
-    
+
     Err(last_error.unwrap())
 }

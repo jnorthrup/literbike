@@ -11,14 +11,12 @@ pub use mock_servers::*;
 pub use protocol_generators::*;
 pub use test_macros::*;
 
-
-
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
 /// Test configuration for controlling test behavior
 #[derive(Debug, Clone)]
@@ -60,11 +58,11 @@ impl TestMetrics {
             errors: Vec::new(),
         }
     }
-    
+
     pub fn add_error(&mut self, error: String) {
         self.errors.push(error);
     }
-    
+
     pub fn calculate_success_rate(&mut self, total_attempts: u64) {
         if total_attempts > 0 {
             let successful = total_attempts - self.errors.len() as u64;
@@ -89,30 +87,30 @@ impl TestState {
             errors: std::sync::Mutex::new(Vec::new()),
         })
     }
-    
+
     pub fn record_connection(&self) {
         self.connections.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     pub fn record_bytes(&self, bytes: u64) {
         self.bytes_transferred.fetch_add(bytes, Ordering::Relaxed);
     }
-    
+
     pub fn record_error(&self, error: String) {
         if let Ok(mut errors) = self.errors.lock() {
             errors.push(error);
         }
     }
-    
+
     pub fn get_metrics(&self) -> TestMetrics {
         let mut metrics = TestMetrics::new();
         metrics.connections_count = self.connections.load(Ordering::Relaxed);
         metrics.bytes_transferred = self.bytes_transferred.load(Ordering::Relaxed);
-        
+
         if let Ok(errors) = self.errors.lock() {
             metrics.errors = errors.clone();
         }
-        
+
         metrics
     }
 }
@@ -159,11 +157,11 @@ impl Timer {
             start: Instant::now(),
         }
     }
-    
+
     pub fn elapsed(&self) -> Duration {
         self.start.elapsed()
     }
-    
+
     pub fn reset(&mut self) {
         self.start = Instant::now();
     }

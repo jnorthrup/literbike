@@ -22,6 +22,14 @@ fn apply_env_side_effects_sets_egress_vars() {
     assert_eq!(env::var("EGRESS_BIND_IP").unwrap(), "10.0.0.5");
 
     // Restore original env
-    if let Some(v) = orig_iface { env::set_var("EGRESS_INTERFACE", v); } else { env::remove_var("EGRESS_INTERFACE"); }
-    if let Some(v) = orig_ip { env::set_var("EGRESS_BIND_IP", v); } else { env::remove_var("EGRESS_BIND_IP"); }
+    if let Some(v) = orig_iface {
+        env::set_var("EGRESS_INTERFACE", v);
+    } else {
+        env::remove_var("EGRESS_INTERFACE");
+    }
+    if let Some(v) = orig_ip {
+        env::set_var("EGRESS_BIND_IP", v);
+    } else {
+        env::remove_var("EGRESS_BIND_IP");
+    }
 }

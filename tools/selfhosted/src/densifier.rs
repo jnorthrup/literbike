@@ -10,7 +10,10 @@ pub struct Join<A, B> {
 impl Join<u32, u32> {
     pub fn pack(a: u32, b: u32) -> Self {
         let packed = ((a as u64) << 32) | (b as u64);
-        Self { packed, _phantom: PhantomData }
+        Self {
+            packed,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn unpack(&self) -> (u32, u32) {
@@ -45,14 +48,22 @@ pub struct Anchor {
 
 impl Anchor {
     pub fn new(pattern: Vec<u8>, priority: u8) -> Self {
-        Self { pattern, priority, simd_mask: None }
+        Self {
+            pattern,
+            priority,
+            simd_mask: None,
+        }
     }
 
     pub fn with_mask(pattern: Vec<u8>, mut mask: Vec<u8>, priority: u8) -> Self {
         if mask.len() != pattern.len() {
             mask.resize(pattern.len(), 0xff);
         }
-        Self { pattern, priority, simd_mask: Some(mask) }
+        Self {
+            pattern,
+            priority,
+            simd_mask: Some(mask),
+        }
     }
 }
 
@@ -80,16 +91,23 @@ impl ProtocolDetector {
         for a in &self.anchors {
             // masked match if simd_mask present
             if let Some(mask) = &a.simd_mask {
-                if data.len() < a.pattern.len() { continue; }
+                if data.len() < a.pattern.len() {
+                    continue;
+                }
                 let mut ok = true;
                 for i in 0..a.pattern.len() {
                     if (data[i] & mask[i]) != (a.pattern[i] & mask[i]) {
-                        ok = false; break;
+                        ok = false;
+                        break;
                     }
                 }
-                if !ok { continue; }
+                if !ok {
+                    continue;
+                }
             } else {
-                if !data.starts_with(&a.pattern) { continue; }
+                if !data.starts_with(&a.pattern) {
+                    continue;
+                }
             }
 
             // Map a couple of known patterns to signals for tests
@@ -174,7 +192,10 @@ mod tests {
         ];
 
         let http_packet = b"GET /index.html HTTP/1.1\r\n".to_vec();
-        assert_eq!(super::detect_priority(&anchors, &http_packet), Some(super::ProtocolSignal::Http));
+        assert_eq!(
+            super::detect_priority(&anchors, &http_packet),
+            Some(super::ProtocolSignal::Http)
+        );
     }
 
     #[test]
@@ -185,7 +206,10 @@ mod tests {
         let anchor = Anchor::with_mask(pattern.clone(), mask.clone(), 8);
 
         // sanity: mask and pattern stored
-        assert_eq!(anchor.simd_mask.as_ref().map(|m| m.len()), Some(anchor.pattern.len()));
+        assert_eq!(
+            anchor.simd_mask.as_ref().map(|m| m.len()),
+            Some(anchor.pattern.len())
+        );
 
         // data varies high nibble but matches low nibble
         let data = vec![0x1a_u8, 0x2b_u8, 0xff];

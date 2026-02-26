@@ -1,12 +1,12 @@
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use tiny_http::{Server, Response, Method, Request};
-use std::thread;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use base64::engine::general_purpose::STANDARD as B64;
-use base64::Engine as _;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use tiny_http::{Method, Request, Response, Server};
 
 type Db = HashMap<String, serde_json::Value>;
 
@@ -40,21 +40,31 @@ pub fn start(listen: &str) {
 
 fn bump_rev(doc_obj: serde_json::Map<String, serde_json::Value>) -> String {
     // simple rev bump semantics: _rev = "<n>-manual"
-    let cur = doc_obj.get("_rev").and_then(|v| v.as_str()).unwrap_or("0-0");
+    let cur = doc_obj
+        .get("_rev")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0-0");
     let parts: Vec<&str> = cur.split('-').collect();
-    let num = parts.get(0).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let num = parts
+        .get(0)
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
     let next = num + 1;
     let new_rev = format!("{}-manual", next);
     new_rev
 }
 
-fn handle_request(mut req: Request, store: &Arc<Mutex<HashMap<String, Db>>>, persist_path: &Option<PathBuf>) {
+fn handle_request(
+    mut req: Request,
+    store: &Arc<Mutex<HashMap<String, Db>>>,
+    persist_path: &Option<PathBuf>,
+) {
     let method = req.method().clone();
     let url_full = req.url().to_string();
 
     // split path and query
     let (path, query) = match url_full.find('?') {
-        Some(i) => (&url_full[..i], Some(&url_full[i+1..])),
+        Some(i) => (&url_full[..i], Some(&url_full[i + 1..])),
         None => (&url_full[..], None),
     };
 
@@ -62,7 +72,9 @@ fn handle_request(mut req: Request, store: &Arc<Mutex<HashMap<String, Db>>>, per
     let mut qmap: HashMap<String, String> = HashMap::new();
     if let Some(qs) = query {
         for pair in qs.split('&') {
-            if pair.is_empty() { continue; }
+            if pair.is_empty() {
+                continue;
+            }
             let mut it = pair.splitn(2, '=');
             if let Some(k) = it.next() {
                 let v = it.next().unwrap_or("");
@@ -107,10 +119,13 @@ fn handle_request(mut req: Request, store: &Arc<Mutex<HashMap<String, Db>>>, per
                                     "length": bytes.len(),
                                     "content_type": "application/octet-stream",
                                 });
-                                let _ = req.respond(Response::from_string(meta.to_string()).with_status_code(200));
+                                let _ = req.respond(
+                                    Response::from_string(meta.to_string()).with_status_code(200),
+                                );
                                 return;
                             }
-                        } else if let Some(entry_data) = entry.get("data").and_then(|d| d.as_str()) {
+                        } else if let Some(entry_data) = entry.get("data").and_then(|d| d.as_str())
+                        {
                             if let Ok(bytes) = B64.decode(entry_data) {
                                 let resp = Response::from_data(bytes).with_status_code(200);
                                 let _ = req.respond(resp);
@@ -126,7 +141,11 @@ fn handle_request(mut req: Request, store: &Arc<Mutex<HashMap<String, Db>>>, per
             // create or replace doc (empty or with JSON body)
             let mut buf = String::new();
             let _ = req.as_reader().read_to_string(&mut buf);
-            let v = if buf.trim().is_empty() { serde_json::json!({}) } else { serde_json::from_str(&buf).unwrap_or(serde_json::json!({})) };
+            let v = if buf.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(&buf).unwrap_or(serde_json::json!({}))
+            };
             let mut lock = store.lock().unwrap();
             let dbmap = lock.entry(db.clone()).or_insert_with(HashMap::new);
             // set _rev to 1 if new; if existing, bump
@@ -141,11 +160,17 @@ fn handle_request(mut req: Request, store: &Arc<Mutex<HashMap<String, Db>>>, per
                     merged.insert("_rev".to_string(), serde_json::Value::String(new_rev));
                     dbmap.insert(doc.clone(), serde_json::Value::Object(merged));
                 } else {
-                    new_doc.insert("_rev".to_string(), serde_json::Value::String("1-manual".to_string()));
+                    new_doc.insert(
+                        "_rev".to_string(),
+                        serde_json::Value::String("1-manual".to_string()),
+                    );
                     dbmap.insert(doc.clone(), serde_json::Value::Object(new_doc));
                 }
             } else {
-                new_doc.insert("_rev".to_string(), serde_json::Value::String("1-manual".to_string()));
+                new_doc.insert(
+                    "_rev".to_string(),
+                    serde_json::Value::String("1-manual".to_string()),
+                );
                 dbmap.insert(doc.clone(), serde_json::Value::Object(new_doc));
             }
 
@@ -170,28 +195,44 @@ fn handle_request(mut req: Request, store: &Arc<Mutex<HashMap<String, Db>>>, per
 
             // rev check: if doc exists, require ?rev=<expected_rev>
             if let Some(existing_doc) = dbmap.get(&doc) {
-                let existing_rev = existing_doc.get("_rev").and_then(|r| r.as_str()).unwrap_or("");
+                let existing_rev = existing_doc
+                    .get("_rev")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("");
                 match qmap.get("rev") {
                     Some(given) if given == existing_rev => { /* ok */ }
                     Some(_) => {
-                        let _ = req.respond(Response::from_string("{\"error\":\"conflict\"}").with_status_code(409));
+                        let _ = req.respond(
+                            Response::from_string("{\"error\":\"conflict\"}").with_status_code(409),
+                        );
                         return;
                     }
                     None => {
                         // require rev to update existing doc
-                        let _ = req.respond(Response::from_string("{\"error\":\"conflict_missing_rev\"}").with_status_code(409));
+                        let _ = req.respond(
+                            Response::from_string("{\"error\":\"conflict_missing_rev\"}")
+                                .with_status_code(409),
+                        );
                         return;
                     }
                 }
             }
 
-            let doc_entry = dbmap.entry(doc.clone()).or_insert_with(|| serde_json::json!({}));
+            let doc_entry = dbmap
+                .entry(doc.clone())
+                .or_insert_with(|| serde_json::json!({}));
             // ensure _attachments map
-            let attachments = doc_entry.get("_attachments").cloned().unwrap_or(serde_json::json!({}));
+            let attachments = doc_entry
+                .get("_attachments")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
             let mut at_map = attachments.as_object().cloned().unwrap_or_default();
             at_map.insert(filename.clone(), serde_json::json!({"data": b64}));
             let mut new_doc = doc_entry.as_object().cloned().unwrap_or_default();
-            new_doc.insert("_attachments".to_string(), serde_json::Value::Object(at_map));
+            new_doc.insert(
+                "_attachments".to_string(),
+                serde_json::Value::Object(at_map),
+            );
 
             // bump rev
             let new_rev = bump_rev(new_doc.clone());

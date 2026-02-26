@@ -1,12 +1,12 @@
 #![allow(unused)]
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 /// Literbike QUIC Transport Client for Python
-/// 
+///
 /// Provides low-latency QUIC transport for Freqtrade ring_agent
 #[pyclass]
 struct QuicClient {
@@ -17,8 +17,9 @@ struct QuicClient {
 impl QuicClient {
     #[new]
     fn new() -> PyResult<Self> {
-        let runtime = Runtime::new()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create Tokio runtime: {}", e)))?;
+        let runtime = Runtime::new().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to create Tokio runtime: {}", e))
+        })?;
         Ok(Self {
             runtime: Arc::new(runtime),
         })
@@ -37,15 +38,13 @@ impl QuicClient {
     /// Get network interface information
     fn get_interfaces(&self) -> PyResult<Vec<PyObject>> {
         Python::with_gil(|py| {
-            let interfaces = vec![
-                {
-                    let dict = pyo3::types::PyDict::new(py);
-                    dict.set_item("name", "lo")?;
-                    dict.set_item("ip", "127.0.0.1")?;
-                    dict.set_item("flags", "UP,LOOPBACK")?;
-                    dict.into()
-                },
-            ];
+            let interfaces = vec![{
+                let dict = pyo3::types::PyDict::new(py);
+                dict.set_item("name", "lo")?;
+                dict.set_item("ip", "127.0.0.1")?;
+                dict.set_item("flags", "UP,LOOPBACK")?;
+                dict.into()
+            }];
             Ok(interfaces)
         })
     }

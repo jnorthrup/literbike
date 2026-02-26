@@ -15,4 +15,5 @@ quic = ["literbike/quic"]
 
 [dependencies]
 literbike = { path = "..", default-features = false, features = ["quic"] }
-
+serde_json = "1.0"
+tokio = { version = "1.41", features = ["rt", "net", "time"] }

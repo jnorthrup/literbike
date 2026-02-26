@@ -22,5 +22,7 @@ impl Default for QuicConfig {
 }
 
 impl QuicConfig {
-    pub fn arc() -> Arc<Self> { Arc::new(Self::default()) }
+    pub fn arc() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
 }

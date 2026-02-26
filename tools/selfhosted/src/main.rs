@@ -1,23 +1,23 @@
-use std::env;
-use std::path::PathBuf;
-use std::process::Command;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use tiny_http::{Server as TinyServer, Response};
-use std::sync::{Arc, Mutex};
-use serde_json::Value;
-use notify::{RecursiveMode, Watcher, Event};
-use tokio::sync::mpsc;
-use std::fs::File;
-use std::io::Write;
-use walkdir::WalkDir;
-use tar::Builder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use memmap2::MmapMut;
-mod densifier;
-mod couchdb_emulator;
+use notify::{Event, RecursiveMode, Watcher};
+use serde_json::Value;
+use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::Command;
+use std::sync::{Arc, Mutex};
+use tar::Builder;
+use tiny_http::{Response, Server as TinyServer};
+use tokio::sync::mpsc;
+use walkdir::WalkDir;
 mod config;
+mod couchdb_emulator;
+mod densifier;
 
 #[derive(Parser)]
 #[command(author, version, about="Minimal self-hosted mirror: git + CouchDB attachments + remote git push", long_about = None)]
@@ -31,7 +31,10 @@ enum Commands {
     /// Watch a directory and mirror changes
     Watch { path: PathBuf },
     /// Run an HTTP middle-tier server for status and manual triggers
-    Serve { bind: Option<String>, watch_path: Option<PathBuf> },
+    Serve {
+        bind: Option<String>,
+        watch_path: Option<PathBuf>,
+    },
     /// Run a tiny in-process CouchDB emulator (for tests/dev)
     Emu { bind: Option<String> },
     /// Mirror a git repo: create tar.gz, upload to CouchDB and write mmap index
@@ -45,8 +48,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-    Commands::Watch { path } => watch_and_mirror(path, None).await?,
-    Commands::Serve { bind, watch_path } => {
+        Commands::Watch { path } => watch_and_mirror(path, None).await?,
+        Commands::Serve { bind, watch_path } => {
             // Shared in-memory app state
             let app_state: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
 
@@ -54,48 +57,76 @@ async fn main() -> Result<()> {
             if let Some(p) = watch_path {
                 let p_clone = p.clone();
                 let s = Arc::clone(&app_state);
-                tokio::spawn(async move { let _ = watch_and_mirror(p_clone, Some(s)).await; });
+                tokio::spawn(async move {
+                    let _ = watch_and_mirror(p_clone, Some(s)).await;
+                });
             }
 
             let cfg = config::Config::from_env();
-            let listen = bind.or(cfg.http_bind).unwrap_or_else(|| "127.0.0.1:3000".to_string());
+            let listen = bind
+                .or(cfg.http_bind)
+                .unwrap_or_else(|| "127.0.0.1:3000".to_string());
             println!("Starting HTTP middle-tier at http://{}", listen);
 
-            let server = TinyServer::http(&listen).map_err(|e| anyhow::anyhow!("start tiny server: {}", e))?;
+            let server = TinyServer::http(&listen)
+                .map_err(|e| anyhow::anyhow!("start tiny server: {}", e))?;
             for request in server.incoming_requests() {
                 let url = request.url().to_string();
                 match url.as_str() {
                     "/status" => {
-                        let hdr = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+                        let hdr = tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"application/json"[..],
+                        )
+                        .unwrap();
                         let resp = Response::from_string("{\"status\":\"ok\"}").with_header(hdr);
                         let _ = request.respond(resp);
                     }
                     "/sync" => {
                         // trigger a sync (best-effort)
-                        let hdr = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
-                        let _ = request.respond(Response::from_string("{\"result\":\"triggered\"}").with_header(hdr));
+                        let hdr = tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"application/json"[..],
+                        )
+                        .unwrap();
+                        let _ = request.respond(
+                            Response::from_string("{\"result\":\"triggered\"}").with_header(hdr),
+                        );
                     }
                     "/appstate" => {
-                        let hdr = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+                        let hdr = tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"application/json"[..],
+                        )
+                        .unwrap();
                         let current = {
                             let lock = app_state.lock().unwrap();
                             lock.clone()
                         };
-                        let body = if let Some(v) = current { v.to_string() } else { "null".to_string() };
+                        let body = if let Some(v) = current {
+                            v.to_string()
+                        } else {
+                            "null".to_string()
+                        };
                         let _ = request.respond(Response::from_string(body).with_header(hdr));
                     }
                     _ => {
-                        let _ = request.respond(Response::from_string("Not found").with_status_code(404));
+                        let _ = request
+                            .respond(Response::from_string("Not found").with_status_code(404));
                     }
                 }
             }
         }
         Commands::Emu { bind } => {
-            let listen = bind.unwrap_or_else(|| std::env::var("COUCHDB_EMU_ADDR").unwrap_or_else(|_| "127.0.0.1:15984".to_string()));
+            let listen = bind.unwrap_or_else(|| {
+                std::env::var("COUCHDB_EMU_ADDR").unwrap_or_else(|_| "127.0.0.1:15984".to_string())
+            });
             println!("Starting CouchDB emulator at http://{}", listen);
             couchdb_emulator::start(&listen);
             // block the main thread to keep emulator running
-            loop { std::thread::park(); }
+            loop {
+                std::thread::park();
+            }
         }
         Commands::Mirror { path, doc_id } => {
             // create tar.gz of repo
@@ -111,7 +142,10 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn watch_and_mirror(path: PathBuf, app_state: Option<Arc<Mutex<Option<Value>>>>) -> Result<()> {
+async fn watch_and_mirror(
+    path: PathBuf,
+    app_state: Option<Arc<Mutex<Option<Value>>>>,
+) -> Result<()> {
     println!("Watching: {}", path.display());
 
     // Channel for events from notify to async tokio
@@ -126,9 +160,12 @@ async fn watch_and_mirror(path: PathBuf, app_state: Option<Arc<Mutex<Option<Valu
             }
             Err(e) => eprintln!("watch error: {:?}", e),
         }
-    }).context("create watcher")?;
+    })
+    .context("create watcher")?;
 
-    watcher.watch(&path, RecursiveMode::Recursive).context("watch path")?;
+    watcher
+        .watch(&path, RecursiveMode::Recursive)
+        .context("watch path")?;
 
     while let Some(event) = rx.recv().await {
         println!("fs event: {:?}", event);
@@ -215,8 +252,12 @@ fn git_push(repo_path: &PathBuf) -> Result<()> {
 
 async fn upload_attachment(doc_id: &str, file: &PathBuf) -> Result<()> {
     let cfg = config::Config::from_env();
-    let couch = cfg.couchdb_url.unwrap_or_else(|| env::var("COUCHDB_URL").unwrap_or_else(|_| "http://127.0.0.1:5984".to_string()));
-    let db = cfg.couchdb_db.unwrap_or_else(|| env::var("COUCHDB_DB").unwrap_or_else(|_| "literbike".to_string()));
+    let couch = cfg.couchdb_url.unwrap_or_else(|| {
+        env::var("COUCHDB_URL").unwrap_or_else(|_| "http://127.0.0.1:5984".to_string())
+    });
+    let db = cfg
+        .couchdb_db
+        .unwrap_or_else(|| env::var("COUCHDB_DB").unwrap_or_else(|_| "literbike".to_string()));
 
     // Ensure doc exists (create if missing)
     let client = reqwest::Client::new();
@@ -227,24 +268,37 @@ async fn upload_attachment(doc_id: &str, file: &PathBuf) -> Result<()> {
     let get = client.get(&doc_url).send().await?;
     if get.status().is_success() {
         if let Ok(v) = get.json::<serde_json::Value>().await {
-            rev = v.get("_rev").and_then(|r| r.as_str()).map(|s| s.to_string());
+            rev = v
+                .get("_rev")
+                .and_then(|r| r.as_str())
+                .map(|s| s.to_string());
         }
     } else {
         // create basic doc
-        let put = client.put(&doc_url).json(&serde_json::json!({})).send().await?;
+        let put = client
+            .put(&doc_url)
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
         // attempt to read rev by fetching the doc again
         if put.status().is_success() {
             let get2 = client.get(&doc_url).send().await?;
             if get2.status().is_success() {
                 if let Ok(v2) = get2.json::<serde_json::Value>().await {
-                    rev = v2.get("_rev").and_then(|r| r.as_str()).map(|s| s.to_string());
+                    rev = v2
+                        .get("_rev")
+                        .and_then(|r| r.as_str())
+                        .map(|s| s.to_string());
                 }
             }
         }
     }
 
     // Read file bytes
-    let filename = file.file_name().and_then(|s| s.to_str()).context("file name")?;
+    let filename = file
+        .file_name()
+        .and_then(|s| s.to_str())
+        .context("file name")?;
     let data = tokio::fs::read(file).await.context("read file")?;
 
     // Build attachment upload URL: /db/docid/filename?rev=...
@@ -256,7 +310,8 @@ async fn upload_attachment(doc_id: &str, file: &PathBuf) -> Result<()> {
         attach_url.push_str(&r);
     }
 
-    let resp = client.put(&attach_url)
+    let resp = client
+        .put(&attach_url)
         .body(data)
         .header("Content-Type", "application/octet-stream")
         .send()
@@ -274,7 +329,11 @@ async fn upload_attachment(doc_id: &str, file: &PathBuf) -> Result<()> {
 /// Create a repo.tar.gz from `path`, write an index.json as mmap file alongside it, return number of indexed entries.
 fn create_repo_tar_and_index(path: &PathBuf) -> Result<usize> {
     // create tar in system temp dir to avoid including it in the tar walk
-    let tmp_name = format!("repo-{}-{}.tar.zlib", std::process::id(), chrono::Utc::now().timestamp());
+    let tmp_name = format!(
+        "repo-{}-{}.tar.zlib",
+        std::process::id(),
+        chrono::Utc::now().timestamp()
+    );
     let tmp_path = std::env::temp_dir().join(&tmp_name);
     let tar_gz = File::create(&tmp_path).context("create tmp tar.zlib file")?;
     let enc = ZlibEncoder::new(tar_gz, Compression::default());
@@ -286,7 +345,8 @@ fn create_repo_tar_and_index(path: &PathBuf) -> Result<usize> {
         if p.is_file() {
             // Add file to tar with a relative path
             let rel = p.strip_prefix(path).unwrap().to_path_buf();
-            tar.append_path_with_name(p, rel.clone()).context("append file")?;
+            tar.append_path_with_name(p, rel.clone())
+                .context("append file")?;
             index.push(rel.to_string_lossy().to_string());
         }
     }
@@ -306,7 +366,11 @@ fn create_repo_tar_and_index(path: &PathBuf) -> Result<usize> {
     f.write_all(&idx_json).context("write idx")?;
 
     // mmap the index file to validate mapping
-    let file = File::options().read(true).write(true).open(&idx_path).context("open idx for mmap")?;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .open(&idx_path)
+        .context("open idx for mmap")?;
     let mmap = unsafe { MmapMut::map_mut(&file).context("mmap idx")? };
     // for demonstration we simply leave the bytes as-is (already written)
     mmap.flush().context("flush mmap")?;
@@ -317,10 +381,10 @@ fn create_repo_tar_and_index(path: &PathBuf) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs::write;
     use std::thread;
     use std::time::Duration;
+    use tempfile::tempdir;
 
     #[test]
     fn test_create_repo_tar_and_index() {
@@ -341,7 +405,8 @@ mod tests {
 
         // New user-story driven assertion: index file should be valid JSON array with relative paths
         let idx_raw = std::fs::read_to_string(p.join("repo.index.json")).expect("read index");
-        let parsed: serde_json::Value = serde_json::from_str(&idx_raw).expect("index is valid json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&idx_raw).expect("index is valid json");
         assert!(parsed.is_array());
         let arr = parsed.as_array().unwrap();
         assert_eq!(arr.len(), 2);
@@ -349,7 +414,9 @@ mod tests {
         for v in arr {
             if let Some(s) = v.as_str() {
                 assert!(!s.starts_with('/'));
-            } else { panic!("index entries must be strings"); }
+            } else {
+                panic!("index entries must be strings");
+            }
         }
     }
 
@@ -368,7 +435,9 @@ mod tests {
         let p = dir.path().to_path_buf();
         write(p.join("x.txt"), b"hi").unwrap();
 
-        upload_attachment("doc-emu", &p.join("x.txt")).await.expect("upload");
+        upload_attachment("doc-emu", &p.join("x.txt"))
+            .await
+            .expect("upload");
 
         // fetch back
         let client = reqwest::Client::new();
@@ -392,7 +461,12 @@ mod tests {
 
         // upload attachment without rev -> expect 409
         let attach_url = format!("http://{}/testdb/doc-conf/file.txt", bind);
-        let resp = client.put(&attach_url).body("hello").send().await.expect("put");
+        let resp = client
+            .put(&attach_url)
+            .body("hello")
+            .send()
+            .await
+            .expect("put");
         assert_eq!(resp.status().as_u16(), 409);
 
         // fetch doc to get rev
@@ -402,7 +476,12 @@ mod tests {
 
         // now upload with rev -> should succeed
         let attach_url_rev = format!("http://{}/testdb/doc-conf/file.txt?rev={}", bind, rev);
-        let resp2 = client.put(&attach_url_rev).body("hello").send().await.expect("put2");
+        let resp2 = client
+            .put(&attach_url_rev)
+            .body("hello")
+            .send()
+            .await
+            .expect("put2");
         assert!(resp2.status().is_success());
     }
 }
