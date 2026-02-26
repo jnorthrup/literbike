@@ -1,15 +1,15 @@
+use crate::rbcursive::{Indexed, Join, NetTuple, Signal};
 /// QUIC Protocol WAM Implementation - Placeholder
 /// WAM engine integration requires full implementation
 
 #[cfg(feature = "tensor")]
 use crate::wam_engine::{
-    WAMEngine, WAMInstruction, WAMResult, Register, Functor, Predicate,
-    Constant, Label, ProtocolType
+    Constant, Functor, Label, Predicate, ProtocolType, Register, WAMEngine, WAMInstruction,
+    WAMResult,
 };
-use crate::rbcursive::{Join, Indexed, Signal, NetTuple};
-use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 /// QUIC Protocol with CoroutineContext.Element Structure
 #[cfg(feature = "tensor")]
@@ -27,11 +27,11 @@ pub struct QUICContextElements {
     connection_context: ConnectionContextElement,
     stream_context: StreamContextElement,
     crypto_context: CryptoContextElement,
-    
+
     // Flow control context
     flow_context: FlowControlContextElement,
-    
-    // Congestion control context  
+
+    // Congestion control context
     congestion_context: CongestionContextElement,
 }
 
@@ -40,19 +40,19 @@ pub struct QUICContextElements {
 pub struct ConnectionContextElement {
     // Params
     params: ConnectionParams,
-    
+
     // Captures from listeners
     captures: ConnectionCaptures,
-    
+
     // Effects and mutations
     effects: ConnectionEffects,
-    
+
     // Pure transformations
     purity: ConnectionPurity,
-    
+
     // CAS/RAS atomic state
     atomic_state: ConnectionAtomics,
-    
+
     // CAD/CAR cons operations
     cons_state: ConnectionCons,
 }
@@ -69,10 +69,10 @@ pub struct ConnectionParams {
 pub struct ConnectionCaptures {
     // Captured from packet listener
     pub received_packets: Vec<QUICPacket>,
-    
+
     // Captured from timer listener
     pub timeout_events: Vec<TimeoutEvent>,
-    
+
     // Captured from application listener
     pub app_data: Vec<ApplicationData>,
 }
@@ -81,10 +81,10 @@ pub struct ConnectionCaptures {
 pub struct ConnectionEffects {
     // State mutation effects
     pub state_changes: Vec<StateChange>,
-    
+
     // Network I/O effects
     pub io_operations: Vec<IOOperation>,
-    
+
     // Timer effects
     pub timer_operations: Vec<TimerOperation>,
 }
@@ -93,10 +93,10 @@ pub struct ConnectionEffects {
 pub struct ConnectionPurity {
     // Pure packet transformations
     pub packet_transforms: Vec<PacketTransform>,
-    
+
     // Pure crypto operations
     pub crypto_operations: Vec<CryptoOperation>,
-    
+
     // Pure validation functions
     pub validations: Vec<ValidationResult>,
 }
@@ -104,24 +104,24 @@ pub struct ConnectionPurity {
 #[derive(Debug)]
 pub struct ConnectionAtomics {
     // CAS: Compare-And-Swap operations
-    pub connection_state: AtomicU32,      // Current connection state
-    pub packet_number: AtomicU64,         // Next packet number
-    pub ack_number: AtomicU64,           // Last ACK'd packet
-    
-    // RAS: Read-And-Set operations  
-    pub bytes_sent: AtomicU64,           // Total bytes sent
-    pub bytes_received: AtomicU64,       // Total bytes received
-    pub rtt_estimate: AtomicU32,         // RTT estimate in microseconds
+    pub connection_state: AtomicU32, // Current connection state
+    pub packet_number: AtomicU64,    // Next packet number
+    pub ack_number: AtomicU64,       // Last ACK'd packet
+
+    // RAS: Read-And-Set operations
+    pub bytes_sent: AtomicU64,     // Total bytes sent
+    pub bytes_received: AtomicU64, // Total bytes received
+    pub rtt_estimate: AtomicU32,   // RTT estimate in microseconds
 }
 
 #[derive(Debug)]
 pub struct ConnectionCons {
     // CAD: Car operations (head of list)
     pub packet_queue_head: Option<Box<QUICPacketCons>>,
-    
-    // CAR: Cdr operations (tail of list)  
+
+    // CAR: Cdr operations (tail of list)
     pub ack_list: Option<Box<AckCons>>,
-    
+
     // Stream list as cons cells
     pub stream_list: Option<Box<StreamCons>>,
 }
@@ -129,20 +129,20 @@ pub struct ConnectionCons {
 /// Cons Cell Structures for CAD/CAR Operations
 #[derive(Debug)]
 pub struct QUICPacketCons {
-    pub packet: QUICPacket,               // CAD: head value
+    pub packet: QUICPacket,                // CAD: head value
     pub next: Option<Box<QUICPacketCons>>, // CAR: tail
 }
 
-#[derive(Debug)]  
+#[derive(Debug)]
 pub struct AckCons {
-    pub ack_range: AckRange,              // CAD: head value
-    pub next: Option<Box<AckCons>>,       // CAR: tail
+    pub ack_range: AckRange,        // CAD: head value
+    pub next: Option<Box<AckCons>>, // CAR: tail
 }
 
 #[derive(Debug)]
 pub struct StreamCons {
-    pub stream: QUICStream,               // CAD: head value  
-    pub next: Option<Box<StreamCons>>,    // CAR: tail
+    pub stream: QUICStream,            // CAD: head value
+    pub next: Option<Box<StreamCons>>, // CAR: tail
 }
 
 /// QUIC Packet Structure
@@ -157,10 +157,10 @@ pub struct QUICPacket {
 
 #[derive(Debug, Clone)]
 pub struct QUICHeader {
-    pub flags: u8,                        // Header flags
-    pub connection_id: u64,               // Connection identifier
-    pub packet_type: QUICPacketType,      // Packet type
-    pub version: u32,                     // QUIC version
+    pub flags: u8,                   // Header flags
+    pub connection_id: u64,          // Connection identifier
+    pub packet_type: QUICPacketType, // Packet type
+    pub version: u32,                // QUIC version
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,11 +217,11 @@ impl QUICProtocol {
     /// Create new QUIC protocol with CoroutineContext.Element structure
     pub fn new() -> Self {
         let mut wam_engine = WAMEngine::new();
-        
+
         // Load QUIC WAM program with context element progressions
         let quic_program = Self::generate_quic_wam_program();
         wam_engine.load_code(quic_program);
-        
+
         Self {
             wam_engine,
             context_elements: QUICContextElements::new(),
@@ -230,7 +230,7 @@ impl QUICProtocol {
             congestion_state: CongestionState::new(),
         }
     }
-    
+
     /// Generate QUIC WAM program with CoroutineContext.Element progressions
     fn generate_quic_wam_program() -> Vec<WAMInstruction> {
         vec![
@@ -240,12 +240,11 @@ impl QUICProtocol {
                 functor: functor!("quic_connection_element", 6),
             },
             WAMInstruction::UnifyVariable { reg: Register(1) }, // Params
-            WAMInstruction::UnifyVariable { reg: Register(2) }, // Captures  
+            WAMInstruction::UnifyVariable { reg: Register(2) }, // Captures
             WAMInstruction::UnifyVariable { reg: Register(3) }, // Effects
             WAMInstruction::UnifyVariable { reg: Register(4) }, // Purity
             WAMInstruction::UnifyVariable { reg: Register(5) }, // CAS/RAS
             WAMInstruction::UnifyVariable { reg: Register(6) }, // CAD/CAR
-            
             // Packet type dispatch with context progression
             WAMInstruction::SwitchOnConstant {
                 table: std::sync::Arc::new({
@@ -258,52 +257,45 @@ impl QUICProtocol {
                     table
                 }),
             },
-            
             // Initial packet processing with element progression
             WAMInstruction::Call {
                 predicate: predicate!("process_initial", 6), // All 6 element components
                 arity: 6,
             },
-            
             // Handshake packet processing
             WAMInstruction::Call {
                 predicate: predicate!("process_handshake", 6),
                 arity: 6,
             },
-            
             // 1-RTT data packet processing
             WAMInstruction::Call {
                 predicate: predicate!("process_one_rtt", 6),
                 arity: 6,
             },
-            
             // Stream multiplexing with CAD/CAR operations
             WAMInstruction::Call {
                 predicate: predicate!("multiplex_streams", 2), // CAD/CAR operations
                 arity: 2,
             },
-            
             // Flow control with CAS/RAS atomics
             WAMInstruction::Call {
                 predicate: predicate!("flow_control", 2), // Atomic operations
                 arity: 2,
             },
-            
             // Congestion control with pure transformations
             WAMInstruction::Call {
                 predicate: predicate!("congestion_control", 2), // Purity operations
                 arity: 2,
             },
-            
             WAMInstruction::Proceed,
         ]
     }
-    
+
     /// Process QUIC packet with CoroutineContext.Element progression
     pub fn process_packet(&mut self, packet: QUICPacket) -> Result<Vec<QUICPacket>, QUICError> {
         // Setup context element with packet
         self.setup_context_element(&packet);
-        
+
         // Execute WAM program with element progression
         match self.wam_engine.execute() {
             WAMResult::Success => {
@@ -315,7 +307,7 @@ impl QUICProtocol {
             _ => Err(QUICError::InternalError),
         }
     }
-    
+
     /// Setup CoroutineContext.Element with packet data
     fn setup_context_element(&mut self, packet: &QUICPacket) {
         // Params: Extract packet parameters
@@ -325,54 +317,64 @@ impl QUICProtocol {
             remote_addr: NetTuple::default(),
             initial_packet_number: packet.packet_number,
         };
-        
+
         // Captures: Capture from listeners (simulated)
         let captures = ConnectionCaptures {
             received_packets: vec![packet.clone()],
             timeout_events: vec![],
             app_data: vec![],
         };
-        
+
         // Effects: Prepare effect operations
         let effects = ConnectionEffects {
             state_changes: vec![],
             io_operations: vec![],
             timer_operations: vec![],
         };
-        
+
         // Purity: Pure transformations
         let purity = ConnectionPurity {
             packet_transforms: vec![],
             crypto_operations: vec![],
             validations: vec![],
         };
-        
+
         // Update context element
         self.context_elements.connection_context.params = params;
         self.context_elements.connection_context.captures = captures;
         self.context_elements.connection_context.effects = effects;
         self.context_elements.connection_context.purity = purity;
     }
-    
+
     /// CAD operation: Get head of packet queue (Car)
     pub fn packet_queue_head(&self) -> Option<&QUICPacket> {
-        self.context_elements.connection_context.cons_state
+        self.context_elements
+            .connection_context
+            .cons_state
             .packet_queue_head
             .as_ref()
             .map(|cons| &cons.packet)
     }
-    
+
     /// CAR operation: Get tail of packet queue (Cdr)  
     pub fn packet_queue_tail(&self) -> Option<&QUICPacketCons> {
-        self.context_elements.connection_context.cons_state
+        self.context_elements
+            .connection_context
+            .cons_state
             .packet_queue_head
             .as_ref()
             .and_then(|cons| cons.next.as_ref().map(|boxed| boxed.as_ref()))
     }
-    
+
     /// CAS operation: Compare-and-swap connection state
-    pub fn cas_connection_state(&self, expected: QUICConnectionState, new: QUICConnectionState) -> bool {
-        self.context_elements.connection_context.atomic_state
+    pub fn cas_connection_state(
+        &self,
+        expected: QUICConnectionState,
+        new: QUICConnectionState,
+    ) -> bool {
+        self.context_elements
+            .connection_context
+            .atomic_state
             .connection_state
             .compare_exchange_weak(
                 expected as u32,
@@ -382,14 +384,16 @@ impl QUICProtocol {
             )
             .is_ok()
     }
-    
+
     /// RAS operation: Read-and-set packet number
     pub fn ras_packet_number(&self) -> u64 {
-        self.context_elements.connection_context.atomic_state
+        self.context_elements
+            .connection_context
+            .atomic_state
             .packet_number
             .fetch_add(1, Ordering::AcqRel)
     }
-    
+
     /// Pure transformation: Validate packet structure
     pub fn pure_validate_packet(&self, packet: &QUICPacket) -> ValidationResult {
         ValidationResult {
@@ -397,7 +401,7 @@ impl QUICProtocol {
             errors: vec![],
         }
     }
-    
+
     /// Effect operation: Send packet to network
     pub fn effect_send_packet(&mut self, packet: QUICPacket) -> IOOperation {
         let io_op = IOOperation {
@@ -405,35 +409,40 @@ impl QUICProtocol {
             data: packet.payload.clone(),
             target: packet.header.connection_id,
         };
-        
+
         // Add to effects list
-        self.context_elements.connection_context.effects
+        self.context_elements
+            .connection_context
+            .effects
             .io_operations
             .push(io_op.clone());
-        
+
         io_op
     }
-    
+
     /// Stream multiplexing with CAD/CAR operations
     pub fn multiplex_streams(&mut self) -> Result<(), QUICError> {
         // Walk stream list using CAR operations
-        let mut current_stream = self.context_elements.connection_context.cons_state
+        let mut current_stream = self
+            .context_elements
+            .connection_context
+            .cons_state
             .stream_list
             .as_ref();
-            
+
         while let Some(stream_cons) = current_stream {
             let stream = &stream_cons.stream;
-            
+
             // Process stream data
             self.process_stream_data(stream)?;
-            
+
             // Move to next stream (CAR operation)
             current_stream = stream_cons.next.as_ref().map(|boxed| boxed.as_ref());
         }
-        
+
         Ok(())
     }
-    
+
     /// Process individual stream data
     fn process_stream_data(&mut self, stream: &QUICStream) -> Result<(), QUICError> {
         match stream.state {
@@ -455,43 +464,50 @@ impl QUICProtocol {
             }
         }
     }
-    
+
     /// Flow control with atomic operations
     pub fn apply_flow_control(&mut self) -> Result<(), QUICError> {
         // Read current bytes sent atomically
-        let bytes_sent = self.context_elements.connection_context.atomic_state
+        let bytes_sent = self
+            .context_elements
+            .connection_context
+            .atomic_state
             .bytes_sent
             .load(Ordering::Acquire);
-            
+
         // Check against connection-level flow control limit
         const CONNECTION_FLOW_LIMIT: u64 = 1024 * 1024; // 1MB
-        
+
         if bytes_sent >= CONNECTION_FLOW_LIMIT {
             return Err(QUICError::FlowControlViolation);
         }
-        
+
         Ok(())
     }
-    
+
     /// Congestion control with pure functions
     pub fn update_congestion_window(&mut self, ack_packet: &QUICPacket) -> u32 {
         // Pure function: calculate new congestion window
         let current_cwnd = self.congestion_state.congestion_window;
-        let rtt = self.context_elements.connection_context.atomic_state
+        let rtt = self
+            .context_elements
+            .connection_context
+            .atomic_state
             .rtt_estimate
             .load(Ordering::Acquire);
-            
+
         // Simple congestion control (AIMD)
-        let new_cwnd = if rtt < 100_000 { // < 100ms
+        let new_cwnd = if rtt < 100_000 {
+            // < 100ms
             current_cwnd + 1 // Additive increase
         } else {
             current_cwnd.saturating_sub(current_cwnd / 2) // Multiplicative decrease
         };
-        
+
         self.congestion_state.congestion_window = new_cwnd;
         new_cwnd
     }
-    
+
     fn extract_response_packets(&self) -> Vec<QUICPacket> {
         // Extract packets from effects and purity components
         vec![]
@@ -822,64 +838,83 @@ impl Default for CongestionParameters {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_quic_protocol_creation() {
         let protocol = QUICProtocol::new();
-        
+
         // Verify context elements are initialized
         assert_eq!(
-            protocol.context_elements.connection_context.atomic_state
+            protocol
+                .context_elements
+                .connection_context
+                .atomic_state
                 .connection_state
                 .load(Ordering::Acquire),
             QUICConnectionState::Idle as u32
         );
     }
-    
+
     #[test]
     fn test_cas_connection_state() {
         let protocol = QUICProtocol::new();
-        
+
         // Test CAS operation
-        let success = protocol.cas_connection_state(
-            QUICConnectionState::Idle,
-            QUICConnectionState::Initial,
-        );
-        
+        let success =
+            protocol.cas_connection_state(QUICConnectionState::Idle, QUICConnectionState::Initial);
+
         assert!(success);
-        
+
         // Verify state changed
         assert_eq!(
-            protocol.context_elements.connection_context.atomic_state
+            protocol
+                .context_elements
+                .connection_context
+                .atomic_state
                 .connection_state
                 .load(Ordering::Acquire),
             QUICConnectionState::Initial as u32
         );
     }
-    
-    #[test] 
+
+    #[test]
     fn test_ras_packet_number() {
         let protocol = QUICProtocol::new();
-        
+
         // Test RAS operation
         let pkt_num1 = protocol.ras_packet_number();
         let pkt_num2 = protocol.ras_packet_number();
-        
+
         assert_eq!(pkt_num1, 0);
         assert_eq!(pkt_num2, 1);
     }
-    
+
     #[test]
     fn test_context_element_structure() {
         let elements = QUICContextElements::new();
-        
+
         // Verify all 6 element components exist
         assert_eq!(elements.connection_context.params.connection_id, 0);
-        assert!(elements.connection_context.captures.received_packets.is_empty());
+        assert!(elements
+            .connection_context
+            .captures
+            .received_packets
+            .is_empty());
         assert!(elements.connection_context.effects.state_changes.is_empty());
         assert!(elements.connection_context.purity.validations.is_empty());
-        assert_eq!(elements.connection_context.atomic_state.packet_number.load(Ordering::Acquire), 0);
-        assert!(elements.connection_context.cons_state.packet_queue_head.is_none());
+        assert_eq!(
+            elements
+                .connection_context
+                .atomic_state
+                .packet_number
+                .load(Ordering::Acquire),
+            0
+        );
+        assert!(elements
+            .connection_context
+            .cons_state
+            .packet_queue_head
+            .is_none());
     }
 }
 

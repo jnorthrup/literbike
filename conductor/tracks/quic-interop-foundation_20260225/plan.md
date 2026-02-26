@@ -41,6 +41,22 @@
 
 - [x] Run targeted Rust tests for QUIC protocol/engine changes
 - [x] Build the new C ABI crate and verify exported symbols are present
-- [ ] Run a minimal Python `ctypes` smoke path (connect/request error path is acceptable initially)
-- [ ] Verify existing `literbike-ffi` PyO3 crate remains buildable/unbroken
+- [x] Run a minimal Python `ctypes` smoke path (connect/request error path is acceptable initially)
+- [x] Verify existing `literbike-ffi` PyO3 crate remains buildable/unbroken
 - [x] Document limitations (not full QUIC/TLS interop yet) in track notes or code comments
+
+## Validation Notes
+
+- Default `cargo check -p literbike-ffi` is blocked by local Python 3.14 with
+  `pyo3 = 0.20.3` (PyO3 max supported Python is 3.12 without ABI3 forward-compat
+  override).
+- Validation completed with:
+  `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo check -p literbike-ffi`
+  (build succeeded; warning-only output from PyO3 macros).
+- Added a local `QuicServer` echo integration test in `literbike-quic-capi` proving
+  a successful C ABI `quic_request` roundtrip (`200` response path) in addition to
+  transport-error (`504`) behavior.
+- Added a backward-compatible protocol discriminator at the C ABI boundary:
+  `quic_request_ex(..., protocol_mode)` plus exported mode constants/accessors, with
+  `quic_request(...)` preserved as the compatibility wrapper (defaulting to current
+  `HTTP/1.1-over-QUIC stream` behavior).

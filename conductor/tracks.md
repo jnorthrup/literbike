@@ -2,7 +2,7 @@
 
 ---
 
-## [~] Track: QUIC Interop Foundation (Packet Numbers, Crypto Hooks, C ABI)
+## [x] Track: QUIC Interop Foundation (Packet Numbers, Crypto Hooks, C ABI)
 
 Advance QUIC interoperability foundations by adding packet number reconstruction
 and header-protection hooks, starting a feature-gated handshake/crypto path, and
@@ -13,29 +13,29 @@ adding a ctypes-friendly C ABI crate for the `freqtrade` integration seam.
 - [x] Add packet number reconstruction + header protection hooks in `quic_engine.rs`
 - [x] Start feature-gated handshake/crypto integration path
 - [x] Add separate `cdylib` crate with QUIC C ABI exports
-- [~] Run focused validation (Rust tests + FFI smoke/error paths)
+- [x] Run focused validation (Rust tests + FFI smoke/error paths)
 
 **Link:** [quic-interop-foundation_20260225](./tracks/quic-interop-foundation_20260225/)
 
 ---
 
-## [ ] Track: Port Kotlin Reactor (Trikeshed Event-Driven I/O)
+## [x] Track: Port Kotlin Reactor (Trikeshed Event-Driven I/O)
 
 Port the Trikeshed reactor foundation into `literbike` so QUIC and other
 transport code can use a real event-driven I/O runtime abstraction instead of
 the current stub-only reactor export.
 
 ### Status
-- [ ] Map Trikeshed reactor sources to `literbike/src/reactor/*`
-- [ ] Add reactor/channel/operation/platform modules and exports
-- [ ] Integrate timer and handler/context seams
-- [ ] Add readiness/timer/shutdown tests
+- [x] Map Trikeshed reactor sources to `literbike/src/reactor/*`
+- [x] Add reactor/channel/operation/platform modules and exports
+- [x] Integrate timer and handler/context seams
+- [x] Add readiness/timer/shutdown tests
 
 **Link:** [kotlin-reactor-port_20260225](./tracks/kotlin-reactor-port_20260225/)
 
 ---
 
-## [ ] Track: Port Kotlin QUIC (Full Packet Processing from Trikeshed)
+## [~] Track: Port Kotlin QUIC (Full Packet Processing from Trikeshed)
 
 Port packet-processing semantics from Trikeshed QUIC modules into `literbike`
 without regressing the new wire codec foundation, focusing on engine state,
@@ -46,6 +46,12 @@ ACK/CRYPTO/STREAM handling, connection lifecycle, and server integration.
 - [ ] Port engine/connection/stream semantics
 - [ ] Expand packet processing coverage in `tests/quic`
 - [ ] Preserve compatibility with QUIC interop foundation hooks
+- In progress: decoder-to-engine packet-number-length metadata threading landed
+  (`quic_protocol` -> `quic_engine` -> `quic_server`/`literbike-quic-capi`)
+- In progress: ACK processing now prunes acknowledged sent packets and uses
+  exact wire-length accounting (no fixed 1350-byte estimate)
+- In progress: async send path is transactional (encode-before-commit) with
+  best-effort rollback on UDP send failure to avoid state/accounting drift
 
 **Link:** [kotlin-quic-packet-processing-port_20260225](./tracks/kotlin-quic-packet-processing-port_20260225/)
 

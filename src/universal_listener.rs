@@ -4,6 +4,7 @@ use tokio::net::TcpStream;
 use log::{debug, info};
 
 
+use crate::model_serving_taxonomy::{classify_http_request_prefix, ModelProtocolDecode};
 use crate::posix_sockets::posix_peek;
 
 // Re-export protocol trait so tests can reference it from this module
@@ -176,6 +177,15 @@ pub fn detect_protocol_posix(stream: &TcpStream) -> io::Result<Protocol> {
     Ok(Protocol::Unknown)
 }
 
+/// Decode model-serving protocol semantics from an HTTP-like socket prefix.
+///
+/// This is an overlay classifier for model APIs and control-plane commands
+/// (OpenAI/Anthropic/Gemini/OpenAPI3/key-vault ops). It does not replace the
+/// transport protocol detector; it enriches `Protocol::Http` handling.
+pub fn decode_model_api_from_prefix(prefix: &[u8]) -> Option<ModelProtocolDecode> {
+    classify_http_request_prefix(prefix)
+}
+
 
 /// Wrapper stream that prefixes read operations with buffered data
 pub struct PrefixedStream<S> {
@@ -268,6 +278,21 @@ pub async fn handle_connection(
     info!("New connection from {}", peer_addr);
     
     let (protocol, buffer) = detect_protocol(&mut stream).await?;
+
+    if matches!(protocol, Protocol::Http) {
+        if let Some(decoded) = decode_model_api_from_prefix(&buffer) {
+            info!(
+                "Model API decode for {}: {:?} {:?} template={:?} mux={:?} path={} confidence={}",
+                peer_addr,
+                decoded.family,
+                decoded.action,
+                decoded.template,
+                decoded.default_mux,
+                decoded.path,
+                decoded.confidence
+            );
+        }
+    }
     
     // Create a prefixed stream that includes the already-read bytes
     let prefixed_stream = PrefixedStream::new(stream, buffer);
@@ -378,5 +403,12 @@ mod tests {
         prefixed.read_to_end(&mut result).await.unwrap();
         
         assert_eq!(result, b"Hello, World!");
+    }
+
+    #[test]
+    fn test_decode_model_api_from_prefix_openai_chat() {
+        let data = b"POST /v1/chat/completions HTTP/1.1\r\nHost: api.openai.com\r\nAuthorization: Bearer sk\r\n\r\n{}";
+        let decoded = decode_model_api_from_prefix(data).expect("model decode");
+        assert!(matches!(decoded.action, crate::model_serving_taxonomy::ModelApiAction::ChatCompletions));
     }
 }

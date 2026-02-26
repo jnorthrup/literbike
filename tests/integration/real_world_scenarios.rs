@@ -1,8 +1,8 @@
 // tests/integration/real_world_scenarios.rs
 
-use tokio::net::TcpStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::utils::mock_servers::{MockHttpServer, MockSocks5Server};
@@ -10,7 +10,11 @@ use crate::utils::mock_servers::{MockHttpServer, MockSocks5Server};
 #[tokio::test]
 async fn test_http_get_request_through_proxy() {
     // Start a mock HTTP server
-    let http_server = MockHttpServer::new(vec!["HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello".to_string()]).await.unwrap();
+    let http_server = MockHttpServer::new(vec![
+        "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello".to_string(),
+    ])
+    .await
+    .unwrap();
     let http_server_addr = http_server.addr();
     tokio::spawn(http_server.run());
 
@@ -27,16 +31,24 @@ async fn test_http_get_request_through_proxy() {
 
     // Read the response
     let mut response = String::new();
-    timeout(Duration::from_secs(5), stream.read_to_string(&mut response)).await.unwrap().unwrap();
+    timeout(Duration::from_secs(5), stream.read_to_string(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
 
     // Assert that the response is correct
-    assert_eq!(response, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello");
+    assert_eq!(
+        response,
+        "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello"
+    );
 }
 
 #[tokio::test]
 async fn test_false_positives() {
     // Start a mock HTTP server
-    let http_server = MockHttpServer::new(vec!["HTTP/1.1 200 OK\r\n\r\n".to_string()]).await.unwrap();
+    let http_server = MockHttpServer::new(vec!["HTTP/1.1 200 OK\r\n\r\n".to_string()])
+        .await
+        .unwrap();
     let http_server_addr = http_server.addr();
     tokio::spawn(http_server.run());
 

@@ -12,6 +12,10 @@ impl Config {
         let couchdb_url = env::var("COUCHDB_URL").ok();
         let couchdb_db = env::var("COUCHDB_DB").ok();
         let http_bind = env::var("SELFHOSTED_BIND").ok();
-        Self { couchdb_url, couchdb_db, http_bind }
+        Self {
+            couchdb_url,
+            couchdb_db,
+            http_bind,
+        }
     }
 }

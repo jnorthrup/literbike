@@ -2,30 +2,40 @@
 
 ## Phase 1: Mapping and Interface Design
 
-- [ ] Read Trikeshed reactor source files and map responsibilities
-- [ ] Inspect existing `literbike` reactor modules (`simple_reactor`, `timer`, `handler`, `context`)
-- [ ] Define Rust module layout (`reactor`, `selector`, `channel`, `operation`, `platform`)
-- [ ] Define trait shapes for selectable/readable/writable channels
+- [x] Read Trikeshed reactor source files and map responsibilities
+- [x] Inspect existing `literbike` reactor modules (`simple_reactor`, `timer`, `handler`, `context`)
+- [x] Define Rust module layout (`reactor`, `selector`, `channel`, `operation`, `platform`)
+- [x] Define trait shapes for selectable/readable/writable channels
 
 ## Phase 2: Core Reactor Port
 
-- [ ] Implement `operation.rs` (interest/operation semantics)
-- [ ] Implement `channel.rs` traits and basic registration metadata
-- [ ] Implement `selector.rs` baseline readiness backend
-- [ ] Implement `reactor.rs` event loop (register/poll/dispatch/shutdown)
-- [ ] Integrate timer scheduling into poll timeout calculation
+- [x] Implement `operation.rs` (interest/operation semantics)
+- [x] Implement `channel.rs` traits and basic registration metadata
+- [x] Implement `selector.rs` baseline readiness backend
+- [x] Implement `reactor.rs` event loop (register/poll/dispatch/shutdown)
+- [x] Integrate timer scheduling into poll timeout calculation
 
 ## Phase 3: Export and Compatibility Integration
 
-- [ ] Update `/Users/jim/work/literbike/src/reactor/mod.rs` exports
-- [ ] Retain `SimpleReactor` compatibility path
-- [ ] Wire handler/context modules into the new reactor path where applicable
-- [ ] Add docs/comments for module roles and boundaries
+- [x] Update `/Users/jim/work/literbike/src/reactor/mod.rs` exports
+- [x] Retain `SimpleReactor` compatibility path
+- [x] Wire handler/context modules into the new reactor path where applicable
+- [x] Add docs/comments for module roles and boundaries
 
 ## Phase 4: Verification
 
-- [ ] Add unit tests for registration/readiness dispatch
-- [ ] Add timer integration tests
-- [ ] Add shutdown/cleanup tests
-- [ ] Run focused tests for reactor modules
+- [x] Add unit tests for registration/readiness dispatch
+- [x] Add timer integration tests
+- [x] Add shutdown/cleanup tests
+- [x] Run focused tests for reactor modules
 
+## Validation Notes
+
+- Implemented a portable baseline reactor using a deterministic `ManualSelector`
+  backend (`src/reactor/selector.rs`) to provide real registration/readiness
+  semantics without OS-specific polling in this track.
+- `src/reactor/reactor.rs` integrates `TimerWheel` into poll timeout
+  calculation and supports registration, dispatch, and shutdown cleanup.
+- Focused validation run:
+  `cargo test -p literbike --lib reactor::`
+  (reactor module tests passed, including readiness dispatch/timer/shutdown).

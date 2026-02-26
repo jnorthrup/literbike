@@ -1,35 +1,35 @@
+use literbike::couchdb::{
+    api::{create_router, AppState},
+    database::DatabaseManager,
+    error::CouchError,
+    ipfs::{IpfsConfig, IpfsKvStore, IpfsManager, KvStoreConfig},
+    m2m::{HeartbeatHandler, M2mConfig, M2mManager, ReplicationHandler},
+    tensor::{TensorConfig, TensorEngine},
+    views::{ViewServer, ViewServerConfig},
+};
+use log::{error, info, warn};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use literbike::couchdb::{
-    database::DatabaseManager,
-    views::{ViewServer, ViewServerConfig},
-    m2m::{M2mManager, M2mConfig, HeartbeatHandler, ReplicationHandler},
-    tensor::{TensorEngine, TensorConfig},
-    ipfs::{IpfsManager, IpfsConfig, IpfsKvStore, KvStoreConfig},
-    api::{create_router, AppState},
-    error::CouchError,
-};
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
-use log::{info, warn, error};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::init();
-    
+
     info!("Starting LiterBike CouchDB Emulator v0.1.0");
-    
+
     // Load configuration
     let config = load_configuration();
-    
+
     // Initialize components
     let db_manager = Arc::new(DatabaseManager::new(&config.data_dir)?);
     let view_server = Arc::new(ViewServer::new(ViewServerConfig::default())?);
     let m2m_manager = Arc::new(M2mManager::new(None, M2mConfig::default()));
     let tensor_engine = Arc::new(TensorEngine::new(TensorConfig::default()));
-    
+
     // Initialize IPFS components if enabled
     let (ipfs_manager, kv_store) = if config.ipfs_enabled {
         let ipfs_config = IpfsConfig {
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             gateway_url: config.ipfs_gateway_url.clone(),
             ..IpfsConfig::default()
         };
-        
+
         match IpfsManager::new(ipfs_config) {
             Ok(ipfs_manager) => {
                 let ipfs_manager = Arc::new(ipfs_manager);
@@ -68,19 +68,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
         (ipfs_manager, kv_store)
     };
-    
+
     // Initialize default databases
     db_manager.initialize_defaults()?;
-    
+
     // Setup M2M handlers
     let node_id = m2m_manager.get_node_id();
     m2m_manager.register_handler(HeartbeatHandler::new(node_id.clone()))?;
     m2m_manager.register_handler(ReplicationHandler::new(node_id))?;
-    
+
     // Start M2M background services
     let m2m_handles = m2m_manager.start_services().await?;
     info!("Started {} M2M background services", m2m_handles.len());
-    
+
     // Create application state
     let app_state = AppState {
         db_manager,
@@ -90,28 +90,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ipfs_manager,
         kv_store,
     };
-    
+
     // Create router with middleware
-    let app = create_router(app_state)
-        .layer(
-            ServiceBuilder::new()
-                .layer(TraceLayer::new_for_http())
-        );
-    
+    let app =
+        create_router(app_state).layer(ServiceBuilder::new().layer(TraceLayer::new_for_http()));
+
     // Start server
     let addr: SocketAddr = format!("{}:{}", config.bind_address, config.bind_port)
         .parse()
         .expect("Invalid bind address/port");
-    
+
     info!("CouchDB Emulator starting on http://{}", addr);
     info!("Swagger UI available at http://{}/swagger-ui", addr);
     info!("API documentation at http://{}/api-docs/openapi.json", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    
+
     // Graceful shutdown
     let server = axum::serve(listener, app);
-    
+
     tokio::select! {
         result = server => {
             if let Err(e) = result {
@@ -122,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("Received shutdown signal, shutting down gracefully...");
         }
     }
-    
+
     info!("CouchDB Emulator stopped");
     Ok(())
 }
@@ -156,46 +153,49 @@ impl Default for EmulatorConfig {
 /// Load configuration from environment variables
 fn load_configuration() -> EmulatorConfig {
     let mut config = EmulatorConfig::default();
-    
+
     if let Ok(addr) = std::env::var("COUCHDB_BIND_ADDRESS") {
         config.bind_address = addr;
     }
-    
+
     if let Ok(port) = std::env::var("COUCHDB_BIND_PORT") {
         if let Ok(port_num) = port.parse::<u16>() {
             config.bind_port = port_num;
         }
     }
-    
+
     if let Ok(data_dir) = std::env::var("COUCHDB_DATA_DIR") {
         config.data_dir = data_dir;
     }
-    
+
     if let Ok(ipfs_enabled) = std::env::var("COUCHDB_IPFS_ENABLED") {
         config.ipfs_enabled = ipfs_enabled.to_lowercase() == "true";
     }
-    
+
     if let Ok(ipfs_api) = std::env::var("IPFS_API_URL") {
         config.ipfs_api_url = ipfs_api;
     }
-    
+
     if let Ok(ipfs_gateway) = std::env::var("IPFS_GATEWAY_URL") {
         config.ipfs_gateway_url = ipfs_gateway;
     }
-    
+
     if let Ok(log_level) = std::env::var("RUST_LOG") {
         config.log_level = log_level;
     }
-    
-    info!("Configuration loaded: bind={}:{}, data_dir={}, ipfs_enabled={}", 
-          config.bind_address, config.bind_port, config.data_dir, config.ipfs_enabled);
-    
+
+    info!(
+        "Configuration loaded: bind={}:{}, data_dir={}, ipfs_enabled={}",
+        config.bind_address, config.bind_port, config.data_dir, config.ipfs_enabled
+    );
+
     config
 }
 
 /// Print startup banner
 fn print_banner() {
-    println!(r#"
+    println!(
+        r#"
     ╭─────────────────────────────────────────────────────────╮
     │                                                         │
     │        LiterBike CouchDB Emulator v0.1.0               │
@@ -207,6 +207,6 @@ fn print_banner() {
     │        + Cursor-based Pagination                        │
     │                                                         │
     ╰─────────────────────────────────────────────────────────╯
-    "#);
+    "#
+    );
 }
-

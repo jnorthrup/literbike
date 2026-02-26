@@ -4,7 +4,10 @@ fn main() -> std::io::Result<()> {
     let ifaces = list_interfaces()?;
     println!("Interfaces:");
     for (name, iface) in &ifaces {
-        println!("  {}: index={}, flags=0x{:x}, addrs={:?}", name, iface.index, iface.flags, iface.addrs);
+        println!(
+            "  {}: index={}, flags=0x{:x}, addrs={:?}",
+            name, iface.index, iface.flags, iface.addrs
+        );
     }
 
     match get_default_gateway() {

@@ -35,7 +35,11 @@ pub enum StreamError {
     #[error("Stream {stream_id} is closed")]
     StreamClosed { stream_id: u64 },
     #[error("Stream {stream_id} flow control blocked: window={window_id}, attempted={attempted}")]
-    FlowControlBlocked { stream_id: u64, window_id: u64, attempted: u64 },
+    FlowControlBlocked {
+        stream_id: u64,
+        window_id: u64,
+        attempted: u64,
+    },
     #[error("Invalid stream ID: {stream_id}")]
     InvalidStreamId { stream_id: u64 },
     #[error("Maximum number of streams exceeded")]
@@ -49,7 +53,10 @@ pub enum ProtocolError {
     #[error("QUIC version mismatch: local={local}, remote={remote}")]
     VersionMismatch { local: u64, remote: u64 },
     #[error("Crypto error: {0}")]
-    Crypto(String, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Crypto(
+        String,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
     #[error("Invalid stream ID: {0}")]
     InvalidStreamId(u64),
 }
@@ -57,7 +64,10 @@ pub enum ProtocolError {
 #[derive(Debug, Error)]
 pub enum TransportError {
     #[error("Network error: {0}")]
-    Network(String, #[source] Option<Box<dyn std::error::Error + Send + Sync>>),
+    Network(
+        String,
+        #[source] Option<Box<dyn std::error::Error + Send + Sync>>,
+    ),
     #[error("Packet size {size} exceeds MTU {mtu}")]
     PacketTooLarge { size: usize, mtu: usize },
 }
