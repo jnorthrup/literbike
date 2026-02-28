@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiteBike QUIC VQA - Test Pattern</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LiteBike QUIC Server</h1>
+            <p class="subtitle">Visual Quality Assurance - Signal Acquisition</p>
+        </header>
+        
+        <main>
+            <div class="monitor-frame">
+                <div class="screen">
+                    <img src="bw_test_pattern.png" alt="B&W TV Test Pattern" id="test-pattern">
+                    <div class="scanlines"></div>
+                    <div class="noise"></div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div class="status-bar">
+                <span class="status-item"><span class="dot green"></span> QUIC/H3 ACTIVE</span>
+                <span class="status-item">ENCRYPTION: AES-128-GCM</span>
+                <span class="status-item" id="timestamp">SIGNAL LOCKED</span>
+            </div>
+        </footer>
+    </div>
+    <script>
+        // Subtle animation for the timestamp
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('timestamp').textContent = 'SIGNAL LOCKED ' + now.toLocaleTimeString();
+        }, 1000);
+    </script>
+</body>
+</html>

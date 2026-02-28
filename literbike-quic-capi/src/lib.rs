@@ -4,6 +4,7 @@ use literbike::quic::quic_protocol::{
     TransportParameters,
 };
 use literbike::quic::QuicEngine;
+use literbike::dht::{DhtService, PeerId, PeerInfo};
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -514,6 +515,180 @@ pub extern "C" fn quic_protocol_mode_http1_over_quic() -> u32 {
 #[no_mangle]
 pub extern "C" fn quic_protocol_mode_http3() -> u32 {
     QUIC_REQUEST_PROTOCOL_HTTP3
+}
+
+// ============================================================================
+// DHT Service C ABI
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn quic_dht_service_new(local_peer_id_b58: *const c_char) -> *mut DhtService {
+    let peer_id_str = match read_cstr(local_peer_id_b58, "local_peer_id_b58") {
+        Ok(s) => s,
+        Err(()) => return ptr::null_mut(),
+    };
+
+    let peer_id = match PeerId::from_base58(&peer_id_str) {
+        Some(id) => id,
+        None => {
+            set_last_error("invalid base58 for local_peer_id");
+            return ptr::null_mut();
+        }
+    };
+
+    set_last_error("literbike-quic-capi: no error");
+    Box::into_raw(Box::new(DhtService::new(peer_id)))
+}
+
+#[no_mangle]
+pub extern "C" fn quic_dht_service_free(service: *mut DhtService) {
+    if !service.is_null() {
+        unsafe {
+            drop(Box::from_raw(service));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn quic_dht_add_peer(service: *mut DhtService, peer_json: *const c_char) -> bool {
+    if service.is_null() {
+        set_last_error("dht service handle is null");
+        return false;
+    }
+
+    let peer_json_str = match read_cstr(peer_json, "peer_json") {
+        Ok(s) => s,
+        Err(()) => return false,
+    };
+
+    let peer: PeerInfo = match serde_json::from_str(&peer_json_str) {
+        Ok(p) => p,
+        Err(e) => {
+            set_last_error(format!("failed to parse peer_json: {e}"));
+            return false;
+        }
+    };
+
+    let service_ref = unsafe { &*service };
+    service_ref.add_peer(peer);
+    true
+}
+
+#[no_mangle]
+pub extern "C" fn quic_dht_get_peer(service: *mut DhtService, peer_id_b58: *const c_char) -> *mut c_char {
+    if service.is_null() {
+        set_last_error("dht service handle is null");
+        return ptr::null_mut();
+    }
+
+    let peer_id_str = match read_cstr(peer_id_b58, "peer_id_b58") {
+        Ok(s) => s,
+        Err(()) => return ptr::null_mut(),
+    };
+
+    let peer_id = match PeerId::from_base58(&peer_id_str) {
+        Some(id) => id,
+        None => {
+            set_last_error("invalid base58 for peer_id");
+            return ptr::null_mut();
+        }
+    };
+
+    let service_ref = unsafe { &*service };
+    if let Some(peer) = service_ref.get_peer(&peer_id) {
+        let json = serde_json::to_string(&peer).unwrap_or_default();
+        return CString::new(json).unwrap().into_raw();
+    }
+
+    ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn quic_dht_closest_peers(
+    service: *mut DhtService,
+    peer_id_b58: *const c_char,
+    count: usize,
+) -> *mut c_char {
+    if service.is_null() {
+        set_last_error("dht service handle is null");
+        return ptr::null_mut();
+    }
+
+    let peer_id_str = match read_cstr(peer_id_b58, "peer_id_b58") {
+        Ok(s) => s,
+        Err(()) => return ptr::null_mut(),
+    };
+
+    let peer_id = match PeerId::from_base58(&peer_id_str) {
+        Some(id) => id,
+        None => {
+            set_last_error("invalid base58 for peer_id");
+            return ptr::null_mut();
+        }
+    };
+
+    let service_ref = unsafe { &*service };
+    let peers = service_ref.closest_peers(&peer_id, count);
+    let json = serde_json::to_string(&peers).unwrap_or_default();
+    CString::new(json).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn quic_dht_string_free(s: *mut c_char) {
+    if !s.is_null() {
+        unsafe {
+            drop(CString::from_raw(s));
+        }
+    }
+}
+
+// ============================================================================
+// DHT Persistence Callback FFI
+// ============================================================================
+
+pub type DhtPersistenceCallback = extern "C" fn(op: *const c_char, json_data: *const c_char);
+
+struct DhtFfiPersistence {
+    callback: DhtPersistenceCallback,
+}
+
+impl literbike::dht::service::DhtPersistence for DhtFfiPersistence {
+    fn upsert_node(&self, peer: &PeerInfo) {
+        let json = serde_json::to_string(peer).unwrap_or_default();
+        let op = CString::new("upsert_node").unwrap();
+        let data = CString::new(json).unwrap();
+        (self.callback)(op.as_ptr(), data.as_ptr());
+    }
+
+    fn load_nodes(&self) -> Vec<PeerInfo> {
+        // For P0, we assume rehydration is handled by Python calling quic_dht_add_peer
+        // rather than Rust requesting nodes via callback.
+        Vec::new()
+    }
+
+    fn upsert_value(&self, key: &str, value: &[u8]) {
+        // Serialize as simple object for FFI
+        let json = serde_json::json!({
+            "key": key,
+            "value_hex": hex::encode(value)
+        }).to_string();
+        let op = CString::new("upsert_value").unwrap();
+        let data = CString::new(json).unwrap();
+        (self.callback)(op.as_ptr(), data.as_ptr());
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn quic_dht_service_set_persistence(
+    service: *mut DhtService,
+    callback: DhtPersistenceCallback,
+) {
+    if service.is_null() {
+        return;
+    }
+    let service_ref = unsafe { &mut *service };
+    let persistence = Arc::new(DhtFfiPersistence { callback });
+    service_ref.set_persistence(persistence);
 }
 
 #[cfg(test)]

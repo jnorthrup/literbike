@@ -56,7 +56,7 @@ impl NetTuple {
 pub enum Protocol {
     #[default]
     Unknown,
-    HtxQuic,
+    CustomQuic,
     Http,
     Socks5,
     Tls,
