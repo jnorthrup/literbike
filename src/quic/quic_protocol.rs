@@ -665,6 +665,127 @@ pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolErro
                 let data = read_bytes(bytes, &mut pos, len)?.to_vec();
                 frames.push(QuicFrame::Crypto(CryptoFrame { offset, data }));
             }
+            // ACK_ECN (0x03) — same wire layout as ACK plus 3 ECN varint counts
+            0x03 => {
+                let largest_acknowledged = read_varint(bytes, &mut pos)?;
+                let ack_delay = read_varint(bytes, &mut pos)?;
+                let ack_range_count = read_varint(bytes, &mut pos)? as usize;
+                let first_ack_range = read_varint(bytes, &mut pos)?;
+                let mut current_end = largest_acknowledged;
+                let current_start = current_end.checked_sub(first_ack_range).ok_or_else(|| {
+                    ProtocolError::InvalidPacket("Invalid first ACK range (ECN)".into())
+                })?;
+                let mut ranges_desc = vec![(current_start, current_end)];
+                let mut prev_start = current_start;
+                for _ in 0..ack_range_count {
+                    let gap = read_varint(bytes, &mut pos)?;
+                    let range_len = read_varint(bytes, &mut pos)?;
+                    current_end = prev_start
+                        .checked_sub(gap + 2)
+                        .ok_or_else(|| ProtocolError::InvalidPacket("Invalid ACK gap (ECN)".into()))?;
+                    let start = current_end.checked_sub(range_len).ok_or_else(|| {
+                        ProtocolError::InvalidPacket("Invalid ACK range length (ECN)".into())
+                    })?;
+                    ranges_desc.push((start, current_end));
+                    prev_start = start;
+                }
+                ranges_desc.reverse();
+                // Skip the 3 ECN counts
+                let _ect0 = read_varint(bytes, &mut pos)?;
+                let _ect1 = read_varint(bytes, &mut pos)?;
+                let _ce = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::Ack(AckFrame {
+                    largest_acknowledged,
+                    ack_delay,
+                    ack_ranges: ranges_desc,
+                }));
+            }
+            // RESET_STREAM (0x04): stream_id + app_error_code + final_size
+            x if x == QuicFrameType::ResetStream as u8 => {
+                let _stream_id = read_varint(bytes, &mut pos)?;
+                let _error_code = read_varint(bytes, &mut pos)?;
+                let _final_size = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::ResetStream);
+            }
+            // STOP_SENDING (0x05): stream_id + app_error_code
+            x if x == QuicFrameType::StopSending as u8 => {
+                let _stream_id = read_varint(bytes, &mut pos)?;
+                let _error_code = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::StopSending);
+            }
+            // NEW_TOKEN (0x07): token_length + token
+            x if x == QuicFrameType::NewToken as u8 => {
+                let len = read_varint(bytes, &mut pos)? as usize;
+                let _ = read_bytes(bytes, &mut pos, len)?;
+                frames.push(QuicFrame::NewToken);
+            }
+            // MAX_DATA (0x10): maximum_data varint
+            x if x == QuicFrameType::MaxData as u8 => {
+                let _max = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::MaxData);
+            }
+            // MAX_STREAM_DATA (0x11): stream_id + max_data
+            x if x == QuicFrameType::MaxStreamData as u8 => {
+                let stream_id = read_varint(bytes, &mut pos)?;
+                let max = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::MaxStreamData(MaxStreamDataFrame { stream_id, maximum_stream_data: max }));
+            }
+            // MAX_STREAMS (0x12/0x13): max_streams varint
+            x if x == QuicFrameType::MaxStreams as u8 || x == 0x13 => {
+                let _max = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::MaxStreams);
+            }
+            // DATA_BLOCKED (0x14): data_limit varint
+            x if x == QuicFrameType::DataBlocked as u8 => {
+                let _limit = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::DataBlocked);
+            }
+            // STREAM_DATA_BLOCKED (0x15): stream_id + stream_data_limit
+            x if x == QuicFrameType::StreamDataBlocked as u8 => {
+                let stream_id = read_varint(bytes, &mut pos)?;
+                let limit = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::StreamDataBlocked(StreamDataBlockedFrame { stream_id, stream_data_limit: limit }));
+            }
+            // STREAMS_BLOCKED (0x16/0x17): max_streams varint
+            x if x == QuicFrameType::StreamsBlocked as u8 || x == 0x17 => {
+                let _max = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::StreamsBlocked);
+            }
+            // NEW_CONNECTION_ID (0x18): sequence + retire_prior_to + len + cid + token(16)
+            x if x == QuicFrameType::NewConnectionId as u8 => {
+                let _seq = read_varint(bytes, &mut pos)?;
+                let _retire = read_varint(bytes, &mut pos)?;
+                let cid_len = read_varint(bytes, &mut pos)? as usize;
+                let _ = read_bytes(bytes, &mut pos, cid_len)?;
+                let _ = read_bytes(bytes, &mut pos, 16)?; // stateless reset token
+                frames.push(QuicFrame::NewConnectionId);
+            }
+            // RETIRE_CONNECTION_ID (0x19): sequence_number varint
+            x if x == QuicFrameType::RetireConnectionId as u8 => {
+                let _seq = read_varint(bytes, &mut pos)?;
+                frames.push(QuicFrame::RetireConnectionId);
+            }
+            // PATH_CHALLENGE (0x1a): 8-byte data
+            x if x == QuicFrameType::PathChallenge as u8 => {
+                let _ = read_bytes(bytes, &mut pos, 8)?;
+                frames.push(QuicFrame::PathChallenge);
+            }
+            // PATH_RESPONSE (0x1b): 8-byte data
+            x if x == QuicFrameType::PathResponse as u8 => {
+                let _ = read_bytes(bytes, &mut pos, 8)?;
+                frames.push(QuicFrame::PathResponse);
+            }
+            // CONNECTION_CLOSE (0x1c QUIC layer, 0x1d app layer):
+            // error_code + [frame_type (QUIC only)] + reason_length + reason
+            x if x == QuicFrameType::ConnectionClose as u8 || x == 0x1d => {
+                let _error_code = read_varint(bytes, &mut pos)?;
+                if x == 0x1c {
+                    let _frame_type = read_varint(bytes, &mut pos)?;
+                }
+                let reason_len = read_varint(bytes, &mut pos)? as usize;
+                let _ = read_bytes(bytes, &mut pos, reason_len)?;
+                frames.push(QuicFrame::ConnectionClose);
+            }
             x if (x & 0b1111_1000) == (QuicFrameType::Stream as u8) => {
                 let fin = (x & 0x01) != 0;
                 let has_len = (x & 0x02) != 0;
