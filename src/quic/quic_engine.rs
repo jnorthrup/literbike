@@ -88,7 +88,10 @@ impl QuicEngine {
         if let Some(tls_svc) = ctx.get_typed::<crate::quic::tls_ccek::TlsCcekService>("TlsCcekService") {
             {
                 println!("🔐 TLS service found in context, attempting to upgrade...");
-                let transport_params = Self::encode_server_transport_params(&private_key, &[1,2,3,4,5,6,7,8]);
+                // private_key is actually the client's original DCID, use it as orig_dcid
+                // For SCID, use the server's local connection ID
+                let scid = &state.local_connection_id.bytes;
+                let transport_params = Self::encode_server_transport_params(&private_key, scid);
                 if let Ok(server_conn) = rustls::quic::ServerConnection::new(tls_svc.config.clone(), rustls::quic::Version::V1, transport_params) {
                     println!("🔐 Created rustls ServerConnection");
                     if let Ok(rustls_provider) = crate::quic::tls_crypto::provider::RustlsCryptoProvider::new_server(
