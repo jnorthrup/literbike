@@ -5,6 +5,8 @@ use super::quic_protocol::{
     deserialize_decoded_packet_with_dcid_len, ConnectionId, ConnectionState, QuicConnectionState,
     QuicFrame, TransportParameters,
 };
+use super::tls_crypto::secrets::{derive_initial_secrets, derive_packet_protection_keys, hkdf_expand_label};
+use super::tls_crypto::packet_protection::QuicCryptoState;
 use crate::rbcursive::{NetTuple, Protocol as RbProtocol, RbCursor, Signal as RbSignal};
 use parking_lot::Mutex;
 use socket2::{Domain, Socket, Type};
@@ -21,6 +23,133 @@ pub struct QuicServer {
 }
 
 impl QuicServer {
+    // CCEK: Extract DCID from first bytes of QUIC packet (no decryption needed for this part)
+    fn extract_dcid_from_long_header(bytes: &[u8]) -> Option<Vec<u8>> {
+        if bytes.is_empty() || (bytes[0] & 0x80) == 0 {
+            return None;
+        }
+        if bytes.len() < 6 {
+            return None;
+        }
+        let dcid_len = bytes[5] as usize;
+        if bytes.len() < 6 + dcid_len {
+            return None;
+        }
+        Some(bytes[6..6 + dcid_len].to_vec())
+    }
+
+    // CCEK: Try to decrypt an Initial packet using the server's Initial secret
+    fn try_decrypt_initial_packet(packet_data: &[u8]) -> Option<Vec<u8>> {
+        let dcid = Self::extract_dcid_from_long_header(packet_data)?;
+        println!("🔓 CCEK: Extracted DCID from packet: {:02x?}", &dcid[..dcid.len().min(8)]);
+
+        let (_, server_initial_secret) = derive_initial_secrets(&dcid);
+        let (key, iv, hp_key) = derive_packet_protection_keys(&server_initial_secret);
+
+        if packet_data.len() < 20 {
+            println!("🔓 CCEK: Packet too short");
+            return None;
+        }
+
+        let crypto_state = QuicCryptoState::new(
+            super::tls_crypto::QuicAeadAlgorithm::Aes128Gcm,
+            &key,
+            iv,
+            &hp_key
+        ).ok()?;
+
+        // CCEK: Full Initial packet decryption
+        // For Long Header Initial: first byte + version (4) + DCID len + DCID + SCID len + SCID + token len + token + length
+        // HP sample is at bytes[4..20] (after first byte and version)
+        // For simplicity, let's try to decrypt assuming 1-byte packet number (most common for Initial)
+
+        let first_byte = packet_data[0];
+        let pn_len = ((first_byte & 0x03) + 1) as usize;
+
+        // Calculate where the protected payload starts
+        // first(1) + version(4) + dcid_len(1) + dcid + scid_len(1) + scid + token_len(varint) + token + length(varint) + pn(pn_len)
+        // For simplicity, let's extract what's after the first byte and version for the AAD
+        let mut pos = 5; // Skip first byte + version
+
+        // Read DCID
+        if pos >= packet_data.len() { return None; }
+        let dcid_len = packet_data[pos] as usize;
+        pos += 1 + dcid_len;
+
+        // Read SCID
+        if pos >= packet_data.len() { return None; }
+        let scid_len = packet_data[pos] as usize;
+        pos += 1 + scid_len;
+
+        // For Initial, read token length and token
+        if (first_byte >> 4) & 0x01 == 0 { // Initial packet
+            if pos >= packet_data.len() { return None; }
+            let token_len = packet_data[pos] as usize; // Simplified - should be varint
+            pos += 1 + token_len;
+        }
+
+        // Read length
+        if pos >= packet_data.len() { return None; }
+        let length = packet_data[pos] as usize; // Simplified - should be varint
+        pos += 1;
+
+        // The packet number and payload start here
+        let pn_start = pos;
+        let payload_start = pos + pn_len;
+
+        if payload_start > packet_data.len() {
+            println!("🔓 CCEK: Not enough data for PN + payload");
+            return None;
+        }
+
+        // Extract the protected packet number and ciphertext
+        let protected_pn_and_payload = &packet_data[pn_start..];
+        let sample_start = 4.min(protected_pn_and_payload.len().saturating_sub(16));
+
+        // Try HP removal - derive mask from sample
+        let sample = &protected_pn_and_payload[sample_start..sample_start + 16];
+        let mask = match crypto_state.generate_header_protection_mask(sample) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("🔓 CCEK: HP mask generation failed: {:?}", e);
+                return None;
+            }
+        };
+
+        // Remove header protection from first byte
+        let mut unprotected_first = first_byte ^ mask[0];
+        let pn_length = ((unprotected_first & 0x03) + 1) as usize;
+
+        // Extract packet number (it's at the end of the protected section, masked)
+        let pn_bytes = &protected_pn_and_payload[..pn_length];
+        let mut actual_pn: u64 = 0;
+        for (i, &b) in pn_bytes.iter().enumerate() {
+            actual_pn |= ((b ^ mask[1 + i]) as u64) << (i * 8);
+        }
+
+        println!("🔓 CCEK: Packet number extracted: {}", actual_pn);
+
+        // Now decrypt the payload
+        let ciphertext = &mut protected_pn_and_payload[pn_length..].to_vec();
+        let aad = &packet_data[..pn_start]; // Everything before PN is AAD
+
+        match crypto_state.decrypt_payload(actual_pn, aad, ciphertext) {
+            Ok(decrypted) => {
+                println!("🔓 CCEK: Decryption successful! {} bytes", decrypted.len());
+                // Rebuild the unprotected packet
+                let mut result = Vec::with_capacity(pn_start + pn_length + decrypted.len());
+                result.extend_from_slice(&[unprotected_first]); // First byte with PN length
+                result.extend_from_slice(&packet_data[1..pn_start]); // Version, DCID, SCID, token, length
+                result.extend_from_slice(decrypted);
+                Some(result)
+            }
+            Err(e) => {
+                println!("🔓 CCEK: Payload decryption failed: {:?}", e);
+                None
+            }
+        }
+    }
+
     pub async fn bind(addr: SocketAddr, ctx: crate::concurrency::ccek::CoroutineContext) -> Result<Self, QuicError> {
         let socket =
             Socket::new(Domain::for_address(addr), Type::DGRAM, None).map_err(QuicError::Io)?;
@@ -80,8 +209,12 @@ impl QuicServer {
                                         engine.get_state().local_connection_id.bytes.len()
                                     });
 
+                                // CCEK: Try to decrypt Initial packets before deserializing
+                                let decrypted_data = Self::try_decrypt_initial_packet(packet_data);
+                                let data_to_parse = decrypted_data.as_deref().unwrap_or(packet_data);
+
                                 match deserialize_decoded_packet_with_dcid_len(
-                                    packet_data,
+                                    data_to_parse,
                                     short_header_dcid_len,
                                 ) {
                                     Ok(decoded_packet) => {
