@@ -117,6 +117,7 @@ impl QuicServer {
                                                         connection_state:
                                                             ConnectionState::Handshaking, // Initial state
                                                     };
+                                                    println!("🔧 Creating QuicEngine, context keys: {:?}", ctx.keys());
                                                     Arc::new(QuicEngine::new(
                                                         Role::Server,
                                                         initial_state,
