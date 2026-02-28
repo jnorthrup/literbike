@@ -608,7 +608,7 @@ fn encode_ack_frame(frame: &AckFrame, out: &mut Vec<u8>) -> Result<(), ProtocolE
     Ok(())
 }
 
-fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolError> {
+pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolError> {
     let mut pos = 0usize;
     let mut frames = Vec::new();
 
