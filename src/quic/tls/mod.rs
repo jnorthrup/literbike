@@ -77,13 +77,16 @@ impl TlsTerminator {
         cert_der: Vec<u8>,
         key_der: Vec<u8>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Build rustls config with TLS 1.3
-        let config = rustls::ServerConfig::builder()
+        // Build rustls config with TLS 1.3 and QUIC-required ALPN protocols.
+        let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(
                 vec![CertificateDer::from(cert_der.clone())],
                 PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der)),
             )?;
+
+        // ALPN is required for QUIC — without it rustls returns NoApplicationProtocol.
+        config.alpn_protocols = alpn::supported();
 
         Ok(Self {
             config: Arc::new(config),
