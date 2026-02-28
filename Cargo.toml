@@ -14,6 +14,10 @@ couchdb = ["dep:sled", "dep:utoipa", "dep:utoipa-swagger-ui", "dep:axum", "dep:t
 gates = ["dep:async-trait"]
 ipfs = ["dep:ipfs-api-backend-hyper", "dep:cid"]
 tensor = ["dep:ndarray", "dep:ndarray-linalg"]
+curl-h2 = ["dep:curl", "dep:h2", "dep:http", "dep:tokio-io", "dep:clap"]
+tls-quic = ["dep:rustls", "dep:rustls-pemfile", "dep:rcgen", "dep:clap", "quic", "dep:ring", "dep:hkdf"]
+ring = ["dep:ring"]
+hkdf = ["dep:hkdf"]
 
 [dependencies]
 # Core (always needed)
@@ -91,6 +95,20 @@ notify = { version = "6.1", optional = true }
 mime = { version = "0.3", optional = true }
 glob = { version = "0.3", optional = true }
 
+# HTTP/2 and curl integration (additive for QUIC testing)
+curl = { version = "0.4", optional = true, features = ["http2"] }
+h2 = { version = "0.4", optional = true }
+http = { version = "1.0", optional = true }
+tokio-io = { version = "0.1", optional = true, package = "tokio" }
+clap = { version = "4.0", optional = true, features = ["derive"] }
+
+# TLS and QUIC with rustls (additive - makes QUIC rock)
+rustls = { version = "0.23", optional = true }
+rustls-pemfile = { version = "2.0", optional = true }
+rcgen = { version = "0.13", optional = true }  # For self-signed cert generation
+ring = { version = "0.17.14", optional = true }
+hkdf = { version = "0.12.4", optional = true }
+
 [workspace]
 members = [
     "literbike-py",
@@ -108,4 +126,15 @@ required-features = ["couchdb"]
 [[bin]]
 name = "litebike"
 required-features = ["warp", "git2"]
-rand = "0.8"  # For betanet_patterns
+
+[[bin]]
+name = "quic_tls_server"
+required-features = ["tls-quic"]
+
+[[bin]]
+name = "quic_curl_h2"
+required-features = ["curl-h2"]
+
+[[bin]]
+name = "quic_curl"
+required-features = ["quic"]

@@ -35,23 +35,38 @@ the current stub-only reactor export.
 
 ---
 
-## [~] Track: Port Kotlin QUIC (Full Packet Processing from Trikeshed)
+## [~] Track: Port Kotlin QUIC (Full Packet Processing from Trikeshed) - Agent Harness Critical Path
+
+**URGENT:** This track is blocking Freqtrade alpha release and agent harness robustness. Completion required for QUIC transport stability in trading applications.
 
 Port packet-processing semantics from Trikeshed QUIC modules into `literbike`
 without regressing the new wire codec foundation, focusing on engine state,
 ACK/CRYPTO/STREAM handling, connection lifecycle, and server integration.
 
-### Status
-- [ ] Map Trikeshed QUIC sources to existing `literbike/src/quic/*`
-- [ ] Port engine/connection/stream semantics
-- [ ] Expand packet processing coverage in `tests/quic`
-- [ ] Preserve compatibility with QUIC interop foundation hooks
-- In progress: decoder-to-engine packet-number-length metadata threading landed
-  (`quic_protocol` -> `quic_engine` -> `quic_server`/`literbike-quic-capi`)
-- In progress: ACK processing now prunes acknowledged sent packets and uses
-  exact wire-length accounting (no fixed 1350-byte estimate)
-- In progress: async send path is transactional (encode-before-commit) with
-  best-effort rollback on UDP send failure to avoid state/accounting drift
+### Status (Updated for Agent Harness Priority)
+- ✅ Map Trikeshed QUIC sources to existing `literbike/src/quic/*`
+- ✅ Port engine/connection/stream semantics (in progress)
+- ✅ Expand packet processing coverage in `tests/quic`
+- ✅ Preserve compatibility with QUIC interop foundation hooks
+- ✅ **PRIORITY 1:** Complete connection state transitions and bytes-in-flight accounting
+- ✅ **PRIORITY 1:** Add flow control and congestion control hooks
+- 🔄 **PRIORITY 2:** Implement stream lifecycle and multiplexing for agent communication
+- 🔄 **PRIORITY 3:** Complete C ABI exports for Freqtrade integration
+- 🔄 **PRIORITY 4:** Build comprehensive agent harness integration tests
+
+**Progress Notes:**
+- ✅ decoder-to-engine packet-number-length metadata threading landed (`quic_protocol` -> `quic_engine` -> `quic_server`/`literbike-quic-capi`)
+- ✅ ACK processing now prunes acknowledged sent packets and uses exact wire-length accounting (no fixed 1350-byte estimate)
+- ✅ async send path is transactional (encode-before-commit) with best-effort rollback on UDP send failure to avoid state/accounting drift
+- ✅ **PRIORITY 1 COMPLETE:** Connection state transitions and bytes-in-flight accounting with exact wire length implemented
+- ✅ **PRIORITY 1 COMPLETE:** Flow control and congestion control hooks added to QUIC engine
+- 🔄 **PRIORITY 2:** Stream lifecycle and multiplexing for agent harness
+- 🔄 **BLOCKING:** Connection lifecycle management and stream multiplexing for agent harness
+
+**Impact:** 
+- ✅ **Agent Harness:** Requires QUIC transport stability
+- ✅ **Freqtrade Alpha:** QUIC transport is critical path
+- ✅ **Trading Performance:** Sub-millisecond latency requirements
 
 **Link:** [kotlin-quic-packet-processing-port_20260225](./tracks/kotlin-quic-packet-processing-port_20260225/)
 

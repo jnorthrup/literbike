@@ -76,6 +76,7 @@ impl QuicServer {
                                 println!("✅ Accepted protocol: {:?}", proto);
                                 let short_header_dcid_len =
                                     connections.lock().get(&remote_addr).map(|engine| {
+                                        println!("🔧 Found existing engine for {}", remote_addr);
                                         engine.get_state().local_connection_id.bytes.len()
                                     });
 

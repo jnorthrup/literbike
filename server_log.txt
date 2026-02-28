@@ -1,0 +1,298 @@
+   Compiling literbike v0.1.0 (/Users/jim/work/literbike)
+warning: unused import: `std::sync::Arc`
+  --> src/cas_storage.rs:11:5
+   |
+11 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::collections::HashMap`
+ --> src/dht/kademlia.rs:5:5
+  |
+5 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> src/reactor/context.rs:4:5
+  |
+4 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `Hash`
+  --> src/concurrency/ccek.rs:31:17
+   |
+31 | use std::hash::{Hash, Hasher};
+   |                 ^^^^
+
+warning: unused import: `std::pin::Pin`
+ --> src/concurrency/flow.rs:4:5
+  |
+4 | use std::pin::Pin;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::sync::mpsc`
+ --> src/concurrency/flow.rs:5:5
+  |
+5 | use tokio::sync::mpsc;
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `anyhow::Result`
+ --> src/concurrency/flow.rs:6:5
+  |
+6 | use anyhow::Result;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `ContextElement` and `SupervisorScope`
+ --> src/concurrency/bridge.rs:6:44
+  |
+6 | use crate::concurrency::{CoroutineContext, ContextElement, SupervisorScope};
+  |                                            ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> src/concurrency/bridge.rs:7:5
+  |
+7 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `Hasher`
+  --> src/concurrency/ccek.rs:31:23
+   |
+31 | use std::hash::{Hash, Hasher};
+   |                       ^^^^^^
+
+warning: unused import: `ContextKey`
+  --> src/betanet_patterns.rs:15:48
+   |
+15 | use crate::concurrency::ccek::{ContextElement, ContextKey};
+   |                                                ^^^^^^^^^^
+
+warning: unused variable: `db_path`
+   --> src/quic/quic_engine_hybrid.rs:134:16
+    |
+134 |     pub fn new(db_path: &str, batch_size: usize) -> Self {
+    |                ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_db_path`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `i`
+   --> src/rbcursive/patterns.rs:197:22
+    |
+197 |                 for (i, cap) in capture.iter().enumerate().skip(1) {
+    |                      ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `i`
+   --> src/rbcursive/patterns.rs:265:18
+    |
+265 |             for (i, cap) in capture.iter().enumerate().skip(1) {
+    |                  ^ help: if this is intentional, prefix it with an underscore: `_i`
+
+warning: unused variable: `stream`
+   --> src/rbcursive/tunnel_config.rs:124:42
+    |
+124 |     pub fn apply_noise_camouflage(&self, stream: &TcpStream) {
+    |                                          ^^^^^^ help: if this is intentional, prefix it with an underscore: `_stream`
+
+warning: function cannot return without recursing
+   --> src/rbcursive/mod.rs:109:5
+    |
+109 |     fn join(&self, separator: &str) -> String {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot return without recursing
+110 |         // Call inherent Vec::join method, not the trait method
+111 |         Vec::join(self, separator)
+    |         -------------------------- recursive call site
+    |
+    = help: a `loop` may express intention better if this is on purpose
+    = note: `#[warn(unconditional_recursion)]` on by default
+
+warning: function cannot return without recursing
+   --> src/rbcursive/mod.rs:116:5
+    |
+116 |     fn join(&self, separator: &str) -> String {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot return without recursing
+117 |         // Call inherent Vec::join method, not the trait method
+118 |         Vec::join(self, separator)
+    |         -------------------------- recursive call site
+    |
+    = help: a `loop` may express intention better if this is on purpose
+
+warning: variable does not need to be mutable
+   --> src/concurrency/ccek.rs:149:12
+    |
+149 |     fn add(mut self, element: Arc<dyn ContextElement>) -> Self::Output {
+    |            ----^^^^
+    |            |
+    |            help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/concurrency/ccek.rs:170:12
+    |
+170 |     fn add(mut self, element: Arc<E>) -> Self::Output {
+    |            ----^^^^
+    |            |
+    |            help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/concurrency/ccek.rs:185:13
+    |
+185 |         let mut ctx = CoroutineContext::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/concurrency/ccek.rs:199:13
+    |
+199 |         let mut ctx = CoroutineContext::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `our_sender`
+   --> src/concurrency/bridge.rs:106:5
+    |
+106 |     our_sender: crate::concurrency::ChannelSender<T>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_our_sender`
+
+warning: unused variable: `byte`
+   --> src/betanet_patterns.rs:555:10
+    |
+555 |     for &byte in data.iter().take_while(|&&b| b == 0) {
+    |          ^^^^ help: if this is intentional, prefix it with an underscore: `_byte`
+
+warning: unused variable: `fd`
+  --> src/posix_sockets.rs:39:9
+   |
+39 |     let fd = stream.as_raw_fd();
+   |         ^^ help: if this is intentional, prefix it with an underscore: `_fd`
+
+warning: unused variable: `stream`
+   --> src/upnp_aggressive.rs:198:23
+    |
+198 |             if let Ok(stream) = TcpStream::connect_timeout(
+    |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_stream`
+
+warning: unused variable: `rng`
+   --> src/packet_fragment.rs:289:13
+    |
+289 |         let rng = rand::thread_rng();
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_rng`
+
+warning: unused variable: `original_data`
+   --> src/packet_fragment.rs:308:78
+    |
+308 |     fn add_overlapping_fragments(&self, fragments: &mut Vec<PacketFragment>, original_data: &[u8]) {
+    |                                                                              ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_original_data`
+
+warning: field `batch_size` is never read
+   --> src/quic/quic_engine_hybrid.rs:130:5
+    |
+127 | pub struct QuicContentLogger {
+    |            ----------------- field in this struct
+...
+130 |     batch_size: usize,
+    |     ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: fields `local_peer_id` and `routing_table` are never read
+   --> src/dht/client.rs:136:5
+    |
+135 | pub struct IpfsClient {
+    |            ---------- fields in this struct
+136 |     local_peer_id: PeerId,
+    |     ^^^^^^^^^^^^^
+137 |     routing_table: Mutex<RoutingTable>,
+    |     ^^^^^^^^^^^^^
+
+warning: field `tls_mirror` is never read
+ --> src/rbcursive/tunnel_config.rs:7:5
+  |
+5 | pub struct KnoxResistantTunnel {
+  |            ------------------- field in this struct
+6 |     /// Origin-mirrored TLS configuration
+7 |     tls_mirror: TrafficMirror,
+  |     ^^^^^^^^^^
+
+warning: field `selection_strategy` is never read
+  --> src/rbcursive/tunnel_config.rs:26:5
+   |
+18 | pub struct PortHoppingConfig {
+   |            ----------------- field in this struct
+...
+26 |     selection_strategy: PortSelectionStrategy,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `PortHoppingConfig` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: fields `noise_camouflage`, `tls_fingerprint`, and `timing_obfuscation` are never read
+  --> src/rbcursive/tunnel_config.rs:33:5
+   |
+31 | pub struct DPIEvasionConfig {
+   |            ---------------- fields in this struct
+32 |     /// Noise protocol camouflage techniques
+33 |     noise_camouflage: NoiseTrafficPattern,
+   |     ^^^^^^^^^^^^^^^^
+...
+36 |     tls_fingerprint: TLSFingerprintStrategy,
+   |     ^^^^^^^^^^^^^^^
+...
+39 |     timing_obfuscation: TimingObfuscationStrategy,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `DPIEvasionConfig` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `bucket_size` is never read
+   --> src/betanet_patterns.rs:354:5
+    |
+351 | pub struct BetanetRoutingTable {
+    |            ------------------- field in this struct
+...
+354 |     bucket_size: usize,
+    |     ^^^^^^^^^^^
+
+warning: field `auto_trust_private` is never read
+  --> src/host_trust.rs:15:5
+   |
+11 | pub struct HostTrust {
+   |            --------- field in this struct
+...
+15 |     auto_trust_private: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: field `fragment_queue` is never read
+   --> src/packet_fragment.rs:123:5
+    |
+120 | pub struct PacketFragmenter {
+    |            ---------------- field in this struct
+...
+123 |     fragment_queue: VecDeque<PacketFragment>,
+    |     ^^^^^^^^^^^^^^
+
+warning: `literbike` (lib) generated 35 warnings (run `cargo fix --lib -p literbike` to apply 13 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.05s
+     Running `target/debug/quic_tls_server`
+🔒 QUIC TLS Server
+=================
+Bind: 0.0.0.0:4433
+
+📜 Generating self-signed certificate for localhost...
+✅ TLS Terminator ready
+
+📡 ALPN Protocols:
+   - h3
+   - hq-interop
+   - customquic
+   - h2
+
+🧪 Test with curl:
+   curl -k --http3 https://0.0.0.0:4433/
+   curl -k --http2 https://0.0.0.0:4433/
+
+🛑 Press Ctrl+C to stop
+
+✨ QUIC server with TLS is ready
+   TLS 1.3 encryption active
+   ALPN negotiation enabled for H2/H3
