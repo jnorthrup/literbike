@@ -10,6 +10,9 @@ use literbike::syscall_net::{
     get_default_local_ipv4, get_default_local_ipv6, guess_default_v6_interface, list_interfaces,
     InterfaceAddr,
 };
+use literbike::quic::QuicServer;
+use literbike::quic::tls;
+use literbike::quic::tls_ccek;
 use literbike::tethering_bypass::{enable_carrier_bypass, TetheringBypass};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -68,6 +71,7 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
     ("raw-connect", run_raw_connect),
     ("trust-host", run_trust_host),
     ("bootstrap", run_bootstrap),
+    ("quic-vqa", run_quic_vqa),
 ];
 
 /// WAM-style unification engine for command dispatch
@@ -2232,9 +2236,61 @@ fn run_proxy_server(args: &[String]) {
         format!("0.0.0.0:{}", port) // Still bind to all for compatibility
     };
 
+    println!("📜 Initializing CCEK TLS Domain...");
+    let terminator = literbike::quic::tls::TlsTerminator::localhost()
+        .expect("Failed to initialize standalone TLS config");
+    
+    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(terminator, 100));
+    // Build the CoroutineContext bundle
+    let _ccek_context = literbike::concurrency::ccek::EmptyContext 
+        + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
+    
+    // Spawn the background channel loop for the CCEK TLS config manager
+    let tls_ccek_loop = tls_ccek.clone();
+    std::thread::spawn(move || {
+        if let Ok(rt) = tokio::runtime::Runtime::new() {
+            rt.block_on(async move {
+                let svc = (*tls_ccek_loop).clone();
+                svc.run_command_loop().await;
+            });
+        }
+    });
+
     if let Ok(tcp_listener) = std::net::TcpListener::bind(&bind_addr) {
         println!("\n✓ Listening on {}", bind_addr);
         println!("✓ Supports: HTTP, HTTPS, SOCKS5, TLS, DoH, PAC/WPAD");
+
+        // Spawn a UDP thread to track QUIC alterations on the same port
+        let udp_bind_addr = bind_addr.clone();
+        std::thread::spawn(move || {
+            if let Ok(udp_socket) = std::net::UdpSocket::bind(&udp_bind_addr) {
+                println!("✓ Tracking QUIC/UDP traffic on {}", udp_bind_addr);
+                let mut buf = [0u8; 65536];
+                loop {
+                    if let Ok((len, src)) = udp_socket.recv_from(&mut buf) {
+                        let data = &buf[..len];
+                        if !data.is_empty() {
+                            let first_byte = data[0];
+                            let is_long_header = (first_byte & 0x80) != 0;
+                            // Basic QUIC heuristic: Long header has version bits, short header has fixed bit 0x40
+                            let is_quic = if is_long_header {
+                                data.len() >= 5 && (data[1] != 0 || data[2] != 0 || data[3] != 0 || data[4] != 0)
+                            } else {
+                                (first_byte & 0x40) != 0
+                            };
+                            
+                            if is_quic {
+                                println!("🟢 QUIC Alteration [Port 8888] -> Source: {}, Bytes: {}, Type: {}", 
+                                    src, 
+                                    len,
+                                    if is_long_header { "Long Header" } else { "Short Header" }
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         // Prepare RBCursive and parsers once (idempotent, no state per-conn)
         let rbc = RBCursive::new();
@@ -2411,11 +2467,11 @@ fn run_proxy_server(args: &[String]) {
                                 ProtocolType::Unknown => {
                                     // Try lightweight HTTP request-line parse as a soft hint only
                                     match http.parse_request(&req).signal() {
-                                        Signal::Accept => println!("→ HTTP (soft-parse)"),
-                                        Signal::NeedMore => {
+                                        literbike::rbcursive::combinators::Signal::Accept => println!("→ HTTP (soft-parse)"),
+                                        literbike::rbcursive::combinators::Signal::NeedMore => {
                                             println!("→ Need more data to classify")
                                         }
-                                        Signal::Reject => println!("→ Unknown protocol (no match)"),
+                                        literbike::rbcursive::combinators::Signal::Reject => println!("→ Unknown protocol (no match)"),
                                     }
                                 }
                             }
@@ -3742,4 +3798,93 @@ fn run_pattern_bench(args: &[String]) {
     }
 
     println!("\n✅ Benchmark completed!");
+}
+
+fn run_quic_vqa(args: &[String]) {
+    let port = args
+        .get(0)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(4433);
+    let bind_addr = format!("0.0.0.0:{}", port);
+
+    println!("🚀 Starting QUIC Visual QA Server");
+    println!("   Binding to: {}", bind_addr);
+    println!("   Serving: index.html, index.css, bw_test_pattern.png");
+
+    // Initialize TLS for QUIC
+    println!("📜 Initializing CCEK TLS Domain...");
+    let terminator = literbike::quic::tls::TlsTerminator::localhost()
+        .expect("Failed to initialize standalone TLS config");
+    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(terminator, 100));
+
+    // Build the CoroutineContext with TLS
+    let ctx = literbike::concurrency::ccek::EmptyContext
+        + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
+
+    // Spawn the background channel loop for the CCEK TLS config manager
+    let tls_ccek_loop = tls_ccek.clone();
+    std::thread::spawn(move || {
+        if let Ok(rt) = tokio::runtime::Runtime::new() {
+            rt.block_on(async move {
+                let svc = (*tls_ccek_loop).clone();
+                svc.run_command_loop().await;
+            });
+        }
+    });
+
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+    rt.block_on(async {
+        let local = tokio::task::LocalSet::new();
+        local.run_until(async {
+            match QuicServer::bind(bind_addr.parse().unwrap(), ctx).await {
+                Ok(server) => {
+                    println!("✓ QUIC (UDP) Server ACTIVE");
+                    
+                    // Spawn TCP Alt-Svc beacon on the same port
+                    let tcp_bind_addr = bind_addr.clone();
+                    tokio::task::spawn_local(async move {
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        if let Ok(listener) = tokio::net::TcpListener::bind(&tcp_bind_addr).await {
+                            println!("⚓ TCP Alt-Svc Beacon listening on {} (H3 advertisement enabled)", tcp_bind_addr);
+                            loop {
+                                if let Ok((mut stream, _addr)) = listener.accept().await {
+                                    tokio::task::spawn_local(async move {
+                                        let mut buf = [0u8; 1024];
+                                        let _ = stream.read(&mut buf).await;
+                                        // Extremely simple HTTP response with Alt-Svc
+                                        let response = "HTTP/1.1 200 OK\r\n\
+                                                        Alt-Svc: h3=\":4433\"; ma=86400\r\n\
+                                                        Content-Type: text/html\r\n\
+                                                        Connection: close\r\n\r\n\
+                                                        <html><head><meta http-equiv='refresh' content='2'></head>\
+                                                        <body style='background:#111;color:#0f0;font-family:monospace;padding:40px;'>\
+                                                        <h1>⚓ LITEBIKE QUIC BOOTSTRAP</h1>\
+                                                        <p>Browser connected via TCP. Sending Alt-Svc header...</p>\
+                                                        <p>Refreshing in 2 seconds to transition to QUIC/H3.</p>\
+                                                        <hr>\
+                                                        <p style='color:#666'>Note: If visual QA fails, ensure Chrome is launched with: --origin-to-force-quic-on=localhost:4433</p>\
+                                                        </body></html>";
+                                        let _ = stream.write_all(response.as_bytes()).await;
+                                    });
+                                }
+                            }
+                        }
+                    });
+
+                    println!("   Press Ctrl+C to stop");
+                    if let Err(e) = server.start().await {
+                        eprintln!("QUIC Server error: {}", e);
+                    } else {
+                        // Keep alive until Ctrl+C
+                        tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+                        println!("\n🛑 Shutting down server...");
+                        server.close().await;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to bind QUIC server to {}: {}", bind_addr, e);
+                }
+            }
+        }).await;
+    });
 }

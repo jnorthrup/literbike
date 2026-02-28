@@ -1,4 +1,5 @@
 pub mod quic_ccek;
+pub mod tls_ccek;
 pub mod quic_ccek_types;
 pub mod quic_config;
 pub mod quic_crypto;
@@ -12,6 +13,12 @@ pub mod quic_server;
 pub mod quic_session_cache;
 pub mod quic_stream;
 
+// TLS module (requires tls-quic feature)
+#[cfg(feature = "tls-quic")]
+pub mod tls;
+#[cfg(feature = "tls-quic")]
+pub mod tls_crypto;
+
 // WAM module requires tensor feature
 #[cfg(feature = "tensor")]
 pub mod quic_wam;
@@ -24,3 +31,7 @@ pub use quic_engine_hybrid::{QuicEngineHybrid, QuicState, QuicStats};
 pub use quic_error::QuicError;
 pub use quic_protocol::{QuicFrame, QuicHeader, QuicPacket, QuicPacketType, QuicProtocol};
 pub use quic_server::QuicServer;
+
+// TLS exports (feature-gated)
+#[cfg(feature = "tls-quic")]
+pub use tls::TlsTerminator;

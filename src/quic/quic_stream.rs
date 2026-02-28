@@ -34,7 +34,7 @@ impl QuicStream {
         // RbCursive: classify first bytes of payload (observational)
         let hint_len = data.len().min(64);
         if hint_len > 0 {
-            let tuple = NetTuple::from_socket_addr(self.remote_addr, RbProtocol::HtxQuic);
+            let tuple = NetTuple::from_socket_addr(self.remote_addr, RbProtocol::CustomQuic);
             let signal = RB_STREAM_SCANNER.lock().recognize(tuple, &data[..hint_len]);
             match signal {
                 RbSignal::Accept(proto) => tracing::debug!(
@@ -76,7 +76,7 @@ impl QuicStream {
             let b = Bytes::from(chunk);
             let hint_len = b.len().min(64);
             if hint_len > 0 {
-                let tuple = NetTuple::from_socket_addr(self.remote_addr, RbProtocol::HtxQuic);
+                let tuple = NetTuple::from_socket_addr(self.remote_addr, RbProtocol::CustomQuic);
                 let signal = RB_STREAM_SCANNER.lock().recognize(tuple, &b[..hint_len]);
                 match signal {
                     RbSignal::Accept(proto) => tracing::debug!(

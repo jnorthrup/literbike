@@ -17,10 +17,11 @@ pub struct QuicServer {
     socket: Arc<TokioUdpSocket>,
     rb: Arc<Mutex<RbCursor>>,
     connections: Arc<Mutex<HashMap<SocketAddr, Arc<QuicEngine>>>>,
+    ctx: crate::concurrency::ccek::CoroutineContext,
 }
 
 impl QuicServer {
-    pub async fn bind(addr: SocketAddr) -> Result<Self, QuicError> {
+    pub async fn bind(addr: SocketAddr, ctx: crate::concurrency::ccek::CoroutineContext) -> Result<Self, QuicError> {
         let socket =
             Socket::new(Domain::for_address(addr), Type::DGRAM, None).map_err(QuicError::Io)?;
 
@@ -39,6 +40,7 @@ impl QuicServer {
             socket: Arc::new(tokio_socket),
             rb: Arc::new(Mutex::new(RbCursor::new())),
             connections: Arc::new(Mutex::new(HashMap::new())),
+            ctx,
         })
     }
 
@@ -46,6 +48,7 @@ impl QuicServer {
         let socket = self.socket.clone();
         let connections = self.connections.clone(); // Clone for the spawned task
         let rb_cursor = self.rb.clone();
+        let ctx = self.ctx.clone(); // Clone context for the spawned task
 
         // Spawn the UDP receive loop locally — the captured `RbCursor` is not
         // `Send` (contains raw pointers), so we use a local task. Callers must
@@ -55,30 +58,22 @@ impl QuicServer {
             loop {
                 match socket.recv_from(&mut buf).await {
                     Ok((len, remote_addr)) => {
+                        println!("📡 Received {} bytes from {}", len, remote_addr);
                         let packet_data = &buf[..len];
 
                         // RbCursive preflight
-                        let tuple = NetTuple::from_socket_addr(remote_addr, RbProtocol::HtxQuic);
+                        let tuple = NetTuple::from_socket_addr(remote_addr, RbProtocol::CustomQuic);
                         let hint = if packet_data.len() > 0 {
                             vec![packet_data[0]]
                         } else {
                             vec![]
                         };
                         let signal = rb_cursor.lock().recognize(tuple, &hint);
+                        println!("🔍 RbCursive signal: {:?}", signal);
 
                         match signal {
                             RbSignal::Accept(proto) => {
-                                tracing::debug!(
-                                    target = "rb",
-                                    ?proto,
-                                    "RbCursive server preflight accepted protocol"
-                                );
-                                tracing::info!(
-                                    "Received packet from {}: {} bytes",
-                                    remote_addr,
-                                    len
-                                );
-
+                                println!("✅ Accepted protocol: {:?}", proto);
                                 let short_header_dcid_len =
                                     connections.lock().get(&remote_addr).map(|engine| {
                                         engine.get_state().local_connection_id.bytes.len()
@@ -89,7 +84,9 @@ impl QuicServer {
                                     short_header_dcid_len,
                                 ) {
                                     Ok(decoded_packet) => {
+                                        println!("📦 Deserialized packet OK");
                                         let received_packet = decoded_packet.packet.clone();
+                                        println!("📦 Deserialized packet with {} frames", received_packet.frames.len());
                                         let engine_arc = {
                                             let mut connections_guard = connections.lock();
                                             connections_guard
@@ -126,6 +123,7 @@ impl QuicServer {
                                                         socket.clone(),
                                                         remote_addr,
                                                         vec![0; 32], // Dummy private key
+                                                        ctx.clone(),
                                                     ))
                                                 })
                                                 .clone()
@@ -136,19 +134,64 @@ impl QuicServer {
                                             Ok(()) => {
                                                 // If the packet contained a StreamFrame, echo the data back
                                                 for frame in received_packet.frames.iter() {
+                                                    println!("🎞️ Frame type: {:?}", frame);
                                                     if let QuicFrame::Stream(stream_frame) = frame {
-                                                        tracing::info!("Server received stream data on stream {}: {:?}", stream_frame.stream_id, stream_frame.data);
-                                                        // Echo data back on the same stream
-                                                        if let Err(e) = engine_arc
-                                                            .send_stream_data(
-                                                                stream_frame.stream_id,
-                                                                stream_frame.data.clone(),
-                                                            )
-                                                            .await
-                                                        {
-                                                            tracing::error!(
-                                                                "Failed to echo stream data: {}",
-                                                                e
+                                                        // Visual QA - Simple file serving
+                                                        let data_str = String::from_utf8_lossy(&stream_frame.data);
+                                                        println!("📄 Server received request on stream {}: {}", stream_frame.stream_id, data_str);
+                                                        
+                                                        let response_data = if data_str.contains("index.css") {
+                                                            match std::fs::read("index.css") {
+                                                                Ok(d) => d,
+                                                                Err(e) => {
+                                                                    println!("❌ Failed to read index.css: {}", e);
+                                                                    b"/* css not found */".to_vec()
+                                                                }
+                                                            }
+                                                        } else if data_str.contains("bw_test_pattern.png") {
+                                                            match std::fs::read("bw_test_pattern.png") {
+                                                                Ok(d) => {
+                                                                    println!("🖼️ Serving bw_test_pattern.png ({} bytes)", d.len());
+                                                                    d
+                                                                }
+                                                                Err(e) => {
+                                                                    println!("❌ Failed to read bw_test_pattern.png: {}", e);
+                                                                    b"image not found".to_vec()
+                                                                }
+                                                            }
+                                                        } else {
+                                                            // For anything else (like the initial GET /), serve index.html
+                                                            match std::fs::read("index.html") {
+                                                                Ok(d) => d,
+                                                                Err(e) => {
+                                                                    println!("❌ Failed to read index.html: {}", e);
+                                                                    b"<html><body><h1>QUIC VQA ERROR</h1></body></html>".to_vec()
+                                                                }
+                                                            }
+                                                        };
+
+                                                        // Chunk the data to avoid "Message too long" (UDP limit is 65k, but path MTU is typically ~1350)
+                                                        let chunk_size = 1200;
+                                                        let total_len = response_data.len();
+                                                        let mut offset = 0;
+                                                        let mut success = true;
+                                                        
+                                                        while offset < total_len {
+                                                            let end = (offset + chunk_size).min(total_len);
+                                                            let chunk = response_data[offset..end].to_vec();
+                                                            if let Err(e) = engine_arc.send_stream_data(stream_frame.stream_id, chunk).await {
+                                                                println!("❌ Failed to send VQA stream chunk at offset {}: {}", offset, e);
+                                                                success = false;
+                                                                break;
+                                                            }
+                                                            offset = end;
+                                                        }
+
+                                                        if success {
+                                                            println!("✅ Sent response ({} bytes) in {} chunks on stream {}", 
+                                                                total_len, 
+                                                                (total_len + chunk_size - 1) / chunk_size, 
+                                                                stream_frame.stream_id
                                                             );
                                                         }
                                                     }
@@ -166,6 +209,7 @@ impl QuicServer {
                                         }
                                     }
                                     Err(e) => {
+                                        println!("❌ Deserialize error: {:?}", e);
                                         let quic_err = QuicError::Protocol(e);
                                         qfail::log_error(
                                             "server",

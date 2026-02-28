@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuicProtocol {
     H3,         // HTTP/3 over QUIC
-    HtxQuic,    // Betanet HTX over QUIC
+    Custom,     // Custom QUIC protocol
     H3Datagram, // H3 + DATAGRAM/MASQUE
 }
 
