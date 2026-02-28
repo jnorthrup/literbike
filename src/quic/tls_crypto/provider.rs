@@ -7,7 +7,6 @@ use crate::quic::quic_crypto::{
 use crate::quic::quic_error::{ProtocolError, QuicError};
 use crate::quic::quic_protocol::{CryptoFrame, QuicConnectionState, QuicHeader};
 use parking_lot::Mutex;
-use ring::hkdf;
 use rustls::quic::Connection;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,38 +14,37 @@ use std::sync::Arc;
 pub struct RustlsCryptoProvider {
     conn: Mutex<Connection>,
 
-    // Derived states
     pub initial_state: Option<QuicCryptoState>,
     pub handshake_state: Mutex<Option<QuicCryptoState>>,
     pub onertt_state: Mutex<Option<QuicCryptoState>>,
 
     phase: Mutex<HandshakePhase>,
 
-    /// Reassembly buffer for CRYPTO stream data: offset → bytes.
-    /// Tracks which bytes have been delivered to rustls so retransmits and
-    /// out-of-order frames are handled correctly.
-    crypto_rx_buf: Mutex<BTreeMap<u64, Vec<u8>>>,
-    /// Next byte offset expected by rustls (contiguous delivered so far).
-    crypto_rx_next: Mutex<u64>,
-    /// Set to true after rustls returns a fatal error; prevents further read_hs calls.
+    crypto_rx_buf_initial: Mutex<BTreeMap<u64, Vec<u8>>>,
+    crypto_rx_next_initial: Mutex<u64>,
+    crypto_rx_buf_handshake: Mutex<BTreeMap<u64, Vec<u8>>>,
+    crypto_rx_next_handshake: Mutex<u64>,
     crypto_failed: Mutex<bool>,
+
+    pending_initial_write: Mutex<Vec<u8>>,
+    pending_handshake_write: Mutex<Vec<u8>>,
+    handshake_local: Mutex<Option<rustls::quic::DirectionalKeys>>,
+    handshake_remote: Mutex<Option<rustls::quic::DirectionalKeys>>,
+    onertt_local: Mutex<Option<rustls::quic::DirectionalKeys>>,
+    onertt_remote: Mutex<Option<rustls::quic::DirectionalKeys>>,
+    client_dcid: Vec<u8>,
 }
 
 impl RustlsCryptoProvider {
     pub fn new_server(
         rustls_conn: Connection,
         client_dst_conn_id: &[u8],
-    ) -> Result<Self, ring::error::Unspecified> {
-        let (client_initial, server_initial) = derive_initial_secrets(client_dst_conn_id);
-        
-        // As a server, we read with client_initial and write with server_initial
-        // But for QuicEngine, it currently just uses one engine. We need to store
-        // both if we want to fully support read/write symmetrically in the provider,
-        // but let's assume one QuicCryptoState for now (we'll expand if needed).
+    ) -> Result<Self, String> {
+        let (_, server_initial) = derive_initial_secrets(client_dst_conn_id);
         let (key, iv, hp) = derive_packet_protection_keys(&server_initial);
-        
+
         let initial_state = QuicCryptoState::new(
-            QuicAeadAlgorithm::Aes128Gcm, // Initial always AES-128-GCM
+            QuicAeadAlgorithm::Aes128Gcm,
             &key,
             iv,
             &hp,
@@ -58,9 +56,18 @@ impl RustlsCryptoProvider {
             handshake_state: Mutex::new(None),
             onertt_state: Mutex::new(None),
             phase: Mutex::new(HandshakePhase::Initial),
-            crypto_rx_buf: Mutex::new(BTreeMap::new()),
-            crypto_rx_next: Mutex::new(0),
+            crypto_rx_buf_initial: Mutex::new(BTreeMap::new()),
+            crypto_rx_next_initial: Mutex::new(0),
+            crypto_rx_buf_handshake: Mutex::new(BTreeMap::new()),
+            crypto_rx_next_handshake: Mutex::new(0),
             crypto_failed: Mutex::new(false),
+            pending_initial_write: Mutex::new(Vec::new()),
+            pending_handshake_write: Mutex::new(Vec::new()),
+            handshake_local: Mutex::new(None),
+            handshake_remote: Mutex::new(None),
+            onertt_local: Mutex::new(None),
+            onertt_remote: Mutex::new(None),
+            client_dcid: client_dst_conn_id.to_vec(),
         })
     }
 }
@@ -68,58 +75,60 @@ impl RustlsCryptoProvider {
 impl QuicCryptoProvider for RustlsCryptoProvider {
     fn on_inbound_header(
         &self,
-        header: &mut QuicHeader,
-        ctx: &InboundHeaderProtectionContext,
+        _header: &mut QuicHeader,
+        _ctx: &InboundHeaderProtectionContext,
     ) -> Result<(), QuicError> {
-        // Here we will use the correct QuicCryptoState to remove header protection
-        // depending on the packet type (Initial, Handshake, 1-RTT).
         Ok(())
     }
 
     fn on_outbound_header(
         &self,
-        header: &mut QuicHeader,
-        ctx: &OutboundHeaderProtectionContext,
+        _header: &mut QuicHeader,
+        _ctx: &OutboundHeaderProtectionContext,
     ) -> Result<(), QuicError> {
-        // Apply header protection
         Ok(())
     }
 
     fn on_crypto_frame(
         &self,
         frame: &CryptoFrame,
+        level: crate::quic::quic_crypto::EncryptionLevel,
         _state: &QuicConnectionState,
     ) -> Result<CryptoFrameDisposition, QuicError> {
-        // Bail out immediately if rustls previously returned a fatal error.
+        use crate::quic::quic_crypto::EncryptionLevel;
         if *self.crypto_failed.lock() {
             return Ok(CryptoFrameDisposition::AckOnly);
         }
 
-        // --- Reassembly ---
-        // Insert this fragment into the offset-keyed buffer, then drain
-        // all contiguous bytes starting at crypto_rx_next into rustls.
         {
-            let mut buf = self.crypto_rx_buf.lock();
-            let mut next = self.crypto_rx_next.lock();
+            let (mut buf, mut next) = match level {
+                EncryptionLevel::Initial => (
+                    self.crypto_rx_buf_initial.lock(),
+                    self.crypto_rx_next_initial.lock(),
+                ),
+                EncryptionLevel::Handshake => (
+                    self.crypto_rx_buf_handshake.lock(),
+                    self.crypto_rx_next_handshake.lock(),
+                ),
+                EncryptionLevel::OneRtt => {
+                    return Ok(CryptoFrameDisposition::ProgressedHandshake);
+                }
+            };
 
             let frame_end = frame.offset + frame.data.len() as u64;
-
-            // Skip frames whose data has been fully delivered already.
             if frame_end <= *next {
                 return Ok(CryptoFrameDisposition::ProgressedHandshake);
             }
 
-            // Insert (possibly trimming the already-delivered prefix).
             let trimmed_offset = frame.offset.max(*next);
             let trim = (trimmed_offset - frame.offset) as usize;
             buf.entry(trimmed_offset)
                 .or_insert_with(|| frame.data[trim..].to_vec());
 
-            // Drain contiguous range into rustls.
             let mut conn = self.conn.lock();
             while let Some((&off, _)) = buf.first_key_value() {
                 if off != *next {
-                    break; // gap — wait for missing fragment
+                    break;
                 }
                 let data = buf.pop_first().unwrap().1;
                 let advance = data.len() as u64;
@@ -131,6 +140,33 @@ impl QuicCryptoProvider for RustlsCryptoProvider {
                     )));
                 }
                 *next += advance;
+            }
+
+            let mut initial_out = Vec::new();
+            let maybe_kc = conn.write_hs(&mut initial_out);
+            if !initial_out.is_empty() {
+                self.pending_initial_write.lock().extend_from_slice(&initial_out);
+            }
+            if let Some(kc) = maybe_kc {
+                match kc {
+                    rustls::quic::KeyChange::Handshake { keys } => {
+                        *self.handshake_remote.lock() = Some(keys.remote);
+                        *self.handshake_local.lock() = Some(keys.local);
+                        let mut hs_out = Vec::new();
+                        let maybe_kc2 = conn.write_hs(&mut hs_out);
+                        if !hs_out.is_empty() {
+                            self.pending_handshake_write.lock().extend_from_slice(&hs_out);
+                        }
+                        if let Some(rustls::quic::KeyChange::OneRtt { keys, .. }) = maybe_kc2 {
+                            *self.onertt_remote.lock() = Some(keys.remote);
+                            *self.onertt_local.lock() = Some(keys.local);
+                        }
+                    }
+                    rustls::quic::KeyChange::OneRtt { keys, .. } => {
+                        *self.onertt_remote.lock() = Some(keys.remote);
+                        *self.onertt_local.lock() = Some(keys.local);
+                    }
+                }
             }
         }
 
@@ -148,5 +184,189 @@ impl QuicCryptoProvider for RustlsCryptoProvider {
 
     fn header_protection_ready(&self) -> bool {
         self.initial_state.is_some()
+    }
+
+    fn drain_crypto_writes(&self) -> Vec<crate::quic::quic_crypto::CryptoWrite> {
+        use crate::quic::quic_crypto::{CryptoWrite, EncryptionLevel};
+        let mut out = Vec::new();
+
+        let initial = { let mut g = self.pending_initial_write.lock(); let d = g.clone(); g.clear(); d };
+        if !initial.is_empty() {
+            out.push(CryptoWrite { level: EncryptionLevel::Initial, data: initial });
+        }
+        let hs = { let mut g = self.pending_handshake_write.lock(); let d = g.clone(); g.clear(); d };
+        if !hs.is_empty() {
+            out.push(CryptoWrite { level: EncryptionLevel::Handshake, data: hs });
+        }
+        out
+    }
+
+    fn encrypt_packet(
+        &self,
+        level: crate::quic::quic_crypto::EncryptionLevel,
+        pn: u64,
+        header: &[u8],
+        payload: &mut Vec<u8>,
+    ) -> Result<(), QuicError> {
+        use crate::quic::quic_crypto::EncryptionLevel;
+        match level {
+            EncryptionLevel::Initial => {
+                if let Some(state) = &self.initial_state {
+                    state.encrypt_payload(pn, header, payload)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(e, None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No initial state".into(), None)))
+                }
+            }
+            EncryptionLevel::Handshake => {
+                let guard = self.handshake_local.lock();
+                if let Some(keys) = guard.as_ref() {
+                    let tag = keys.packet.encrypt_in_place(pn, header, payload)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))?;
+                    payload.extend_from_slice(tag.as_ref());
+                    Ok(())
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No handshake keys".into(), None)))
+                }
+            }
+            EncryptionLevel::OneRtt => {
+                let guard = self.onertt_local.lock();
+                if let Some(keys) = guard.as_ref() {
+                    let tag = keys.packet.encrypt_in_place(pn, header, payload)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))?;
+                    payload.extend_from_slice(tag.as_ref());
+                    Ok(())
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No 1-RTT keys".into(), None)))
+                }
+            }
+        }
+    }
+
+    fn remove_header_protection(
+        &self,
+        level: crate::quic::quic_crypto::EncryptionLevel,
+        sample: &[u8],
+        first: &mut u8,
+        pn_bytes: &mut [u8],
+    ) -> Result<(), QuicError> {
+        use crate::quic::quic_crypto::EncryptionLevel;
+        match level {
+            EncryptionLevel::Initial => {
+                if let Some(state) = &self.initial_state {
+                    let mask = state.generate_header_protection_mask(sample)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(e, None)))?;
+                    *first ^= mask[0] & 0x0f;
+                    for (i, b) in pn_bytes.iter_mut().enumerate() { *b ^= mask[1 + i]; }
+                    Ok(())
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No initial state".into(), None)))
+                }
+            }
+            EncryptionLevel::Handshake => {
+                let guard = self.handshake_remote.lock();
+                if let Some(keys) = guard.as_ref() {
+                    keys.header.decrypt_in_place(sample, first, pn_bytes)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No handshake HP keys".into(), None)))
+                }
+            }
+            EncryptionLevel::OneRtt => {
+                let guard = self.onertt_remote.lock();
+                if let Some(keys) = guard.as_ref() {
+                    keys.header.decrypt_in_place(sample, first, pn_bytes)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No 1-RTT HP keys".into(), None)))
+                }
+            }
+        }
+    }
+
+    fn decrypt_packet(
+        &self,
+        level: crate::quic::quic_crypto::EncryptionLevel,
+        pn: u64,
+        aad: &[u8],
+        ciphertext_and_tag: &mut Vec<u8>,
+    ) -> Result<Vec<u8>, QuicError> {
+        use crate::quic::quic_crypto::EncryptionLevel;
+        match level {
+            EncryptionLevel::Initial => {
+                if let Some(state) = &self.initial_state {
+                    state.decrypt_payload(pn, aad, ciphertext_and_tag)
+                        .map(|pt| pt.to_vec())
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(e, None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No initial state".into(), None)))
+                }
+            }
+            EncryptionLevel::Handshake => {
+                let guard = self.handshake_remote.lock();
+                if let Some(keys) = guard.as_ref() {
+                    keys.packet.decrypt_in_place(pn, aad, ciphertext_and_tag)
+                        .map(|pt| pt.to_vec())
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No handshake remote keys".into(), None)))
+                }
+            }
+            EncryptionLevel::OneRtt => {
+                let guard = self.onertt_remote.lock();
+                if let Some(keys) = guard.as_ref() {
+                    keys.packet.decrypt_in_place(pn, aad, ciphertext_and_tag)
+                        .map(|pt| pt.to_vec())
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No 1-RTT remote keys".into(), None)))
+                }
+            }
+        }
+    }
+
+    fn client_dcid(&self) -> Option<Vec<u8>> {
+        Some(self.client_dcid.clone())
+    }
+
+    fn apply_header_protection(
+        &self,
+        level: crate::quic::quic_crypto::EncryptionLevel,
+        sample: &[u8],
+        first: &mut u8,
+        pn_bytes: &mut [u8],
+    ) -> Result<(), QuicError> {
+        use crate::quic::quic_crypto::EncryptionLevel;
+        match level {
+            EncryptionLevel::Initial => {
+                if let Some(state) = &self.initial_state {
+                    let mask = state.generate_header_protection_mask(sample)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(e, None)))?;
+                    *first ^= mask[0] & 0x0f;
+                    for (i, b) in pn_bytes.iter_mut().enumerate() { *b ^= mask[1 + i]; }
+                    Ok(())
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No initial state for HP".into(), None)))
+                }
+            }
+            EncryptionLevel::Handshake => {
+                let guard = self.handshake_local.lock();
+                if let Some(keys) = guard.as_ref() {
+                    keys.header.encrypt_in_place(sample, first, pn_bytes)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No handshake HP keys".into(), None)))
+                }
+            }
+            EncryptionLevel::OneRtt => {
+                let guard = self.onertt_local.lock();
+                if let Some(keys) = guard.as_ref() {
+                    keys.header.encrypt_in_place(sample, first, pn_bytes)
+                        .map_err(|e| QuicError::Protocol(ProtocolError::Crypto(format!("{e:?}"), None)))
+                } else {
+                    Err(QuicError::Protocol(ProtocolError::Crypto("No 1-RTT HP keys".into(), None)))
+                }
+            }
+        }
     }
 }

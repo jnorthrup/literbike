@@ -1,4 +1,5 @@
 pub mod quic_ccek;
+#[cfg(feature = "tls-quic")]
 pub mod tls_ccek;
 pub mod quic_ccek_types;
 pub mod quic_config;

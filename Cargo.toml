@@ -15,7 +15,7 @@ gates = ["dep:async-trait"]
 ipfs = ["dep:ipfs-api-backend-hyper", "dep:cid"]
 tensor = ["dep:ndarray", "dep:ndarray-linalg"]
 curl-h2 = ["dep:curl", "dep:h2", "dep:http", "dep:tokio-io", "dep:clap"]
-tls-quic = ["dep:rustls", "dep:rustls-pemfile", "dep:rcgen", "dep:clap", "quic", "dep:ring", "dep:hkdf"]
+tls-quic = ["dep:clap", "quic", "dep:openssl", "dep:hkdf", "dep:rustls", "dep:rcgen", "dep:rustls-pemfile"]
 ring = ["dep:ring"]
 hkdf = ["dep:hkdf"]
 
@@ -102,12 +102,13 @@ http = { version = "1.0", optional = true }
 tokio-io = { version = "0.1", optional = true, package = "tokio" }
 clap = { version = "4.0", optional = true, features = ["derive"] }
 
-# TLS and QUIC with rustls (additive - makes QUIC rock)
-rustls = { version = "0.23", optional = true }
-rustls-pemfile = { version = "2.0", optional = true }
-rcgen = { version = "0.13", optional = true }  # For self-signed cert generation
+# TLS and QUIC
+openssl = { version = "0.10", optional = true, features = ["v110"] }
 ring = { version = "0.17.14", optional = true }
 hkdf = { version = "0.12.4", optional = true }
+rustls = { version = "0.23", optional = true, features = ["ring"] }
+rcgen = { version = "0.13", optional = true }
+rustls-pemfile = { version = "2.0", optional = true }
 
 [workspace]
 members = [
