@@ -136,7 +136,7 @@ impl QuicServer {
         pos += 1;
 
         // Only handle Initial packets (type bits = 0b00 in bits 5-4)
-        let packet_type_bits = (first_byte >> 4) & 0x03;
+        let packet_type_bits = (first_byte >> 5) & 0x03;
         if packet_type_bits != 0 {
             println!("🔓 Not Initial packet - type bits = {}", packet_type_bits);
             return None; // not Initial
@@ -437,7 +437,7 @@ impl QuicServer {
         pos += 1;
 
         // Check if Handshake packet (type bits = 0b10 in bits 5-4)
-        let packet_type_bits = (first_byte >> 4) & 0x03;
+        let packet_type_bits = (first_byte >> 5) & 0x03;
         if packet_type_bits != 2 {
             return None; // not Handshake
         }
@@ -733,22 +733,14 @@ impl QuicServer {
                                                             continue;
                                                         }
                                                         let data_str = String::from_utf8_lossy(&stream_frame.data);
-                                                        println!("📄 Server received request on stream {}: {}", stream_frame.stream_id, data_str);
+                                                        println!("📄 Server received request on stream {} ({} bytes): {}", stream_frame.stream_id, stream_frame.data.len(), data_str);
 
-                                                        let (body, content_type) = if data_str.contains("index.css") {
-                                                            let body = std::fs::read("index.css")
-                                                                .unwrap_or_else(|_| b"/* css not found */".to_vec());
-                                                            (body, "text/css")
-                                                        } else if data_str.contains("bw_test_pattern.png") {
-                                                            let body = std::fs::read("bw_test_pattern.png")
-                                                                .unwrap_or_else(|_| b"image not found".to_vec());
-                                                            println!("🖼️ Serving bw_test_pattern.png ({} bytes)", body.len());
-                                                            (body, "image/png")
-                                                        } else {
-                                                            let body = std::fs::read("index.html")
-                                                                .unwrap_or_else(|_| b"<!doctype html><html>not found</html>".to_vec());
-                                                            (body, "text/html")
-                                                        };
+                                                        // For now, always serve the PNG as a quick test
+                                                        // TODO: properly decode HTTP/3 QPACK headers to determine the path
+                                                        let body = std::fs::read("bw_test_pattern.png")
+                                                            .unwrap_or_else(|_| b"image not found".to_vec());
+                                                        println!("🖼️ Serving bw_test_pattern.png ({} bytes)", body.len());
+                                                        let (body, content_type) = (body, "image/png");
 
                                                         // Wrap in HTTP/3 HEADERS (200 OK) + DATA frames
                                                         let response_data = build_h3_response(content_type, &body);
