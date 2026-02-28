@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use rand::Rng;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 
@@ -40,6 +41,9 @@ pub struct QuicEngine {
     crypto_provider: Arc<dyn QuicCryptoProvider>,
     socket: Arc<UdpSocket>,  // Add socket field
     remote_addr: SocketAddr, // Add remote address for sending
+    last_activity: Arc<Mutex<Instant>>,
+    idle_timeout: Duration,
+    ctx: crate::concurrency::ccek::CoroutineContext,
 }
 
 impl QuicEngine {
@@ -49,6 +53,7 @@ impl QuicEngine {
         socket: Arc<UdpSocket>,
         remote_addr: SocketAddr,
         private_key: Vec<u8>,
+        ctx: crate::concurrency::ccek::CoroutineContext,
     ) -> Self {
         self::QuicEngine::new_with_crypto_provider(
             role,
@@ -57,6 +62,7 @@ impl QuicEngine {
             remote_addr,
             private_key,
             Arc::new(NoopQuicCryptoProvider),
+            ctx,
         )
     }
 
@@ -67,10 +73,36 @@ impl QuicEngine {
         remote_addr: SocketAddr,
         _private_key: Vec<u8>,
         crypto_provider: Arc<dyn QuicCryptoProvider>,
+        ctx: crate::concurrency::ccek::CoroutineContext,
     ) -> Self {
         // private_key is not used in this simplified engine, but kept for signature parity
         let mut state = initial_state;
         state.connection_state = super::quic_protocol::ConnectionState::Handshaking;
+        // Try to get TlsCcekService from context to upgrade crypto_provider automatically
+        let mut final_provider = crypto_provider;
+        if let Some(tls_svc) = ctx.get_typed::<crate::quic::tls_ccek::TlsCcekService>("TlsCcekService") {
+            #[cfg(feature = "tls-quic")]
+            {
+                println!("🔐 TLS service found in context, attempting to upgrade...");
+                if let Ok(server_conn) = rustls::quic::ServerConnection::new(tls_svc.config.clone(), rustls::quic::Version::V1, vec![]) {
+                    println!("🔐 Created rustls ServerConnection");
+                    if let Ok(rustls_provider) = crate::quic::tls_crypto::provider::RustlsCryptoProvider::new_server(
+                        rustls::quic::Connection::from(server_conn),
+                        &state.local_connection_id.bytes
+                    ) {
+                        println!("🔐 Created RustlsCryptoProvider - CRYPTO ENABLED!");
+                        final_provider = Arc::new(rustls_provider);
+                    } else {
+                        println!("❌ Failed to create RustlsCryptoProvider");
+                    }
+                } else {
+                    println!("❌ Failed to create rustls ServerConnection");
+                }
+            }
+        } else {
+            println!("❌ No TlsCcekService found in context - using NoopQuicCryptoProvider");
+        }
+
         QuicEngine {
             role,
             state: Arc::new(Mutex::new(state)),
@@ -80,9 +112,12 @@ impl QuicEngine {
             stream_overlap_conflict_counts: Arc::new(Mutex::new(HashMap::new())),
             total_stream_overlap_conflict_count: Arc::new(Mutex::new(0)),
             ack_pending: Arc::new(Mutex::new(Vec::new())),
-            crypto_provider,
+            crypto_provider: final_provider,
             socket,
             remote_addr,
+            last_activity: Arc::new(Mutex::new(Instant::now())),
+            idle_timeout: Duration::from_secs(30),
+            ctx,
         }
     }
 
@@ -629,6 +664,20 @@ impl QuicEngine {
         *self.total_stream_overlap_conflict_count.lock()
     }
 
+
+    pub fn mark_activity(&self) {
+        let mut last = self.last_activity.lock();
+        *last = Instant::now();
+    }
+
+    pub fn check_timeouts(&self) -> Result<bool, String> {
+        let last_activity = *self.last_activity.lock();
+        if last_activity.elapsed() > self.idle_timeout {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     pub fn diagnostics_snapshot(&self) -> QuicEngineDiagnosticsSnapshot {
         let pending = self.stream_pending_fragments.lock();
         let per_stream_contiguous_receive_offsets =
@@ -844,6 +893,7 @@ mod tests {
             remote_addr,
             vec![],
             Arc::new(RejectInboundHeaderCrypto),
+            crate::concurrency::ccek::CoroutineContext::new(),
         );
 
         let packet = QuicPacket {
@@ -880,6 +930,7 @@ mod tests {
             Arc::new(CaptureInboundHeaderCtxCrypto {
                 seen_pn_lens: seen_pn_lens.clone(),
             }),
+            crate::concurrency::ccek::CoroutineContext::new(),
         );
 
         let packet = QuicPacket {
@@ -918,6 +969,7 @@ mod tests {
             socket,
             remote_addr,
             vec![],
+            crate::concurrency::ccek::CoroutineContext::new(),
         );
 
         let pkt1 = sample_stream_packet(10, 0, b"a");
@@ -953,6 +1005,7 @@ mod tests {
             socket,
             remote_addr,
             vec![],
+            crate::concurrency::ccek::CoroutineContext::new(),
         );
         let state = sample_state();
         let ack_packet = engine
@@ -974,7 +1027,7 @@ mod tests {
         // IPv4 socket -> IPv6 destination should fail with address-family mismatch.
         let remote_addr: SocketAddr = "[::1]:4433".parse().unwrap();
 
-        let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
         let stream_id = engine.create_stream();
 
         let err = engine
@@ -998,7 +1051,7 @@ mod tests {
     async fn send_stream_data_transitions_stream_from_idle_to_open() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr = socket.local_addr().unwrap();
-        let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let stream_id = engine.create_stream();
         engine.send_stream_data(stream_id, b"hello".to_vec()).await.unwrap();
@@ -1011,7 +1064,7 @@ mod tests {
     async fn process_stream_frame_fin_marks_remote_half_close_and_local_send_closes() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abc"))
@@ -1050,7 +1103,7 @@ mod tests {
     async fn send_stream_fin_marks_local_half_close() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr = socket.local_addr().unwrap();
-        let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let stream_id = engine.create_stream();
         engine.send_stream_fin(stream_id).await.unwrap();
@@ -1064,7 +1117,7 @@ mod tests {
     async fn send_stream_fin_after_remote_fin_closes_stream() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let fin_packet = QuicPacket {
             header: QuicHeader {
@@ -1097,7 +1150,7 @@ mod tests {
     async fn process_stream_frame_duplicate_does_not_move_receive_offset_backwards() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abcdef"))
@@ -1120,7 +1173,7 @@ mod tests {
     async fn process_stream_frame_out_of_order_advances_receive_offset_to_highest_end() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let out_of_order = QuicPacket {
             header: QuicHeader {
@@ -1158,7 +1211,7 @@ mod tests {
     async fn process_stream_frame_partial_overlap_appends_only_new_tail_bytes() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abcdef"))
@@ -1193,7 +1246,7 @@ mod tests {
     async fn process_stream_frame_gap_is_bridged_when_middle_fragment_arrives() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abcd"))
@@ -1249,7 +1302,7 @@ mod tests {
     async fn process_stream_frame_duplicate_pending_fragment_is_deduped() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abcd"))
@@ -1311,7 +1364,7 @@ mod tests {
     async fn process_stream_frame_overlapping_pending_fragments_are_coalesced() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abcd"))
@@ -1406,7 +1459,7 @@ mod tests {
     async fn process_stream_frame_conflicting_pending_overlap_increments_conflict_counter() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
             .process_packet(sample_stream_packet(1, 0, b"abcd"))
@@ -1473,7 +1526,7 @@ mod tests {
     async fn diagnostics_snapshot_reports_overlap_conflict_telemetry() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
-        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![]);
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let snapshot = engine.diagnostics_snapshot();
         assert_eq!(snapshot.total_stream_overlap_conflict_count, 0);

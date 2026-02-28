@@ -22,7 +22,7 @@ fn now_ms() -> u128 {
 }
 
 fn log_path() -> String {
-    env::var("HTX_QUIC_FAILURE_LOG").unwrap_or_else(|_| "quic_failures.jsonl".to_string())
+    env::var("QUIC_FAILURE_LOG").unwrap_or_else(|_| "quic_failures.jsonl".to_string())
 }
 
 fn append_line(line: &str) {

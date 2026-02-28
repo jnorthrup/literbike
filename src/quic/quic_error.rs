@@ -10,6 +10,10 @@ pub enum QuicError {
     Protocol(#[from] ProtocolError),
     #[error(transparent)]
     Transport(#[from] TransportError),
+    #[error(transparent)]
+    FlowControl(#[from] FlowControlError),
+    #[error(transparent)]
+    CongestionControl(#[from] CongestionControlError),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -70,4 +74,20 @@ pub enum TransportError {
     ),
     #[error("Packet size {size} exceeds MTU {mtu}")]
     PacketTooLarge { size: usize, mtu: usize },
+}
+
+/// Flow control errors
+#[derive(Debug, Error)]
+pub enum FlowControlError {
+    #[error("Connection-level flow control blocked by peer")]
+    ConnectionBlocked,
+    #[error("Stream {stream_id} flow control blocked by peer")]
+    StreamBlocked { stream_id: u64 },
+}
+
+/// Congestion control errors
+#[derive(Debug, Error)]
+pub enum CongestionControlError {
+    #[error("Congestion window blocked: in_flight={in_flight}, window={window}")]
+    CongestionWindowBlocked { in_flight: u64, window: u64 },
 }

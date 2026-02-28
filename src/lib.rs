@@ -10,6 +10,9 @@ pub mod gates;
 #[cfg(feature = "ipfs")]
 pub mod ipfs_integration;
 
+#[cfg(feature = "curl-h2")]
+pub mod curl_h2;
+
 // Core modules always available
 pub mod adapters;
 pub mod cas_storage;
@@ -66,9 +69,6 @@ pub mod tls_fingerprint;
 
 #[cfg(feature = "quic")]
 pub mod universal_listener;
-
-#[cfg(feature = "quic")]
-pub mod quic_proxy;
 
 #[cfg(feature = "quic")]
 pub mod packet_fragment;
