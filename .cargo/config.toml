@@ -1,11 +1,16 @@
+[env]
+OPENSSL_DIR = "/opt/homebrew/opt/openssl@3"
+MACOSX_DEPLOYMENT_TARGET = "14.0"
+CFLAGS = "-isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+
 [target.aarch64-apple-darwin]
 rustflags = [
-  "-C", "link-arg=-isysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk",
-  "-C", "link-arg=-Wl,-syslibroot,/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk"
+  "-C", "link-arg=-isysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+  "-C", "link-arg=-Wl,-syslibroot,/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 ]
 
 [target.x86_64-apple-darwin]
 rustflags = [
-  "-C", "link-arg=-isysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk",
-  "-C", "link-arg=-Wl,-syslibroot,/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk"
+  "-C", "link-arg=-isysroot=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+  "-C", "link-arg=-Wl,-syslibroot,/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 ]

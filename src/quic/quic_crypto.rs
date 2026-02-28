@@ -7,6 +7,19 @@ use super::quic_protocol::{CryptoFrame, QuicConnectionState, QuicHeader};
 #[cfg(feature = "quic-crypto")]
 use parking_lot::Mutex;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionLevel {
+    Initial,
+    Handshake,
+    OneRtt,
+}
+
+#[derive(Debug, Clone)]
+pub struct CryptoWrite {
+    pub level: EncryptionLevel,
+    pub data: Vec<u8>,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum HandshakePhase {
     Initial,
@@ -54,6 +67,7 @@ pub trait QuicCryptoProvider: Send + Sync {
     fn on_crypto_frame(
         &self,
         _frame: &CryptoFrame,
+        _level: EncryptionLevel,
         _state: &QuicConnectionState,
     ) -> Result<CryptoFrameDisposition, QuicError> {
         Ok(CryptoFrameDisposition::AckOnly)
@@ -65,6 +79,64 @@ pub trait QuicCryptoProvider: Send + Sync {
 
     fn header_protection_ready(&self) -> bool {
         false
+    }
+
+    fn drain_crypto_writes(&self) -> Vec<CryptoWrite> {
+        vec![]
+    }
+
+    fn encrypt_packet(
+        &self,
+        _level: EncryptionLevel,
+        _pn: u64,
+        _header: &[u8],
+        _payload: &mut Vec<u8>,
+    ) -> Result<(), QuicError> {
+        Ok(())
+    }
+
+    fn apply_header_protection(
+        &self,
+        _level: EncryptionLevel,
+        _sample: &[u8],
+        _first: &mut u8,
+        _pn_bytes: &mut [u8],
+    ) -> Result<(), QuicError> {
+        Ok(())
+    }
+
+    /// Remove header protection from an inbound packet (modifies first and pn_bytes in-place).
+    fn remove_header_protection(
+        &self,
+        _level: EncryptionLevel,
+        _sample: &[u8],
+        _first: &mut u8,
+        _pn_bytes: &mut [u8],
+    ) -> Result<(), QuicError> {
+        Err(QuicError::Protocol(crate::quic::quic_error::ProtocolError::Crypto(
+            "remove_header_protection not supported".into(),
+            None,
+        )))
+    }
+
+    /// Decrypt an inbound packet payload in-place (AEAD).
+    /// `ciphertext_and_tag` is consumed and plaintext bytes are returned.
+    fn decrypt_packet(
+        &self,
+        _level: EncryptionLevel,
+        _pn: u64,
+        _aad: &[u8],
+        _ciphertext_and_tag: &mut Vec<u8>,
+    ) -> Result<Vec<u8>, QuicError> {
+        Err(QuicError::Protocol(crate::quic::quic_error::ProtocolError::Crypto(
+            "decrypt_packet not supported".into(),
+            None,
+        )))
+    }
+
+    /// Return the original client DCID used for key derivation (server only).
+    fn client_dcid(&self) -> Option<Vec<u8>> {
+        None
     }
 }
 
@@ -120,6 +192,7 @@ impl QuicCryptoProvider for FeatureGatedCryptoProvider {
     fn on_crypto_frame(
         &self,
         frame: &CryptoFrame,
+        _level: EncryptionLevel,
         state: &QuicConnectionState,
     ) -> Result<CryptoFrameDisposition, QuicError> {
         let mut phase = self.phase.lock();

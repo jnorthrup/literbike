@@ -44,6 +44,10 @@ pub struct QuicEngine {
     last_activity: Arc<Mutex<Instant>>,
     idle_timeout: Duration,
     ctx: crate::concurrency::ccek::CoroutineContext,
+    initial_pn_counter: Arc<Mutex<u64>>,
+    handshake_pn_counter: Arc<Mutex<u64>>,
+    onertt_pn_counter: Arc<Mutex<u64>>,
+    handshake_done_sent: Arc<Mutex<bool>>,
 }
 
 impl QuicEngine {
@@ -71,24 +75,25 @@ impl QuicEngine {
         initial_state: QuicConnectionState,
         socket: Arc<UdpSocket>,
         remote_addr: SocketAddr,
-        _private_key: Vec<u8>,
+        private_key: Vec<u8>,
         crypto_provider: Arc<dyn QuicCryptoProvider>,
         ctx: crate::concurrency::ccek::CoroutineContext,
     ) -> Self {
-        // private_key is not used in this simplified engine, but kept for signature parity
+        // private_key is used for key derivation in the crypto provider
         let mut state = initial_state;
         state.connection_state = super::quic_protocol::ConnectionState::Handshaking;
         // Try to get TlsCcekService from context to upgrade crypto_provider automatically
         let mut final_provider = crypto_provider;
+        #[cfg(feature = "tls-quic")]
         if let Some(tls_svc) = ctx.get_typed::<crate::quic::tls_ccek::TlsCcekService>("TlsCcekService") {
-            #[cfg(feature = "tls-quic")]
             {
                 println!("🔐 TLS service found in context, attempting to upgrade...");
-                if let Ok(server_conn) = rustls::quic::ServerConnection::new(tls_svc.config.clone(), rustls::quic::Version::V1, vec![]) {
+                let transport_params = Self::encode_server_transport_params(&private_key, &[1,2,3,4,5,6,7,8]);
+                if let Ok(server_conn) = rustls::quic::ServerConnection::new(tls_svc.config.clone(), rustls::quic::Version::V1, transport_params) {
                     println!("🔐 Created rustls ServerConnection");
                     if let Ok(rustls_provider) = crate::quic::tls_crypto::provider::RustlsCryptoProvider::new_server(
                         rustls::quic::Connection::from(server_conn),
-                        &state.local_connection_id.bytes
+                        &private_key
                     ) {
                         println!("🔐 Created RustlsCryptoProvider - CRYPTO ENABLED!");
                         final_provider = Arc::new(rustls_provider);
@@ -99,8 +104,6 @@ impl QuicEngine {
                     println!("❌ Failed to create rustls ServerConnection");
                 }
             }
-        } else {
-            println!("❌ No TlsCcekService found in context - using NoopQuicCryptoProvider");
         }
 
         QuicEngine {
@@ -118,7 +121,62 @@ impl QuicEngine {
             last_activity: Arc::new(Mutex::new(Instant::now())),
             idle_timeout: Duration::from_secs(30),
             ctx,
+            initial_pn_counter: Arc::new(Mutex::new(0)),
+            handshake_pn_counter: Arc::new(Mutex::new(0)),
+            onertt_pn_counter: Arc::new(Mutex::new(0)),
+            handshake_done_sent: Arc::new(Mutex::new(false)),
         }
+    }
+
+    /// Encode minimal QUIC transport parameters for a server (RFC 9000 §18).
+    /// `orig_dcid` = client's original DCID from their first Initial packet.
+    /// `scid` = our server source connection ID.
+    #[cfg(feature = "tls-quic")]
+    fn encode_server_transport_params(orig_dcid: &[u8], scid: &[u8]) -> Vec<u8> {
+        fn write_varint(buf: &mut Vec<u8>, v: u64) {
+            if v < 64 {
+                buf.push(v as u8);
+            } else if v < 16384 {
+                buf.push(0x40 | ((v >> 8) as u8));
+                buf.push((v & 0xff) as u8);
+            } else if v < 1_073_741_824 {
+                buf.push(0x80 | ((v >> 24) as u8));
+                buf.push(((v >> 16) & 0xff) as u8);
+                buf.push(((v >> 8) & 0xff) as u8);
+                buf.push((v & 0xff) as u8);
+            }
+        }
+        fn write_param(buf: &mut Vec<u8>, id: u64, data: &[u8]) {
+            write_varint(buf, id);
+            write_varint(buf, data.len() as u64);
+            buf.extend_from_slice(data);
+        }
+        fn write_int_param(buf: &mut Vec<u8>, id: u64, v: u64) {
+            let mut tmp = Vec::new();
+            write_varint(&mut tmp, v);
+            write_param(buf, id, &tmp);
+        }
+
+        let mut buf = Vec::new();
+        // original_destination_connection_id (0x0000)
+        write_param(&mut buf, 0x0000, orig_dcid);
+        // initial_source_connection_id (0x000f)
+        write_param(&mut buf, 0x000f, scid);
+        // max_idle_timeout (0x0001) = 30s in ms
+        write_int_param(&mut buf, 0x0001, 30_000);
+        // initial_max_data (0x0004) = 1MB
+        write_int_param(&mut buf, 0x0004, 1_048_576);
+        // initial_max_stream_data_bidi_local (0x0005) = 256KB
+        write_int_param(&mut buf, 0x0005, 262_144);
+        // initial_max_stream_data_bidi_remote (0x0006) = 256KB
+        write_int_param(&mut buf, 0x0006, 262_144);
+        // initial_max_stream_data_uni (0x0007) = 256KB
+        write_int_param(&mut buf, 0x0007, 262_144);
+        // initial_max_streams_bidi (0x0008) = 100
+        write_int_param(&mut buf, 0x0008, 100);
+        // initial_max_streams_uni (0x0009) = 100
+        write_int_param(&mut buf, 0x0009, 100);
+        buf
     }
 
     fn expected_inbound_packet_number(state_guard: &QuicConnectionState) -> u64 {
@@ -229,6 +287,7 @@ impl QuicEngine {
             for frame in packet.frames.iter() {
                 match frame {
                     QuicFrame::Stream(stream_frame) => {
+                        println!("📄 Frame: Stream frame on stream {}", stream_frame.stream_id);
                         self.process_stream_frame(
                             stream_frame,
                             &mut stream_states_guard,
@@ -238,6 +297,7 @@ impl QuicEngine {
                         )?;
                     }
                     QuicFrame::Ack(ack_frame) => {
+                        println!("📬 Frame: ACK frame");
                         self.process_ack_frame(ack_frame, &mut state_guard);
                         // Transition to Connected state after receiving an ACK (simplified handshake)
                         if state_guard.connection_state == ConnectionState::Handshaking {
@@ -246,14 +306,24 @@ impl QuicEngine {
                         }
                     }
                     QuicFrame::Crypto(crypto_frame) => {
-                        self.process_crypto_frame(
+                        println!("🔐 Frame: Crypto frame, {} bytes", crypto_frame.data.len());
+                        match self.process_crypto_frame(
                             crypto_frame,
+                            packet.header.r#type,
                             &mut ack_pending_guard,
                             &mut state_guard,
                             reconstructed_packet_number,
-                        )?;
+                        ) {
+                            Ok(()) => println!("✅ Crypto frame processed"),
+                            Err(e) => {
+                                println!("❌ Crypto frame error: {:?}", e);
+                                return Err(e);
+                            }
+                        }
                     }
-                    _ => { /* Ignore other frame types for now */ }
+                    other => {
+                        println!("❓ Frame: Other frame type: {:?}", other);
+                    }
                 }
             }
 
@@ -276,21 +346,303 @@ impl QuicEngine {
 
         // Send ACK outside the locked scope
         if let Some(serialized_ack) = serialized_ack_opt {
+            println!("📬 Sending ACK for packet (size={} bytes)", serialized_ack.len());
             self.socket
                 .send_to(&serialized_ack, self.remote_addr)
                 .await
                 .map_err(QuicError::Io)?;
+        } else {
+            println!("📬 No ACK needed");
         }
 
         Ok(())
     }
 
     pub async fn send_stream_data(&self, stream_id: u64, data: Vec<u8>) -> Result<(), QuicError> {
-        self.send_stream_frame(stream_id, data, false).await
+        // Use the working 1-RTT encrypted path via send_1rtt_frames
+        // Build STREAM frame: type 0x0c = STREAM | OFF | LEN (offset present, explicit length, no FIN)
+        // This is the proper format for HTTP/3 responses with explicit offset and length
+        let mut frame = Vec::new();
+        frame.push(0x0cu8); // STREAM | OFF | LEN
+        frame.push(stream_id as u8); // stream_id as varint (simplified for small IDs)
+        frame.push(0u8); // offset = 0 (varint)
+
+        // Length as varint
+        let len = data.len() as u64;
+        if len < 64 {
+            frame.push(len as u8);
+        } else if len < 16384 {
+            frame.push(0x40 | ((len >> 8) as u8));
+            frame.push((len & 0xff) as u8);
+        }
+
+        frame.extend_from_slice(&data);
+
+        self.send_1rtt_frames(frame).await
     }
 
     pub async fn send_stream_fin(&self, stream_id: u64) -> Result<(), QuicError> {
         self.send_stream_frame(stream_id, Vec::new(), true).await
+    }
+
+    pub async fn send_handshake_responses(&self) -> Result<(), QuicError> {
+        use super::quic_crypto::EncryptionLevel;
+
+        let writes = self.crypto_provider.drain_crypto_writes();
+        println!("🔄 send_handshake_responses: got {} writes", writes.len());
+        let has_writes = !writes.is_empty();
+        if !has_writes {
+            return Ok(());
+        }
+
+        let (local_cid, remote_cid) = {
+            let s = self.state.lock();
+            (
+                s.local_connection_id.bytes.clone(),
+                s.remote_connection_id.bytes.clone(),
+            )
+        };
+        let version: u32 = 1;
+
+        for write in writes {
+            let pn = match write.level {
+                EncryptionLevel::Initial => {
+                    let mut c = self.initial_pn_counter.lock();
+                    let n = *c;
+                    *c += 1;
+                    n
+                }
+                EncryptionLevel::Handshake => {
+                    let mut c = self.handshake_pn_counter.lock();
+                    let n = *c;
+                    *c += 1;
+                    n
+                }
+                EncryptionLevel::OneRtt => continue, // not yet
+            };
+
+            let type_bits: u8 = match write.level {
+                EncryptionLevel::Initial => 0x00,
+                EncryptionLevel::Handshake => 0x02,
+                EncryptionLevel::OneRtt => continue,
+            };
+
+            // Encode CRYPTO frame (offset tracks per level but use 0 for first)
+            let crypto_data = &write.data;
+            let mut frame = Vec::new();
+            frame.push(0x06u8); // CRYPTO frame type
+            frame.push(0x00u8); // offset = 0 (varint)
+            // length as varint
+            let dlen = crypto_data.len();
+            if dlen < 64 {
+                frame.push(dlen as u8);
+            } else if dlen < 16384 {
+                frame.push(0x40 | ((dlen >> 8) as u8));
+                frame.push((dlen & 0xff) as u8);
+            } else {
+                // 4-byte varint for large payloads
+                frame.push(0x80 | ((dlen >> 24) as u8));
+                frame.push(((dlen >> 16) & 0xff) as u8);
+                frame.push(((dlen >> 8) & 0xff) as u8);
+                frame.push((dlen & 0xff) as u8);
+            }
+            frame.extend_from_slice(crypto_data);
+
+            let tag_len = 16usize;
+            let pn_len = 1usize;
+            let payload_len = pn_len + frame.len() + tag_len;
+
+            // Build unprotected header (everything before PN)
+            let mut hdr = Vec::new();
+            let first_byte: u8 = 0xC0 | (type_bits << 4) | ((pn_len - 1) as u8);
+            hdr.push(first_byte);
+            hdr.extend_from_slice(&version.to_be_bytes());
+            // DCID = remote (client's connection ID)
+            hdr.push(remote_cid.len() as u8);
+            hdr.extend_from_slice(&remote_cid);
+            // SCID = local (server's connection ID)
+            hdr.push(local_cid.len() as u8);
+            hdr.extend_from_slice(&local_cid);
+            if write.level == EncryptionLevel::Initial {
+                hdr.push(0x00); // token length = 0
+            }
+            // payload_length varint
+            if payload_len < 64 {
+                hdr.push(payload_len as u8);
+            } else {
+                hdr.push(0x40 | ((payload_len >> 8) as u8));
+                hdr.push((payload_len & 0xff) as u8);
+            }
+
+            let pn_offset = hdr.len();
+
+            // AAD = hdr + pn bytes (before encryption)
+            let mut aad = hdr.clone();
+            aad.push(pn as u8); // pn_len = 1 byte
+
+            // Encrypt: aad = full unprotected header, payload = frame plaintext
+            let mut payload = frame.clone();
+            if let Err(e) = self
+                .crypto_provider
+                .encrypt_packet(write.level, pn, &aad, &mut payload)
+            {
+                println!("❌ encrypt_packet failed: {:?}", e);
+                continue;
+            }
+
+            // Build full packet
+            let mut packet = hdr.clone();
+            packet.push(pn as u8); // unprotected pn
+            packet.extend_from_slice(&payload); // ciphertext + tag
+
+            // Apply header protection
+            let sample_offset = pn_offset + 4;
+            if sample_offset + 16 <= packet.len() {
+                let sample: [u8; 16] = packet[sample_offset..sample_offset + 16]
+                    .try_into()
+                    .unwrap_or([0u8; 16]);
+                let mut first = packet[0];
+                let mut pn_byte = [packet[pn_offset]];
+                if self
+                    .crypto_provider
+                    .apply_header_protection(write.level, &sample, &mut first, &mut pn_byte)
+                    .is_ok()
+                {
+                    packet[0] = first;
+                    packet[pn_offset] = pn_byte[0];
+                }
+            }
+
+            match self.socket.send_to(&packet, self.remote_addr).await {
+                Ok(_) => println!(
+                    "📤 Sent {:?}-level handshake ({} bytes)",
+                    write.level,
+                    packet.len()
+                ),
+                Err(e) => println!("❌ Send handshake failed: {:?}", e),
+            }
+        }
+
+        // After crypto writes, send HANDSHAKE_DONE + HTTP/3 SETTINGS
+        // We send this once we have 1-RTT keys available (which happens after processing
+        // handshake crypto data)
+        let should_send_done = {
+            let done_lock = self.handshake_done_sent.lock();
+            if *done_lock {
+                false
+            } else {
+                // Check if we can now send HANDSHAKE_DONE by testing if 1-RTT encryption works
+                // We do a test encrypt to see if keys are available
+                let test_ok = self.crypto_provider.encrypt_packet(
+                    EncryptionLevel::OneRtt, 0, &[], &mut vec![0u8]
+                ).is_ok();
+                test_ok
+            }
+        };
+        if should_send_done {
+            *self.handshake_done_sent.lock() = true;
+
+            // 1. Send HANDSHAKE_DONE (frame type 0x1e) in a 1-RTT packet
+            let mut hd_frames = Vec::new();
+            hd_frames.push(0x1eu8); // HANDSHAKE_DONE
+
+            // 2. Also include QUIC NEW_CONNECTION_ID and stream setup in same packet
+            // HTTP/3 server control stream: stream ID 3, unidirectional
+            // Stream frame: type=0x0a (STREAM|LEN, no offset, no FIN), stream_id=3, data=[0x00,0x04,0x00]
+            // HTTP/3 server control stream (stream ID 3, unidirectional server-initiated)
+            // STREAM frame type 0x0c = STREAM | LEN (no offset, explicit length, no FIN)
+            let h3_settings: &[u8] = &[0x00u8, 0x04, 0x00]; // stream type=control(0x00) + empty SETTINGS(0x04, 0x00)
+            hd_frames.push(0x0cu8); // STREAM | LEN, no offset, no FIN
+            // stream_id = 3 (varint)
+            hd_frames.push(0x03u8);
+            // length = 3 (varint)
+            hd_frames.push(h3_settings.len() as u8);
+            hd_frames.extend_from_slice(h3_settings);
+
+            println!("🔑 1-RTT keys available, sending HANDSHAKE_DONE");
+            if let Err(e) = self.send_1rtt_frames(hd_frames).await {
+                println!("❌ Failed to send HANDSHAKE_DONE: {:?}", e);
+            } else {
+                println!("📤 Sent HANDSHAKE_DONE + HTTP/3 SETTINGS");
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn send_1rtt_frames(&self, frames: Vec<u8>) -> Result<(), QuicError> {
+        use super::quic_crypto::EncryptionLevel;
+        // For 1-RTT packets (short header):
+        // Per RFC 9000 §17.3, DCID = connection ID the sender wants receiver to use
+        // For server→client: DCID should be the server's connection ID
+        let (local_cid, remote_cid) = {
+            let s = self.state.lock();
+            (
+                s.local_connection_id.bytes.clone(),
+                s.remote_connection_id.bytes.clone(),
+            )
+        };
+
+        // Use local_cid (server's CID) as DCID in short header
+        let dcid = local_cid;
+        println!("📨 1-RTT packet: DCID={:02x?}, remote_cid={:02x?}", &dcid[..dcid.len().min(8)], &remote_cid[..remote_cid.len().min(8)]);
+
+        let pn = {
+            let mut c = self.onertt_pn_counter.lock();
+            let n = *c;
+            *c += 1;
+            n
+        };
+
+        let pn_len = 1usize;
+        let tag_len = 16usize;
+        let payload_len = pn_len + frames.len() + tag_len;
+        println!("📨 1-RTT payload: {} bytes frames, {} pn_len, {} tag = {} total", frames.len(), pn_len, tag_len, payload_len);
+
+        // Short header first byte: bit7=0, bit6=1 (fixed), bits1-0 = pn_len - 1
+        let first_byte: u8 = 0x40 | ((pn_len - 1) as u8);
+
+        // Short header: first_byte | DCID (what client expects - server's CID)
+        let mut hdr = Vec::new();
+        hdr.push(first_byte);
+        hdr.extend_from_slice(&dcid);
+
+        let pn_offset = hdr.len();
+        let mut aad = hdr.clone();
+        aad.push(pn as u8);
+
+        println!("📨 1-RTT before encrypt: aad={} bytes, first={:02x}, pn={}", aad.len(), first_byte, pn);
+
+        let mut payload = frames;
+        self.crypto_provider.encrypt_packet(EncryptionLevel::OneRtt, pn, &aad, &mut payload)
+            .map_err(|e| { println!("❌ 1-RTT encrypt failed: {:?}", e); e })?;
+
+        let mut packet = hdr;
+        packet.push(pn as u8);
+        packet.extend_from_slice(&payload);
+
+        println!("📨 1-RTT after encrypt: packet={} bytes", packet.len());
+
+        // Apply header protection
+        let sample_offset = pn_offset + 4;
+        if sample_offset + 16 <= packet.len() {
+            let sample: [u8; 16] = packet[sample_offset..sample_offset + 16].try_into().unwrap_or([0u8; 16]);
+            let mut first = packet[0];
+            let mut pn_byte = [packet[pn_offset]];
+            if self.crypto_provider.apply_header_protection(EncryptionLevel::OneRtt, &sample, &mut first, &mut pn_byte).is_ok() {
+                packet[0] = first;
+                packet[pn_offset] = pn_byte[0];
+                println!("📨 1-RTT header protection applied");
+            } else {
+                println!("⚠️  1-RTT header protection failed");
+            }
+        } else {
+            println!("⚠️  1-RTT sample offset out of bounds: sample_offset={}, packet_len={}", sample_offset, packet.len());
+        }
+
+        println!("📨 Sending 1-RTT packet: {} bytes to {}", packet.len(), self.remote_addr);
+        self.socket.send_to(&packet, self.remote_addr).await.map_err(QuicError::Io)?;
+        Ok(())
     }
 
     async fn send_stream_frame(
@@ -573,11 +925,22 @@ impl QuicEngine {
     fn process_crypto_frame(
         &self,
         frame: &CryptoFrame,
+        packet_type: super::quic_protocol::QuicPacketType,
         ack_pending_guard: &mut Vec<u64>,
         state_guard: &mut QuicConnectionState,
         received_packet_number: u64,
     ) -> Result<(), QuicError> {
-        let disposition = self.crypto_provider.on_crypto_frame(frame, state_guard)?;
+        use super::quic_crypto::EncryptionLevel;
+        use super::quic_protocol::QuicPacketType;
+        let level = match packet_type {
+            QuicPacketType::Initial => EncryptionLevel::Initial,
+            QuicPacketType::Handshake => EncryptionLevel::Handshake,
+            QuicPacketType::ShortHeader => EncryptionLevel::OneRtt,
+            _ => EncryptionLevel::Initial,
+        };
+        println!("🔄 process_crypto: calling on_crypto_frame at level {:?}", level);
+        let disposition = self.crypto_provider.on_crypto_frame(frame, level, state_guard)?;
+        println!("🔄 process_crypto: disposition = {:?}", disposition);
         if matches!(disposition, CryptoFrameDisposition::ProgressedHandshake)
             && self.crypto_provider.header_protection_ready()
             && state_guard.connection_state == ConnectionState::Handshaking
@@ -633,6 +996,10 @@ impl QuicEngine {
             frames: vec![QuicFrame::Ack(ack_frame)],
             payload: Vec::new(),
         })
+    }
+
+    pub fn get_crypto_provider(&self) -> Arc<dyn QuicCryptoProvider> {
+        self.crypto_provider.clone()
     }
 
     pub fn get_state(&self) -> QuicConnectionState {
