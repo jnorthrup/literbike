@@ -2,6 +2,38 @@
 
 ---
 
+## [ ] Track: CAS Lazy N-Way Gateway Projections ({git,torrent,ipfs,s3-blobs,kv})
+
+Define and implement a projection layer that maps a single CAS object model to
+multiple backends (`git`, `torrent`, `ipfs`, `s3-blobs`, `kv`) using lazy
+materialization and deterministic addressing semantics.
+
+### Status
+- [x] Track scaffold created (`spec.md`, `plan.md`, `metadata.json`)
+- [ ] Define canonical CAS object schema + projection contract
+- [ ] Implement gateway adapters for all five backends
+- [ ] Add projection parity/integrity tests and failure-path behavior
+
+**Link:** [cas-lazy-gateway-projections_20260301](./tracks/cas-lazy-gateway-projections_20260301/)
+
+---
+
+## [~] Track: QUIC Proto RFC Comment-Docs Discipline
+
+Course correction for protocol debugging quality: every QUIC wire/TLS stanza in
+core protocol paths must carry an RFC anchor and be indexed in comment-docs.
+
+### Status
+- [x] Track scaffold created (`spec.md`, `plan.md`, `metadata.json`)
+- [x] Initial `RFC-TRACE` anchors added in `src/quic/quic_protocol.rs`
+- [x] Initial comment-doc index created at `docs/QUIC_RFC_COMMENT_DOCS.md`
+- [ ] Extend anchors to `src/quic/quic_engine.rs` and `src/quic/quic_server.rs`
+- [ ] Add enforcement/validation checks
+
+**Link:** [quic-proto-rfc-comment-docs_20260301](./tracks/quic-proto-rfc-comment-docs_20260301/)
+
+---
+
 ## [x] Track: QUIC Interop Foundation (Packet Numbers, Crypto Hooks, C ABI)
 
 Advance QUIC interoperability foundations by adding packet number reconstruction
