@@ -1,5 +1,4 @@
 use literbike::quic::quic_protocol::{serialize_packet, deserialize_packet, QuicPacket, QuicHeader, QuicFrame, StreamFrame, ConnectionId, QuicPacketType};
-use literbike::quic::QuicServer;
 use std::net::UdpSocket;
 use std::time::Duration;
 
@@ -59,9 +58,6 @@ async fn fetch_resource(socket: &UdpSocket, path: &str, stream_id: u64) -> Resul
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
-    let ctx = literbike::concurrency::ccek::CoroutineContext::new();
-    let addr: std::net::SocketAddr = "0.0.0.0:4433".parse().unwrap(); // Define addr for QuicServer::bind
-    let mut server = QuicServer::bind(addr, ctx).await?; // This line is added
     socket.connect("127.0.0.1:4433")?;
     socket.set_read_timeout(Some(Duration::from_millis(500)))?;
 

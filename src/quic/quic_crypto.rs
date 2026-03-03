@@ -81,6 +81,11 @@ pub trait QuicCryptoProvider: Send + Sync {
         false
     }
 
+    /// Check if TLS handshake is complete (client Finished received, 1-RTT keys available)
+    fn handshake_complete(&self) -> bool {
+        matches!(self.handshake_phase(), HandshakePhase::OneRtt)
+    }
+
     fn drain_crypto_writes(&self) -> Vec<CryptoWrite> {
         vec![]
     }

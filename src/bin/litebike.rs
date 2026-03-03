@@ -11,7 +11,9 @@ use literbike::syscall_net::{
     InterfaceAddr,
 };
 use literbike::quic::QuicServer;
+#[cfg(feature = "tls-quic")]
 use literbike::quic::tls;
+#[cfg(feature = "tls-quic")]
 use literbike::quic::tls_ccek;
 use literbike::tethering_bypass::{enable_carrier_bypass, TetheringBypass};
 use std::collections::{HashMap, HashSet};
@@ -3817,8 +3819,8 @@ fn run_quic_vqa(args: &[String]) {
         .expect("Failed to initialize standalone TLS config");
     let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(terminator, 100));
 
-    // Build the CoroutineContext with TLS - use CoroutineContext directly
-    let ctx = literbike::concurrency::ccek::CoroutineContext::new()
+    // Build the CoroutineContext with TLS
+    let ctx = literbike::concurrency::ccek::EmptyContext
         + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
 
     // Spawn the background channel loop for the CCEK TLS config manager

@@ -25,6 +25,7 @@ pub struct RustlsCryptoProvider {
     crypto_rx_buf_handshake: Mutex<BTreeMap<u64, Vec<u8>>>,
     crypto_rx_next_handshake: Mutex<u64>,
     crypto_failed: Mutex<bool>,
+    client_finished_received: Mutex<bool>,
 
     pending_initial_write: Mutex<Vec<u8>>,
     pending_handshake_write: Mutex<Vec<u8>>,
@@ -61,6 +62,7 @@ impl RustlsCryptoProvider {
             crypto_rx_buf_handshake: Mutex::new(BTreeMap::new()),
             crypto_rx_next_handshake: Mutex::new(0),
             crypto_failed: Mutex::new(false),
+            client_finished_received: Mutex::new(false),
             pending_initial_write: Mutex::new(Vec::new()),
             pending_handshake_write: Mutex::new(Vec::new()),
             handshake_local: Mutex::new(None),
@@ -145,8 +147,12 @@ impl QuicCryptoProvider for RustlsCryptoProvider {
             let mut initial_out = Vec::new();
             let maybe_kc = conn.write_hs(&mut initial_out);
             if !initial_out.is_empty() {
+                println!("🔑 TLS: Generated {} bytes of Initial crypto data", initial_out.len());
                 self.pending_initial_write.lock().extend_from_slice(&initial_out);
             }
+
+            // Lock phase for the entire match block
+            let mut phase = self.phase.lock();
             if let Some(kc) = maybe_kc {
                 match kc {
                     rustls::quic::KeyChange::Handshake { keys } => {
@@ -155,35 +161,83 @@ impl QuicCryptoProvider for RustlsCryptoProvider {
                         let mut hs_out = Vec::new();
                         let maybe_kc2 = conn.write_hs(&mut hs_out);
                         if !hs_out.is_empty() {
+                            println!("🔑 TLS: Generated {} bytes of Handshake crypto data (post-Handshake)", hs_out.len());
                             self.pending_handshake_write.lock().extend_from_slice(&hs_out);
                         }
-                        if let Some(rustls::quic::KeyChange::OneRtt { keys, .. }) = maybe_kc2 {
-                            *self.onertt_remote.lock() = Some(keys.remote);
-                            *self.onertt_local.lock() = Some(keys.local);
+                        // Store 1-RTT keys NOW if rustls provides them (it derives them
+                        // after generating the server's Finished, before client Finished).
+                        // rustls only returns KeyChange::OneRtt ONCE (guarded by
+                        // returned_traffic_keys flag), so we must capture them here.
+                        // Phase stays at Handshaking — we only transition to OneRtt
+                        // after receiving the client's Finished message.
+                        if let Some(kc2) = maybe_kc2 {
+                            match kc2 {
+                                rustls::quic::KeyChange::OneRtt { keys: onertt_keys, .. } => {
+                                    println!("🔑 TLS: Storing 1-RTT keys (client Finished still pending)");
+                                    *self.onertt_remote.lock() = Some(onertt_keys.remote);
+                                    *self.onertt_local.lock() = Some(onertt_keys.local);
+                                }
+                                _ => {}
+                            }
                         }
                     }
                     rustls::quic::KeyChange::OneRtt { keys, .. } => {
-                        *self.onertt_remote.lock() = Some(keys.remote);
-                        *self.onertt_local.lock() = Some(keys.local);
+                        // Only accept OneRtt keys if we're already in Handshake phase
+                        // This means we've received some Handshake-level data from client
+                        if *phase == HandshakePhase::Handshaking {
+                            println!("🔑 TLS: Received KeyChange::OneRtt after client Finished");
+                            *self.onertt_remote.lock() = Some(keys.remote);
+                            *self.onertt_local.lock() = Some(keys.local);
+                            *phase = HandshakePhase::OneRtt;
+                        } else {
+                            println!("⚠️  TLS: Ignoring OneRtt keys (client Finished not yet received)");
+                        }
                     }
                 }
             }
         }
 
-        let mut phase = self.phase.lock();
-        if *phase == HandshakePhase::Initial {
-            *phase = HandshakePhase::Handshaking;
+        // Phase transitions:
+        // Initial → Handshaking: after first crypto frame processed
+        // Handshaking → OneRtt: after client Finished received (conn.is_handshaking() == false)
+        {
+            let mut phase = self.phase.lock();
+            if *phase == HandshakePhase::Initial {
+                *phase = HandshakePhase::Handshaking;
+                println!("🔑 TLS: Phase transitioned from Initial to Handshaking");
+            }
+            // Check if rustls considers the handshake complete (client Finished received).
+            // This only happens after we feed the client's Handshake-level crypto data
+            // containing the TLS Finished message to conn.read_hs().
+            if *phase == HandshakePhase::Handshaking {
+                let conn = self.conn.lock();
+                if !conn.is_handshaking() {
+                    // Client Finished has been received and verified
+                    *self.client_finished_received.lock() = true;
+                    // Only transition if we have 1-RTT keys (should always be true at this point)
+                    if self.onertt_local.lock().is_some() {
+                        *phase = HandshakePhase::OneRtt;
+                        println!("🔑 TLS: Phase transitioned to OneRtt (client Finished received)");
+                    }
+                }
+            }
         }
 
         Ok(CryptoFrameDisposition::ProgressedHandshake)
     }
 
     fn handshake_phase(&self) -> HandshakePhase {
-        *self.phase.lock()
+        let phase = *self.phase.lock();
+        println!("🔑 TLS: Current handshake phase: {:?}", phase);
+        phase
     }
 
     fn header_protection_ready(&self) -> bool {
-        self.initial_state.is_some()
+        self.onertt_local.lock().is_some()
+    }
+
+    fn handshake_complete(&self) -> bool {
+        matches!(self.handshake_phase(), HandshakePhase::OneRtt)
     }
 
     fn drain_crypto_writes(&self) -> Vec<crate::quic::quic_crypto::CryptoWrite> {
