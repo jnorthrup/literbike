@@ -1,0 +1,8 @@
+{
+  "track_id": "quic-proto-rfc-comment-docs_20260301",
+  "type": "process",
+  "status": "in_progress",
+  "created_at": "2026-03-01T19:53:30Z",
+  "updated_at": "2026-03-01T19:53:30Z",
+  "description": "Course correction: every QUIC protocol stanza must carry an RFC anchor in code comments and be indexed in comment-docs."
+}

@@ -1,6 +1,10 @@
 use super::quic_error::ProtocolError;
 use serde::{Deserialize, Serialize};
 
+// RFC-TRACE discipline ("comment-docs"):
+// - Every wire-format stanza in this module carries an RFC section anchor.
+// - Cross-reference index: docs/QUIC_RFC_COMMENT_DOCS.md.
+
 // High-level protocol selection for endpoints
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuicProtocol {
@@ -245,6 +249,7 @@ const STREAM_ID_MAX: u64 = (1u64 << 62) - 1;
 const QUIC_VARINT_MAX: u64 = (1u64 << 62) - 1;
 
 pub fn validate_stream_id(stream_id: u64) -> Result<(), ProtocolError> {
+    // RFC-TRACE [RFC9000§2.1]: stream IDs are 62-bit; values beyond that space are invalid.
     if stream_id > STREAM_ID_MAX {
         return Err(ProtocolError::InvalidStreamId(stream_id));
     }
@@ -254,6 +259,7 @@ pub fn validate_stream_id(stream_id: u64) -> Result<(), ProtocolError> {
 // --- Packet Serialization/Deserialization ---
 
 pub fn serialize_packet(packet: &QuicPacket) -> Result<Vec<u8>, ProtocolError> {
+    // RFC-TRACE [RFC9000§17]: packet wire format branches by header form/type.
     let payload_bytes = encode_frames(&packet.frames)?;
     match packet.header.r#type {
         QuicPacketType::ShortHeader => serialize_short_header_packet(packet, &payload_bytes),
@@ -302,6 +308,7 @@ fn serialize_short_header_packet(
     packet: &QuicPacket,
     payload_bytes: &[u8],
 ) -> Result<Vec<u8>, ProtocolError> {
+    // RFC-TRACE [RFC9000§17.3]: short header = first byte, DCID, packet number, protected payload.
     let (pn_len_code, pn_bytes) = encode_packet_number(packet.header.packet_number);
     let mut out = Vec::with_capacity(
         1 + packet.header.destination_connection_id.bytes.len()
@@ -309,7 +316,7 @@ fn serialize_short_header_packet(
             + payload_bytes.len(),
     );
 
-    // Short header: fixed bit set, packet number length in low 2 bits.
+    // RFC-TRACE [RFC9000§17.3]: fixed bit is 1, PN length lives in low 2 bits.
     out.push(0x40 | pn_len_code);
     out.extend_from_slice(&packet.header.destination_connection_id.bytes);
     out.extend_from_slice(&pn_bytes);
@@ -321,6 +328,7 @@ fn serialize_long_header_packet(
     packet: &QuicPacket,
     payload_bytes: &[u8],
 ) -> Result<Vec<u8>, ProtocolError> {
+    // RFC-TRACE [RFC9000§17.2]: long header carries version, DCID/SCID, and type-specific fields.
     let type_bits = match packet.header.r#type {
         QuicPacketType::Initial => 0u8,
         QuicPacketType::ZeroRtt => 1u8,
@@ -350,11 +358,13 @@ fn serialize_long_header_packet(
     out.extend_from_slice(scid);
 
     if matches!(packet.header.r#type, QuicPacketType::Initial) {
+        // RFC-TRACE [RFC9000§17.2.2]: Initial packets include Token Length + Token.
         let token = packet.header.token.as_deref().unwrap_or(&[]);
         write_varint(token.len() as u64, &mut out)?;
         out.extend_from_slice(token);
     }
 
+    // RFC-TRACE [RFC9000§17.2]: long header Length covers PN bytes plus payload bytes.
     let payload_len = pn_bytes.len() + payload_bytes.len();
     write_varint(payload_len as u64, &mut out)?;
     out.extend_from_slice(&pn_bytes);
@@ -363,6 +373,7 @@ fn serialize_long_header_packet(
 }
 
 fn deserialize_long_header_packet(bytes: &[u8]) -> Result<DecodedQuicPacket, ProtocolError> {
+    // RFC-TRACE [RFC9000§17.2]: parse long-header fields and enforce type/version guards.
     let mut pos = 0usize;
     let first = read_u8(bytes, &mut pos)?;
     let pn_len = ((first & 0x03) + 1) as usize;
@@ -392,6 +403,7 @@ fn deserialize_long_header_packet(bytes: &[u8]) -> Result<DecodedQuicPacket, Pro
     let scid = read_bytes(bytes, &mut pos, scid_len)?.to_vec();
 
     let token = if matches!(packet_type, QuicPacketType::Initial) {
+        // RFC-TRACE [RFC9000§17.2.2]: only Initial carries token bytes.
         let token_len = read_varint(bytes, &mut pos)? as usize;
         Some(read_bytes(bytes, &mut pos, token_len)?.to_vec())
     } else {
@@ -415,6 +427,7 @@ fn deserialize_long_header_packet(bytes: &[u8]) -> Result<DecodedQuicPacket, Pro
     let frame_payload = read_bytes(bytes, &mut pos, frame_payload_len)?.to_vec();
     let frames = decode_frames(&frame_payload)?;
 
+    // RFC-TRACE [RFC9000§12.2]: this codec expects exactly one packet buffer at a time.
     if pos != bytes.len() {
         return Err(ProtocolError::InvalidPacket(
             "Trailing bytes after single QUIC packet (coalesced packets not yet supported)".into(),
@@ -442,6 +455,7 @@ fn deserialize_short_header_packet(
     bytes: &[u8],
     short_header_dcid_len: Option<usize>,
 ) -> Result<DecodedQuicPacket, ProtocolError> {
+    // RFC-TRACE [RFC9000§17.3]: short header omits CID length; caller hint is preferred.
     let first = bytes[0];
     let pn_len = ((first & 0x03) + 1) as usize;
 
@@ -454,7 +468,7 @@ fn deserialize_short_header_packet(
         return try_deserialize_short_with_dcid(bytes, dcid_len);
     }
 
-    // Short headers do not carry DCID length on wire; try common lengths.
+    // RFC-TRACE [RFC9000§17.3]: DCID length is path/endpoint context, not encoded in short header.
     let mut candidates = vec![8usize, 16, 20, 4, 12, 0];
     candidates.retain(|len| *len + 1 + pn_len <= bytes.len());
     candidates.sort_unstable();
@@ -478,6 +492,7 @@ fn try_deserialize_short_with_dcid(
     bytes: &[u8],
     dcid_len: usize,
 ) -> Result<DecodedQuicPacket, ProtocolError> {
+    // RFC-TRACE [RFC9000§17.3]: decode short header with externally supplied DCID length context.
     let mut pos = 0usize;
     let first = read_u8(bytes, &mut pos)?;
     let pn_len = ((first & 0x03) + 1) as usize;
@@ -504,7 +519,8 @@ fn try_deserialize_short_with_dcid(
     })
 }
 
-fn encode_frames(frames: &[QuicFrame]) -> Result<Vec<u8>, ProtocolError> {
+pub(crate) fn encode_frames(frames: &[QuicFrame]) -> Result<Vec<u8>, ProtocolError> {
+    // RFC-TRACE [RFC9000§12.4]: packets carry an ordered sequence of frames.
     let mut out = Vec::new();
     for frame in frames {
         encode_frame(frame, &mut out)?;
@@ -515,15 +531,18 @@ fn encode_frames(frames: &[QuicFrame]) -> Result<Vec<u8>, ProtocolError> {
 fn encode_frame(frame: &QuicFrame, out: &mut Vec<u8>) -> Result<(), ProtocolError> {
     match frame {
         QuicFrame::Padding { length } => {
+            // RFC-TRACE [RFC9000§19.1]: PADDING is one or more 0x00 bytes.
             let count = (*length).max(1) as usize;
             out.extend(std::iter::repeat_n(0x00u8, count));
             Ok(())
         }
         QuicFrame::Ping => {
+            // RFC-TRACE [RFC9000§19.2]: PING is a single-byte ack-eliciting frame.
             out.push(QuicFrameType::Ping as u8);
             Ok(())
         }
         QuicFrame::Crypto(frame) => {
+            // RFC-TRACE [RFC9001§4]: TLS handshake bytes are carried in CRYPTO frames by level.
             out.push(QuicFrameType::Crypto as u8);
             write_varint(frame.offset, out)?;
             write_varint(frame.data.len() as u64, out)?;
@@ -531,6 +550,7 @@ fn encode_frame(frame: &QuicFrame, out: &mut Vec<u8>) -> Result<(), ProtocolErro
             Ok(())
         }
         QuicFrame::Stream(frame) => {
+            // RFC-TRACE [RFC9000§19.8]: STREAM frame type bits encode FIN/LEN/OFF presence.
             validate_stream_id(frame.stream_id)?;
             let mut ty = QuicFrameType::Stream as u8;
             if frame.offset > 0 {
@@ -557,6 +577,7 @@ fn encode_frame(frame: &QuicFrame, out: &mut Vec<u8>) -> Result<(), ProtocolErro
 }
 
 fn encode_ack_frame(frame: &AckFrame, out: &mut Vec<u8>) -> Result<(), ProtocolError> {
+    // RFC-TRACE [RFC9000§19.3]: ACK encodes largest acknowledged plus descending ACK ranges.
     out.push(QuicFrameType::Ack as u8);
 
     let mut ranges = if frame.ack_ranges.is_empty() {
@@ -597,6 +618,7 @@ fn encode_ack_frame(frame: &AckFrame, out: &mut Vec<u8>) -> Result<(), ProtocolE
 
     let mut prev_start = first_start;
     for (start, end) in desc.into_iter().skip(1) {
+        // RFC-TRACE [RFC9000§19.3.1]: gap is measured from prior range start to next range end.
         let gap = prev_start.checked_sub(end + 2).ok_or_else(|| {
             ProtocolError::InvalidPacket("ACK ranges overlap or are out of order".into())
         })?;
@@ -609,12 +631,14 @@ fn encode_ack_frame(frame: &AckFrame, out: &mut Vec<u8>) -> Result<(), ProtocolE
 }
 
 pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolError> {
+    // RFC-TRACE [RFC9000§12.4]: parse a contiguous frame sequence until payload end.
     let mut pos = 0usize;
     let mut frames = Vec::new();
 
     while pos < bytes.len() {
         let ty = bytes[pos];
         if ty == QuicFrameType::Padding as u8 {
+            // RFC-TRACE [RFC9000§19.1]: consume full contiguous PADDING run.
             let start = pos;
             while pos < bytes.len() && bytes[pos] == 0x00 {
                 pos += 1;
@@ -629,6 +653,7 @@ pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolErro
         match ty {
             x if x == QuicFrameType::Ping as u8 => frames.push(QuicFrame::Ping),
             x if x == QuicFrameType::Ack as u8 => {
+                // RFC-TRACE [RFC9000§19.3]: ACK range decoding from largest to lower ranges.
                 let largest_acknowledged = read_varint(bytes, &mut pos)?;
                 let ack_delay = read_varint(bytes, &mut pos)?;
                 let ack_range_count = read_varint(bytes, &mut pos)? as usize;
@@ -660,12 +685,13 @@ pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolErro
                 }));
             }
             x if x == QuicFrameType::Crypto as u8 => {
+                // RFC-TRACE [RFC9000§19.6 + RFC9001§4]: CRYPTO carries TLS records.
                 let offset = read_varint(bytes, &mut pos)?;
                 let len = read_varint(bytes, &mut pos)? as usize;
                 let data = read_bytes(bytes, &mut pos, len)?.to_vec();
                 frames.push(QuicFrame::Crypto(CryptoFrame { offset, data }));
             }
-            // ACK_ECN (0x03) — same wire layout as ACK plus 3 ECN varint counts
+            // RFC-TRACE [RFC9000§19.3.2]: ACK_ECN extends ACK with ECT0/ECT1/CE counters.
             0x03 => {
                 let largest_acknowledged = read_varint(bytes, &mut pos)?;
                 let ack_delay = read_varint(bytes, &mut pos)?;
@@ -700,58 +726,58 @@ pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolErro
                     ack_ranges: ranges_desc,
                 }));
             }
-            // RESET_STREAM (0x04): stream_id + app_error_code + final_size
+            // RFC-TRACE [RFC9000§19.4]: RESET_STREAM = stream_id + app_error_code + final_size.
             x if x == QuicFrameType::ResetStream as u8 => {
                 let _stream_id = read_varint(bytes, &mut pos)?;
                 let _error_code = read_varint(bytes, &mut pos)?;
                 let _final_size = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::ResetStream);
             }
-            // STOP_SENDING (0x05): stream_id + app_error_code
+            // RFC-TRACE [RFC9000§19.5]: STOP_SENDING = stream_id + app_error_code.
             x if x == QuicFrameType::StopSending as u8 => {
                 let _stream_id = read_varint(bytes, &mut pos)?;
                 let _error_code = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::StopSending);
             }
-            // NEW_TOKEN (0x07): token_length + token
+            // RFC-TRACE [RFC9000§19.7]: NEW_TOKEN carries an address validation token.
             x if x == QuicFrameType::NewToken as u8 => {
                 let len = read_varint(bytes, &mut pos)? as usize;
                 let _ = read_bytes(bytes, &mut pos, len)?;
                 frames.push(QuicFrame::NewToken);
             }
-            // MAX_DATA (0x10): maximum_data varint
+            // RFC-TRACE [RFC9000§19.9]: MAX_DATA raises connection-level flow control limit.
             x if x == QuicFrameType::MaxData as u8 => {
                 let _max = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::MaxData);
             }
-            // MAX_STREAM_DATA (0x11): stream_id + max_data
+            // RFC-TRACE [RFC9000§19.10]: MAX_STREAM_DATA raises per-stream data limit.
             x if x == QuicFrameType::MaxStreamData as u8 => {
                 let stream_id = read_varint(bytes, &mut pos)?;
                 let max = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::MaxStreamData(MaxStreamDataFrame { stream_id, maximum_stream_data: max }));
             }
-            // MAX_STREAMS (0x12/0x13): max_streams varint
+            // RFC-TRACE [RFC9000§19.11]: MAX_STREAMS raises stream count limit by type.
             x if x == QuicFrameType::MaxStreams as u8 || x == 0x13 => {
                 let _max = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::MaxStreams);
             }
-            // DATA_BLOCKED (0x14): data_limit varint
+            // RFC-TRACE [RFC9000§19.12]: DATA_BLOCKED signals sender reached MAX_DATA.
             x if x == QuicFrameType::DataBlocked as u8 => {
                 let _limit = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::DataBlocked);
             }
-            // STREAM_DATA_BLOCKED (0x15): stream_id + stream_data_limit
+            // RFC-TRACE [RFC9000§19.13]: STREAM_DATA_BLOCKED signals per-stream FC exhaustion.
             x if x == QuicFrameType::StreamDataBlocked as u8 => {
                 let stream_id = read_varint(bytes, &mut pos)?;
                 let limit = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::StreamDataBlocked(StreamDataBlockedFrame { stream_id, stream_data_limit: limit }));
             }
-            // STREAMS_BLOCKED (0x16/0x17): max_streams varint
+            // RFC-TRACE [RFC9000§19.14]: STREAMS_BLOCKED signals stream count limit reached.
             x if x == QuicFrameType::StreamsBlocked as u8 || x == 0x17 => {
                 let _max = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::StreamsBlocked);
             }
-            // NEW_CONNECTION_ID (0x18): sequence + retire_prior_to + len + cid + token(16)
+            // RFC-TRACE [RFC9000§19.15]: NEW_CONNECTION_ID advertises replacement CID + reset token.
             x if x == QuicFrameType::NewConnectionId as u8 => {
                 let _seq = read_varint(bytes, &mut pos)?;
                 let _retire = read_varint(bytes, &mut pos)?;
@@ -760,33 +786,44 @@ pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolErro
                 let _ = read_bytes(bytes, &mut pos, 16)?; // stateless reset token
                 frames.push(QuicFrame::NewConnectionId);
             }
-            // RETIRE_CONNECTION_ID (0x19): sequence_number varint
+            // RFC-TRACE [RFC9000§19.16]: RETIRE_CONNECTION_ID requests retirement by sequence.
             x if x == QuicFrameType::RetireConnectionId as u8 => {
                 let _seq = read_varint(bytes, &mut pos)?;
                 frames.push(QuicFrame::RetireConnectionId);
             }
-            // PATH_CHALLENGE (0x1a): 8-byte data
+            // RFC-TRACE [RFC9000§19.17]: PATH_CHALLENGE carries 8-byte path probe data.
             x if x == QuicFrameType::PathChallenge as u8 => {
                 let _ = read_bytes(bytes, &mut pos, 8)?;
                 frames.push(QuicFrame::PathChallenge);
             }
-            // PATH_RESPONSE (0x1b): 8-byte data
+            // RFC-TRACE [RFC9000§19.18]: PATH_RESPONSE echoes 8-byte challenge data.
             x if x == QuicFrameType::PathResponse as u8 => {
                 let _ = read_bytes(bytes, &mut pos, 8)?;
                 frames.push(QuicFrame::PathResponse);
             }
-            // CONNECTION_CLOSE (0x1c QUIC layer, 0x1d app layer):
-            // error_code + [frame_type (QUIC only)] + reason_length + reason
+            // RFC-TRACE [RFC9000§19.19]: CONNECTION_CLOSE has transport/application variants.
             x if x == QuicFrameType::ConnectionClose as u8 || x == 0x1d => {
-                let _error_code = read_varint(bytes, &mut pos)?;
-                if x == 0x1c {
-                    let _frame_type = read_varint(bytes, &mut pos)?;
-                }
+                let error_code = read_varint(bytes, &mut pos)?;
+                let offending_frame_type = if x == 0x1c {
+                    Some(read_varint(bytes, &mut pos)?)
+                } else {
+                    None
+                };
                 let reason_len = read_varint(bytes, &mut pos)? as usize;
-                let _ = read_bytes(bytes, &mut pos, reason_len)?;
+                let reason_bytes = read_bytes(bytes, &mut pos, reason_len)?;
+                let reason = String::from_utf8_lossy(reason_bytes);
+                println!(
+                    "⚠️  CONNECTION_CLOSE frame=0x{:02x} error_code={} offending_frame={:?} reason_len={} reason={:?}",
+                    x,
+                    error_code,
+                    offending_frame_type,
+                    reason_len,
+                    reason
+                );
                 frames.push(QuicFrame::ConnectionClose);
             }
             x if (x & 0b1111_1000) == (QuicFrameType::Stream as u8) => {
+                // RFC-TRACE [RFC9000§19.8]: STREAM low bits encode FIN/LEN/OFF flags.
                 let fin = (x & 0x01) != 0;
                 let has_len = (x & 0x02) != 0;
                 let has_offset = (x & 0x04) != 0;
@@ -822,6 +859,7 @@ pub(crate) fn decode_frames(bytes: &[u8]) -> Result<Vec<QuicFrame>, ProtocolErro
 }
 
 fn encode_packet_number(packet_number: u64) -> (u8, Vec<u8>) {
+    // RFC-TRACE [RFC9000§17.1]: sender chooses 1-4 byte truncated packet number encoding.
     if packet_number <= 0xFF {
         (0, vec![packet_number as u8])
     } else if packet_number <= 0xFFFF {
@@ -842,6 +880,7 @@ fn encode_packet_number(packet_number: u64) -> (u8, Vec<u8>) {
 }
 
 fn read_packet_number(bytes: &[u8], pos: &mut usize, len: usize) -> Result<u64, ProtocolError> {
+    // RFC-TRACE [RFC9000§17.1]: this foundational codec reads the transmitted truncated PN bytes.
     let raw = read_bytes(bytes, pos, len)?;
     let mut value = 0u64;
     for b in raw {
@@ -850,7 +889,8 @@ fn read_packet_number(bytes: &[u8], pos: &mut usize, len: usize) -> Result<u64, 
     Ok(value)
 }
 
-fn write_varint(value: u64, out: &mut Vec<u8>) -> Result<(), ProtocolError> {
+pub(crate) fn write_varint(value: u64, out: &mut Vec<u8>) -> Result<(), ProtocolError> {
+    // RFC-TRACE [RFC9000§16]: QUIC varints are 1/2/4/8 bytes with a 2-bit size prefix.
     match value {
         0..=63 => out.push(value as u8),
         64..=16_383 => {
@@ -875,6 +915,7 @@ fn write_varint(value: u64, out: &mut Vec<u8>) -> Result<(), ProtocolError> {
 }
 
 fn read_varint(bytes: &[u8], pos: &mut usize) -> Result<u64, ProtocolError> {
+    // RFC-TRACE [RFC9000§16]: decode QUIC varint and mask off the length prefix bits.
     let first = *bytes.get(*pos).ok_or_else(|| {
         ProtocolError::InvalidPacket("Unexpected EOF while reading varint".into())
     })?;
@@ -1060,15 +1101,17 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_frame_type() {
-        // Short header + 8-byte DCID + 1-byte PN + unsupported frame type 0x1c (CONNECTION_CLOSE)
-        let mut raw = vec![0x40, 1, 1, 1, 1, 1, 1, 1, 1, 0x05, 0x1c];
-        let err = deserialize_packet(&raw).unwrap_err();
+        // Short header + 8-byte DCID + 1-byte PN + unsupported frame type 0x30
+        let raw = vec![0x40, 1, 1, 1, 1, 1, 1, 1, 1, 0x05, 0x30];
+        let err = deserialize_packet_with_dcid_len(&raw, Some(8)).unwrap_err();
         match err {
             ProtocolError::InvalidPacket(msg) => {
-                assert!(msg.contains("Unsupported QUIC frame type"))
+                assert!(
+                    msg.contains("Unsupported QUIC frame type"),
+                    "unexpected error message: {msg}"
+                );
             }
-            _ => panic!("unexpected error variant"),
+            other => panic!("unexpected error variant: {other:?}"),
         }
-        raw.clear();
     }
 }

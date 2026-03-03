@@ -1,5 +1,6 @@
 //! TLS termination for QUIC server — rcgen cert generation, rustls QUIC handshake, OpenSSL SslContext
 
+use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::ssl::{SslContext, SslMethod};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -52,6 +53,9 @@ fn build_ssl_ctx(cert_der: &[u8], key_der: &[u8])
 fn build_rustls_config(cert_der: &[u8], key_der: &[u8])
     -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error + Send + Sync>>
 {
+    // Install default crypto provider if not already done (required for rustls 0.23+)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let mut cfg = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(
@@ -81,10 +85,61 @@ impl TlsTerminator {
     pub fn new(cert_der: Vec<u8>, key_der: Vec<u8>)
         -> Result<Self, Box<dyn std::error::Error + Send + Sync>>
     {
+        // Export cert and SPKI for Chrome QUIC testing
+        Self::export_cert_for_chrome(&cert_der);
+
         Ok(Self {
             ssl_ctx: build_ssl_ctx(&cert_der, &key_der)?,
             rustls_config: build_rustls_config(&cert_der, &key_der)?,
         })
+    }
+
+    /// Export certificate to /tmp and compute SPKI hash for Chrome flags.
+    /// Chrome rejects self-signed certs for QUIC without special flags.
+    fn export_cert_for_chrome(cert_der: &[u8]) {
+        use base64::Engine;
+
+        // Save DER cert to /tmp
+        if let Err(e) = std::fs::write("/tmp/literbike-quic.der", cert_der) {
+            eprintln!("Warning: could not write cert to /tmp: {}", e);
+            return;
+        }
+
+        // Compute SPKI hash using OpenSSL: SHA-256 of the SubjectPublicKeyInfo DER
+        let spki_b64 = match openssl::x509::X509::from_der(cert_der) {
+            Ok(x509) => {
+                match x509.public_key() {
+                    Ok(pkey) => {
+                        match pkey.public_key_to_der() {
+                            Ok(spki_der) => {
+                                let digest = openssl::hash::hash(MessageDigest::sha256(), &spki_der)
+                                    .expect("SHA-256 hash failed");
+                                base64::engine::general_purpose::STANDARD.encode(&digest)
+                            }
+                            Err(e) => { eprintln!("Warning: could not export SPKI: {}", e); return; }
+                        }
+                    }
+                    Err(e) => { eprintln!("Warning: could not extract public key: {}", e); return; }
+                }
+            }
+            Err(e) => { eprintln!("Warning: could not parse cert DER: {}", e); return; }
+        };
+
+        println!("\n╔══════════════════════════════════════════════════════════════╗");
+        println!("║  Chrome QUIC Launch Command (copy-paste this):             ║");
+        println!("╠══════════════════════════════════════════════════════════════╣");
+        println!("║                                                            ║");
+        println!("  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\");
+        println!("    --user-data-dir=/tmp/chrome-quic-profile \\");
+        println!("    --origin-to-force-quic-on=127.0.0.1:4433 \\");
+        println!("    --ignore-certificate-errors \\");
+        println!("    --ignore-certificate-errors-spki-list={} \\", spki_b64);
+        println!("    --enable-quic \\");
+        println!("    https://127.0.0.1:4433");
+        println!("║                                                            ║");
+        println!("╚══════════════════════════════════════════════════════════════╝\n");
+        println!("  Cert saved to: /tmp/literbike-quic.der");
+        println!("  SPKI hash:     {}\n", spki_b64);
     }
 
     pub fn from_pem_files(cert_path: &str, key_path: &str)
