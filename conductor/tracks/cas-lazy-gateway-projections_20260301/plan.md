@@ -2,23 +2,23 @@
 
 ## Phase 1: Canonical CAS Contract
 
-- [ ] Define canonical object identity and metadata envelope
+- [x] Define canonical object identity and metadata envelope
 - [ ] Define chunk/manifest strategy and small-object fast path
-- [ ] Define projection API (`put`, `project`, `get`, integrity verify)
+- [x] Define projection API (`put`, `project`, `get`, integrity verify)
 
 ## Phase 2: Gateway Core and Routing
 
-- [ ] Add backend registry and lazy projection dispatcher
-- [ ] Implement deterministic backend-handle mapping from canonical IDs
+- [x] Add backend registry and lazy projection dispatcher
+- [x] Implement deterministic backend-handle mapping from canonical IDs
 - [ ] Add policy hooks for projection trigger and fallback order
 
 ## Phase 3: Backend Adapters ({git,torrent,ipfs,s3-blobs,kv})
 
-- [ ] Implement `git` projection adapter
-- [ ] Implement `torrent` projection adapter
-- [ ] Implement `ipfs` projection adapter
-- [ ] Implement `s3-blobs` projection adapter
-- [ ] Implement `kv` projection adapter
+- [~] Implement `git` projection adapter
+- [~] Implement `torrent` projection adapter
+- [~] Implement `ipfs` projection adapter
+- [~] Implement `s3-blobs` projection adapter
+- [~] Implement `kv` projection adapter
 
 ## Phase 4: Verification and Failure Semantics
 
@@ -30,3 +30,6 @@
 ## Status Notes
 
 - Track initialized from request: "new track {git,torrent,ipfs,s3-blobs,kv} lazy n-way gateway projections of CAS".
+- Implementation slice landed in `src/cas_gateway.rs` with canonical CAS envelope,
+  lazy `put/project/get`, deterministic locator mapping, and in-memory adapter
+  stubs for all five backends.

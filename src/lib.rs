@@ -15,11 +15,13 @@ pub mod curl_h2;
 
 // Core modules always available
 pub mod adapters;
+pub mod cas_gateway;
 pub mod cas_storage;
 pub mod channel;
 pub mod dht;
 pub mod reactor;
 pub mod rbcursive;
+pub mod model_mux;
 pub mod syscall_net;
 
 // Structured concurrency (Kotlin coroutines pattern)

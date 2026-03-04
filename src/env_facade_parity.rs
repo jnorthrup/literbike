@@ -1582,17 +1582,13 @@ pub fn format_modelmux_mvp_lifecycle_line(lifecycle: &ModelmuxMvpLifecycle) -> S
         lifecycle.route.upstream_model_id
     )
 }
-
 fn infer_provider_family_from_provider_fragment(provider_fragment: &str) -> Option<ProviderFamily> {
+    // Rule: Any provider with _API_KEY is valid, default to OpenAiCompatible
     match provider_fragment.to_ascii_lowercase().as_str() {
         "anthropic" | "claude" => Some(ProviderFamily::AnthropicCompatible),
         "google" | "gemini" => Some(ProviderFamily::GeminiNative),
-        "openrouter" => Some(ProviderFamily::OpenRouter),
-        "azure" | "azure-openai" => Some(ProviderFamily::AzureOpenAi),
-        "openai" | "moonshotai" | "kimi" | "groq" | "mistral" | "together" | "fireworks"
-        | "xai" | "deepseek" | "perplexity" => Some(ProviderFamily::OpenAiCompatible),
         "ollama" => Some(ProviderFamily::Ollama),
-        _ => None,
+        _ => Some(ProviderFamily::OpenAiCompatible),  // Default for any XXXXX_API_KEY provider
     }
 }
 
@@ -2537,12 +2533,8 @@ fn infer_provider_family_from_fragments(
     match provider.as_str() {
         "anthropic" | "claude" => Some(ProviderFamily::AnthropicCompatible),
         "google" | "gemini" => Some(ProviderFamily::GeminiNative),
-        "openrouter" => Some(ProviderFamily::OpenRouter),
-        "azure" | "azure-openai" => Some(ProviderFamily::AzureOpenAi),
-        "openai" | "moonshotai" | "kimi" | "groq" | "mistral" | "together" | "fireworks"
-        | "xai" | "deepseek" | "perplexity" => Some(ProviderFamily::OpenAiCompatible),
         "ollama" => Some(ProviderFamily::Ollama),
-        _ => None,
+        _ => Some(ProviderFamily::OpenAiCompatible),  // Default for any XXXXX_API_KEY provider
     }
 }
 

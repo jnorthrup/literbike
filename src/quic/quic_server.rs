@@ -357,7 +357,6 @@ impl QuicServer {
         })
     }
 
-    #[cfg(feature = "tls-quic")]
     /// Minimal variable-length integer decoder per RFC 9000 §16.
     /// Returns (value, bytes_consumed) or None on underflow.
     fn read_varint(buf: &[u8], pos: usize) -> Option<(u64, usize)> {

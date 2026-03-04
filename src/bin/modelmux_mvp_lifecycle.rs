@@ -685,4 +685,15 @@ mod tests {
         .expect_err("expected missing probe value error");
         assert!(err.contains("missing value for --probe"));
     }
+
+    #[test]
+    fn parse_args_rejects_missing_env_override_value() {
+        let err = parse_args(vec![
+            "--model".to_string(),
+            "/free/moonshotai/kimi-k2".to_string(),
+            "--env".to_string(),
+        ])
+        .expect_err("expected missing env override value error");
+        assert!(err.contains("missing value for --env"));
+    }
 }

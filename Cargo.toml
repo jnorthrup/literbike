@@ -22,6 +22,7 @@ hkdf = ["dep:hkdf"]
 [dependencies]
 # Core (always needed)
 tokio = { version = "1.41", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
