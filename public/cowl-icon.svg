@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+
+  <!-- P1: cowl body — impressionist dome, immaculate symmetry -->
+  <path
+    d="M 50,6
+       C 37,6 20,14 15,28
+       C 12,36 12,42 14,46
+       C 14,46 86,46 86,46
+       C 88,42 88,36 85,28
+       C 80,14 63,6 50,6 Z"
+    fill="#111827"
+  />
+
+  <!-- P2: windscreen glass — inner dome, tinted -->
+  <path
+    d="M 50,12
+       C 40,12 26,19 23,31
+       C 23,31 77,31 77,31
+       C 74,19 60,12 50,12 Z"
+    fill="rgba(96,165,250,0.38)"
+    stroke="rgba(147,197,253,0.55)"
+    stroke-width="0.5"
+  />
+
+  <!-- P3: bowtie fairing — two lens wings, quadratic symmetry -->
+  <path
+    d="M 17,53
+       C 27,43 39,46 50,51
+       C 61,46 73,43 83,53
+       C 73,63 61,60 50,57
+       C 39,60 27,63 17,53 Z"
+    fill="#dc2626"
+  />
+
+  <!-- P4: handlebars curve out + organic oval mirrors — one path, open bars + closed ovals -->
+  <path
+    d="M 14,40 C 10,40 5,41 1,43
+       M 86,40 C 90,40 95,41 99,43
+       M 1,35 C -3,35 -3,45 1,45 C 5,45 5,35 1,35 Z
+       M 99,35 C 103,35 103,45 99,45 C 95,45 95,35 99,35 Z"
+    fill="#e2e8f0"
+    stroke="#e2e8f0"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    overflow="visible"
+  />
+
+</svg>
