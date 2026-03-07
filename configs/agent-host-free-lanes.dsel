@@ -1,7 +1,7 @@
-# Literbike unified-port quick picks for free-tier agent hosting.
+# Literbike unified-port quick picks for agent hosting.
 # Each non-comment line is a pragmatic model ref that can be passed directly to:
 #   cargo run --bin modelmux_mvp_lifecycle -- --model '<ref>'
 
 /{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5
 /{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5
-/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct
+/{localhost:8888,chat,modality/hosted,meta:key=NVIDIA_API_KEY,meta:quota=nvidia-hosted,note=nvidia-glm5}/nvidia/z-ai/glm5

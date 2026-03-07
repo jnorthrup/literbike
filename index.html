@@ -12,11 +12,11 @@
             <div class="brand-block">
                 <p class="eyebrow">Macro Project Straw Man</p>
                 <h1>literbike Control Plane</h1>
-                <p class="subtitle">Gateway-first agent hosting with curated free-lane DSEL picks for GLM5, Kimi K2.5, and NVIDIA fallback.</p>
+                <p class="subtitle">Gateway-first agent hosting with pack-backed DSEL picks for GLM5, Kimi K2.5, and NVIDIA-hosted fallback.</p>
                 <div class="headline-tags" aria-label="Current product framing">
                     <span class="headline-tag">MODEL FACADE</span>
                     <span class="headline-tag">UNIFIED PORT</span>
-                    <span class="headline-tag">FREE LANES</span>
+                    <span class="headline-tag">PACK BACKED</span>
                 </div>
             </div>
             <div class="menu-wrap">
@@ -32,56 +32,16 @@
                     </span>
                     <span class="menu-copy">
                         <span class="menu-label">DSEL</span>
-                        <span class="menu-caption">3 free lanes</span>
+                        <span class="menu-caption" id="menu-caption">pack-backed lanes</span>
                     </span>
                 </button>
                 <section class="menu-panel" id="review-menu" aria-label="DSEL launcher menu" hidden>
                     <div class="menu-section">
                         <div class="section-heading">
                             <span class="section-kicker">Launch</span>
-                            <h2>Free-Tier DSEL Picks</h2>
+                            <h2>Pack-Backed DSEL Picks</h2>
                         </div>
-                        <div class="dsel-grid">
-                            <article class="dsel-card">
-                                <div class="dsel-head">
-                                    <span class="surface-chip">GLM5</span>
-                                    <span class="dsel-hint">burst free</span>
-                                </div>
-                                <p class="dsel-copy">Fast free lane through unified port with gateway-aware Z-AI binding.</p>
-                                <code class="dsel-code" id="route-glm">/{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5</code>
-                                <code class="dsel-code subtle" id="cmd-glm">cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env KILOAI_API_KEY="$KILOAI_API_KEY" --model '/{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5'</code>
-                                <div class="copy-row">
-                                    <button type="button" class="copy-pill" data-copy-target="route-glm" data-copy-label="GLM5 DSEL">Copy DSEL</button>
-                                    <button type="button" class="copy-pill" data-copy-target="cmd-glm" data-copy-label="GLM5 lifecycle command">Copy Command</button>
-                                </div>
-                            </article>
-                            <article class="dsel-card">
-                                <div class="dsel-head">
-                                    <span class="surface-chip">KIMI K2.5</span>
-                                    <span class="dsel-hint">deep context</span>
-                                </div>
-                                <p class="dsel-copy">Moonshot lane pinned to the local host wrapper without giving up the free selector.</p>
-                                <code class="dsel-code" id="route-kimi">/{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5</code>
-                                <code class="dsel-code subtle" id="cmd-kimi">cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env KIMI_API_KEY="$KIMI_API_KEY" --model '/{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5'</code>
-                                <div class="copy-row">
-                                    <button type="button" class="copy-pill" data-copy-target="route-kimi" data-copy-label="Kimi K2.5 DSEL">Copy DSEL</button>
-                                    <button type="button" class="copy-pill" data-copy-target="cmd-kimi" data-copy-label="Kimi K2.5 lifecycle command">Copy Command</button>
-                                </div>
-                            </article>
-                            <article class="dsel-card">
-                                <div class="dsel-head">
-                                    <span class="surface-chip">NVIDIA</span>
-                                    <span class="dsel-hint">long 40 TPM</span>
-                                </div>
-                                <p class="dsel-copy">Gateway-routed fallback lane for long-turn operator work when you need more sustained output.</p>
-                                <code class="dsel-code" id="route-nvidia">/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct</code>
-                                <code class="dsel-code subtle" id="cmd-nvidia">cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env KILO_API_KEY="$KILO_API_KEY" --model '/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct'</code>
-                                <div class="copy-row">
-                                    <button type="button" class="copy-pill" data-copy-target="route-nvidia" data-copy-label="NVIDIA DSEL">Copy DSEL</button>
-                                    <button type="button" class="copy-pill" data-copy-target="cmd-nvidia" data-copy-label="NVIDIA lifecycle command">Copy Command</button>
-                                </div>
-                            </article>
-                        </div>
+                        <div class="dsel-grid" id="dsel-grid"></div>
                     </div>
                     <div class="menu-section">
                         <div class="section-heading">
@@ -90,9 +50,9 @@
                         </div>
                         <ul class="menu-list">
                             <li><span>DSEL pack</span><strong>configs/agent-host-free-lanes.dsel</strong></li>
-                            <li><span>Preferred keys</span><strong>KILOAI_API_KEY / KIMI_API_KEY / KILO_API_KEY</strong></li>
-                            <li><span>Host wrapper</span><strong>localhost:8888 unified-port</strong></li>
-                            <li><span>Launch discipline</span><strong>free first, gateway truth, local wrapper</strong></li>
+                            <li><span>Preferred keys</span><strong id="key-summary">Loading pack…</strong></li>
+                            <li><span>Host wrapper</span><strong id="host-summary">localhost:8888 unified-port</strong></li>
+                            <li><span>Launch discipline</span><strong id="discipline-summary">gateway truth, pack-backed routing</strong></li>
                         </ul>
                     </div>
                     <div class="menu-section">
@@ -103,7 +63,7 @@
                         <div class="surface-stack">
                             <button type="button" class="action-pill" data-copy-target="gateway-models" data-copy-label="gateway models curl">Copy gateway models curl</button>
                             <button type="button" class="action-pill" data-copy-target="pack-path" data-copy-label="DSEL pack path">Copy DSEL pack path</button>
-                            <button type="button" class="action-pill" data-copy-target="route-nvidia" data-copy-label="NVIDIA route">Copy NVIDIA lane</button>
+                            <button type="button" class="action-pill" id="copy-priority-lane">Copy first lane</button>
                         </div>
                     </div>
                     <code class="menu-footnote" id="gateway-models">curl -s https://api.kilo.ai/api/gateway/models | jq -r '.data[].id' | rg ':free$'</code>
@@ -119,7 +79,7 @@
                     <h2>Turn the menu icon into a route launcher, not a concept sketch.</h2>
                 </div>
                 <p class="card-copy">
-                    The icon now exposes copy-ready DSEL refs and lifecycle commands for the three free lanes that matter most: GLM5 for fast gateway work, Kimi K2.5 for deep context, and NVIDIA as the sustained fallback.
+                    The icon now reads the checked-in DSEL pack and exposes copy-ready routes and lifecycle commands for the three lanes that matter most: GLM5 for primary work, Kimi K2.5 for deep context, and NVIDIA-hosted GLM5 as the wrapper-side fallback.
                 </p>
                 <div class="signal-grid">
                     <div class="signal-tile">
@@ -132,7 +92,7 @@
                     </div>
                     <div class="signal-tile">
                         <span class="signal-label">Keys</span>
-                        <strong class="signal-value">KILOAI_API_KEY, KIMI_API_KEY, KILO_API_KEY</strong>
+                        <strong class="signal-value" id="hero-key-summary">KILOAI_API_KEY, KIMI_API_KEY, NVIDIA_API_KEY</strong>
                     </div>
                 </div>
             </section>
@@ -169,11 +129,11 @@
                         <span class="section-kicker">NVIDIA</span>
                         <h2>Sustained Fallback Lane</h2>
                     </div>
-                    <p class="card-copy">When you need a longer sustained run, the menu exposes the NVIDIA free lane as a wrapped DSEL with the gateway key spelled out instead of hidden in client folklore.</p>
+                    <p class="card-copy">When you need the same interface against the NVIDIA provider surface, the menu now reads an NVIDIA-hosted GLM5 route from the pack instead of hardcoding an old Nemotron lane.</p>
                     <ul class="card-list">
-                        <li>KILO_API_KEY remains the gateway-facing binding</li>
-                        <li>Long-40-TPM quota note lives with the route</li>
-                        <li>Same menu icon, same copy discipline</li>
+                        <li>NVIDIA_API_KEY is explicit in the route metadata</li>
+                        <li>Provider-hosted fallback stays in the same menu</li>
+                        <li>Same icon, same pack, same copy discipline</li>
                     </ul>
                 </article>
             </section>
@@ -191,6 +151,117 @@
         const menuTrigger = document.querySelector('.menu-trigger');
         const menuPanel = document.getElementById('review-menu');
         const timestamp = document.getElementById('timestamp');
+        const dselGrid = document.getElementById('dsel-grid');
+        const menuCaption = document.getElementById('menu-caption');
+        const keySummary = document.getElementById('key-summary');
+        const heroKeySummary = document.getElementById('hero-key-summary');
+        const hostSummary = document.getElementById('host-summary');
+        const disciplineSummary = document.getElementById('discipline-summary');
+        const copyPriorityLane = document.getElementById('copy-priority-lane');
+        const DSEL_PACK_PATH = 'configs/agent-host-free-lanes.dsel';
+
+        function slugify(value) {
+            return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        }
+
+        function describeLane(entry) {
+            if (entry.model === 'z-ai/glm-5') {
+                return {
+                    title: 'GLM5',
+                    hint: entry.metadata.quota || 'gateway primary',
+                    copy: 'Primary GLM5 route through the unified port with the gateway-facing Z-AI key contract.',
+                };
+            }
+
+            if (entry.model === 'moonshotai/kimi-k2.5') {
+                return {
+                    title: 'KIMI K2.5',
+                    hint: entry.metadata.quota || 'deep context',
+                    copy: 'Deep-context Kimi lane pinned to the same host wrapper so the operator path stays uniform.',
+                };
+            }
+
+            if (entry.model === 'nvidia/z-ai/glm5') {
+                return {
+                    title: 'NVIDIA HOST',
+                    hint: entry.metadata.quota || 'provider fallback',
+                    copy: 'NVIDIA-hosted GLM5 fallback for when you want the provider surface without changing the icon workflow.',
+                };
+            }
+
+            return {
+                title: entry.model.toUpperCase(),
+                hint: entry.metadata.quota || entry.modality || 'pack route',
+                copy: 'Pack-backed route loaded directly from the checked-in DSEL file.',
+            };
+        }
+
+        function parseDselLine(line) {
+            const match = line.trim().match(/^\/\{([^}]*)\}\/(.+)$/);
+            if (!match) {
+                return null;
+            }
+
+            const tokens = match[1].split(',').map((token) => token.trim()).filter(Boolean);
+            const host = tokens.shift() || '';
+            const metadata = {};
+            const notes = [];
+            let modality = '';
+
+            for (const token of tokens) {
+                if (token.startsWith('meta:')) {
+                    const [key, value] = token.slice(5).split('=');
+                    if (key && value) {
+                        metadata[key.trim()] = value.trim();
+                    }
+                    continue;
+                }
+                if (token.startsWith('note=')) {
+                    notes.push(token.slice(5).trim());
+                    continue;
+                }
+                if (token.startsWith('modality/')) {
+                    modality = token.slice('modality/'.length).trim();
+                }
+            }
+
+            return {
+                route: line.trim(),
+                host,
+                model: match[2].trim(),
+                metadata,
+                notes,
+                modality,
+            };
+        }
+
+        function buildLifecycleCommand(entry) {
+            const envKey = entry.metadata.key || 'API_KEY';
+            return `cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env ${envKey}="$${envKey}" --model '${entry.route}'`;
+        }
+
+        function buildLaneCard(entry, index) {
+            const descriptor = describeLane(entry);
+            const slug = slugify(`${descriptor.title}-${index}`);
+            const routeId = `route-${slug}`;
+            const commandId = `cmd-${slug}`;
+
+            return `
+                <article class="dsel-card">
+                    <div class="dsel-head">
+                        <span class="surface-chip">${descriptor.title}</span>
+                        <span class="dsel-hint">${descriptor.hint}</span>
+                    </div>
+                    <p class="dsel-copy">${descriptor.copy}</p>
+                    <code class="dsel-code" id="${routeId}">${entry.route}</code>
+                    <code class="dsel-code subtle" id="${commandId}">${buildLifecycleCommand(entry)}</code>
+                    <div class="copy-row">
+                        <button type="button" class="copy-pill" data-copy-target="${routeId}" data-copy-label="${descriptor.title} DSEL">Copy DSEL</button>
+                        <button type="button" class="copy-pill" data-copy-target="${commandId}" data-copy-label="${descriptor.title} lifecycle command">Copy Command</button>
+                    </div>
+                </article>
+            `;
+        }
 
         async function copyCodeFromTarget(targetId, label) {
             const source = document.getElementById(targetId);
@@ -214,6 +285,62 @@
             }
         }
 
+        async function loadDselPack() {
+            try {
+                const response = await fetch(DSEL_PACK_PATH);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const text = await response.text();
+                const entries = text
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter((line) => line && !line.startsWith('#'))
+                    .map(parseDselLine)
+                    .filter(Boolean);
+
+                dselGrid.innerHTML = entries.map((entry, index) => buildLaneCard(entry, index)).join('');
+
+                const keys = [...new Set(entries.map((entry) => entry.metadata.key).filter(Boolean))];
+                const hosts = [...new Set(entries.map((entry) => entry.host).filter(Boolean))];
+                menuCaption.textContent = `${entries.length} pack-backed lanes`;
+                keySummary.textContent = keys.join(' / ');
+                heroKeySummary.textContent = keys.join(', ');
+                hostSummary.textContent = hosts.join(' / ');
+                disciplineSummary.textContent = entries.map((entry) => describeLane(entry).title).join(' -> ');
+
+                const firstRouteCode = dselGrid.querySelector('.dsel-code');
+                if (firstRouteCode) {
+                    copyPriorityLane.dataset.copyTarget = firstRouteCode.id;
+                    copyPriorityLane.dataset.copyLabel = 'Priority lane';
+                }
+
+                document.querySelectorAll('[data-copy-target]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        copyCodeFromTarget(
+                            button.getAttribute('data-copy-target'),
+                            button.getAttribute('data-copy-label') || 'DSEL'
+                        );
+                    });
+                });
+            } catch (error) {
+                dselGrid.innerHTML = `
+                    <article class="dsel-card">
+                        <div class="dsel-head">
+                            <span class="surface-chip">PACK LOAD FAILED</span>
+                            <span class="dsel-hint">manual fallback</span>
+                        </div>
+                        <p class="dsel-copy">Could not load ${DSEL_PACK_PATH}. Serve the control plane over HTTP so the menu can fetch the pack-backed routes.</p>
+                        <code class="dsel-code subtle">${String(error)}</code>
+                    </article>
+                `;
+                keySummary.textContent = 'pack unavailable';
+                disciplineSummary.textContent = 'serve over http, then reload';
+                timestamp.textContent = 'PACK LOAD FAILED';
+            }
+        }
+
         menuTrigger?.addEventListener('click', () => {
             const open = menuTrigger.getAttribute('aria-expanded') === 'true';
             menuTrigger.setAttribute('aria-expanded', String(!open));
@@ -221,14 +348,7 @@
             timestamp.textContent = open ? 'READY TO COPY' : 'DSEL menu open';
         });
 
-        document.querySelectorAll('[data-copy-target]').forEach((button) => {
-            button.addEventListener('click', () => {
-                copyCodeFromTarget(
-                    button.getAttribute('data-copy-target'),
-                    button.getAttribute('data-copy-label') || 'DSEL'
-                );
-            });
-        });
+        loadDselPack();
     </script>
 </body>
 </html>
