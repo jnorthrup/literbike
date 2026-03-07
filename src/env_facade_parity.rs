@@ -3903,7 +3903,7 @@ mod tests {
     #[test]
     fn nvidia_host_pick_preserves_gateway_key_metadata() {
         let route = resolve_pragmatic_unified_port_route(
-            "/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct",
+            "/{localhost:8888,chat,modality/hosted,meta:key=NVIDIA_API_KEY,meta:quota=nvidia-hosted,note=nvidia-glm5}/nvidia/z-ai/glm5",
         )
         .expect("route");
 
@@ -3914,12 +3914,12 @@ mod tests {
         );
         assert_eq!(
             route.metadata.get("key").map(String::as_str),
-            Some("KILO_API_KEY")
+            Some("NVIDIA_API_KEY")
         );
         assert_eq!(
             route.metadata.get("quota").map(String::as_str),
-            Some("long-40tpm")
+            Some("nvidia-hosted")
         );
-        assert!(route.dsel_tags.iter().any(|t| t == "modality/free"));
+        assert!(route.dsel_tags.iter().any(|t| t == "modality/hosted"));
     }
 }
