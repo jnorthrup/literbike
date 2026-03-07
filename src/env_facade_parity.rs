@@ -652,7 +652,8 @@ fn classify_by_prefix(prefix: &str) -> Option<(ApiKind, Option<ProviderFamily>, 
             "known provider prefix",
         )),
         "OPENROUTER" | "DEEPSEEK" | "MOONSHOT" | "MINIMAX" | "MISTRAL" | "GROQ" | "TOGETHER"
-        | "PERPLEXITY" | "CEREBRAS" | "COHERE" | "XAI" => Some((
+        | "PERPLEXITY" | "CEREBRAS" | "COHERE" | "XAI" | "NVIDIA" | "ZAI" | "GLM" | "KILO"
+        | "KILOAI" | "KIMI" => Some((
             ApiKind::ModelProvider,
             Some(ProviderFamily::OpenAiCompatible),
             80,
@@ -2347,6 +2348,46 @@ fn infer_modelmux_mvp_known_api_key_binding(
     })
 }
 
+fn normalize_provider_selector_token(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect::<String>()
+}
+
+fn provider_tokens_match(route_provider: &str, binding_prefix: &str) -> bool {
+    let route_norm = normalize_provider_selector_token(route_provider);
+    let binding_norm = normalize_provider_selector_token(binding_prefix);
+    if route_norm.is_empty() || binding_norm.is_empty() {
+        return false;
+    }
+    if route_norm == binding_norm
+        || route_norm.contains(&binding_norm)
+        || binding_norm.contains(&route_norm)
+    {
+        return true;
+    }
+
+    matches!(
+        (route_norm.as_str(), binding_norm.as_str()),
+        ("moonshotai", "moonshot")
+            | ("moonshot", "moonshotai")
+            | ("moonshotai", "kimi")
+            | ("moonshot", "kimi")
+            | ("kimi", "moonshotai")
+            | ("kimi", "moonshot")
+            | ("zai", "glm")
+            | ("glm", "zai")
+            | ("kiloai", "kilo")
+            | ("kilo", "kiloai")
+    )
+}
+
+fn is_gateway_preferred_prefix(prefix: &str) -> bool {
+    matches!(normalize_provider_selector_token(prefix).as_str(), "kilo" | "kiloai")
+}
+
 fn select_modelmux_mvp_provider_key(
     route: &PragmaticUnifiedPortRoute,
     provider_keys: &[ModelmuxMvpApiKeyBinding],
@@ -2364,12 +2405,7 @@ fn select_modelmux_mvp_provider_key(
         if let (Some(route_provider), Some(prefix)) =
             (provider_hint.as_deref(), binding.prefix.as_deref())
         {
-            let p = prefix.to_ascii_lowercase();
-            if route_provider == p
-                || route_provider.contains(&p)
-                || p.contains(route_provider)
-                || (route_provider == "moonshotai" && p == "moonshot")
-            {
+            if provider_tokens_match(route_provider, prefix) {
                 score += 100;
             }
         }
@@ -2381,6 +2417,14 @@ fn select_modelmux_mvp_provider_key(
             {
                 score += 40;
             }
+        }
+        if route.modality.as_deref() == Some("free")
+            && binding
+                .prefix
+                .as_deref()
+                .is_some_and(is_gateway_preferred_prefix)
+        {
+            score += 160;
         }
         if let (Some(host), Some(base)) = (host_hint.as_deref(), binding.base_url.as_deref()) {
             if base.to_ascii_lowercase().contains(host) {
@@ -3736,5 +3780,90 @@ mod tests {
             .readiness
             .reason
             .contains("no provider api key selected"));
+    }
+
+    #[test]
+    fn modelmux_mvp_lifecycle_prefers_kilo_key_for_free_nvidia_route() {
+        let lifecycle = run_modelmux_mvp_lifecycle(
+            vec![
+                kv("KILO_API_KEY", "kilo-key"),
+                kv("NVIDIA_API_KEY", "nv-key"),
+                kv("OPENAI_API_KEY", "oa-key"),
+            ],
+            "/free/nvidia/nemotron-3-nano-30b-a3b",
+        )
+        .expect("lifecycle");
+
+        assert!(lifecycle.readiness.ready);
+        assert_eq!(
+            lifecycle
+                .selected_provider_api_key
+                .as_ref()
+                .map(|b| b.env_key.as_str()),
+            Some("KILO_API_KEY")
+        );
+    }
+
+    #[test]
+    fn modelmux_mvp_lifecycle_matches_zai_key_for_glm_route_without_gateway_key() {
+        let lifecycle = run_modelmux_mvp_lifecycle(
+            vec![
+                kv("ZAI_API_KEY", "zai-key"),
+                kv("OPENAI_API_KEY", "oa-key"),
+            ],
+            "/free/z-ai/glm-5",
+        )
+        .expect("lifecycle");
+
+        assert!(lifecycle.readiness.ready);
+        assert_eq!(
+            lifecycle
+                .selected_provider_api_key
+                .as_ref()
+                .map(|b| b.env_key.as_str()),
+            Some("ZAI_API_KEY")
+        );
+    }
+
+    #[test]
+    fn modelmux_mvp_lifecycle_prefers_kilo_alias_key_for_free_glm_route() {
+        let lifecycle = run_modelmux_mvp_lifecycle(
+            vec![
+                kv("KILOAI_API_KEY", "kiloai-key"),
+                kv("ZAI_API_KEY", "zai-key"),
+            ],
+            "/free/z-ai/glm-5",
+        )
+        .expect("lifecycle");
+
+        assert!(lifecycle.readiness.ready);
+        assert_eq!(
+            lifecycle
+                .selected_provider_api_key
+                .as_ref()
+                .map(|b| b.env_key.as_str()),
+            Some("KILOAI_API_KEY")
+        );
+    }
+
+    #[test]
+    fn modelmux_mvp_lifecycle_matches_kimi_alias_for_moonshot_route() {
+        let lifecycle = run_modelmux_mvp_lifecycle(
+            vec![
+                kv("KIMI_API_KEY", "kimi-key"),
+                kv("OPENAI_API_KEY", "oa-key"),
+            ],
+            "/free/moonshotai/kimi-k2.5",
+        )
+        .expect("lifecycle");
+
+        assert!(lifecycle.readiness.ready);
+        assert_eq!(
+            lifecycle
+                .selected_provider_api_key
+                .as_ref()
+                .map(|b| b.env_key.as_str()),
+            Some("KIMI_API_KEY")
+        );
     }
 }
