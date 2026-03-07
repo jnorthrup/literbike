@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LiteBike QUIC VQA - Test Pattern</title>
+    <title>Literbike Agent Host - DSEL Quick Picks</title>
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
@@ -12,71 +12,102 @@
             <div class="brand-block">
                 <p class="eyebrow">Macro Project Straw Man</p>
                 <h1>literbike Control Plane</h1>
-                <p class="subtitle">Infer-first env recognition, durable debt tracking, and bundled transport review.</p>
+                <p class="subtitle">Gateway-first agent hosting with curated free-lane DSEL picks for GLM5, Kimi K2.5, and NVIDIA fallback.</p>
                 <div class="headline-tags" aria-label="Current product framing">
                     <span class="headline-tag">MODEL FACADE</span>
-                    <span class="headline-tag">LOCAL-FIRST</span>
-                    <span class="headline-tag">QUIC BUNDLED</span>
+                    <span class="headline-tag">UNIFIED PORT</span>
+                    <span class="headline-tag">FREE LANES</span>
                 </div>
             </div>
             <div class="menu-wrap">
                 <button
                     class="menu-trigger"
                     type="button"
-                    aria-label="Literbike review menu"
-                    aria-expanded="true"
+                    aria-label="Literbike DSEL launcher menu"
+                    aria-expanded="false"
                     aria-controls="review-menu"
                 >
                     <span class="menu-icon-shell" aria-hidden="true">
                         <img src="literbike-vrod-icon.svg" alt="" class="menu-icon">
                     </span>
                     <span class="menu-copy">
-                        <span class="menu-label">REVIEW</span>
-                        <span class="menu-caption">toolbar straw man</span>
+                        <span class="menu-label">DSEL</span>
+                        <span class="menu-caption">3 free lanes</span>
                     </span>
                 </button>
-                <section class="menu-panel" id="review-menu" aria-label="Toolbar review menu">
+                <section class="menu-panel" id="review-menu" aria-label="DSEL launcher menu" hidden>
                     <div class="menu-section">
                         <div class="section-heading">
-                            <span class="section-kicker">Inference</span>
-                            <h2>Infer-First Env DB</h2>
+                            <span class="section-kicker">Launch</span>
+                            <h2>Free-Tier DSEL Picks</h2>
+                        </div>
+                        <div class="dsel-grid">
+                            <article class="dsel-card">
+                                <div class="dsel-head">
+                                    <span class="surface-chip">GLM5</span>
+                                    <span class="dsel-hint">burst free</span>
+                                </div>
+                                <p class="dsel-copy">Fast free lane through unified port with gateway-aware Z-AI binding.</p>
+                                <code class="dsel-code" id="route-glm">/{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5</code>
+                                <code class="dsel-code subtle" id="cmd-glm">cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env KILOAI_API_KEY="$KILOAI_API_KEY" --model '/{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5'</code>
+                                <div class="copy-row">
+                                    <button type="button" class="copy-pill" data-copy-target="route-glm" data-copy-label="GLM5 DSEL">Copy DSEL</button>
+                                    <button type="button" class="copy-pill" data-copy-target="cmd-glm" data-copy-label="GLM5 lifecycle command">Copy Command</button>
+                                </div>
+                            </article>
+                            <article class="dsel-card">
+                                <div class="dsel-head">
+                                    <span class="surface-chip">KIMI K2.5</span>
+                                    <span class="dsel-hint">deep context</span>
+                                </div>
+                                <p class="dsel-copy">Moonshot lane pinned to the local host wrapper without giving up the free selector.</p>
+                                <code class="dsel-code" id="route-kimi">/{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5</code>
+                                <code class="dsel-code subtle" id="cmd-kimi">cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env KIMI_API_KEY="$KIMI_API_KEY" --model '/{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5'</code>
+                                <div class="copy-row">
+                                    <button type="button" class="copy-pill" data-copy-target="route-kimi" data-copy-label="Kimi K2.5 DSEL">Copy DSEL</button>
+                                    <button type="button" class="copy-pill" data-copy-target="cmd-kimi" data-copy-label="Kimi K2.5 lifecycle command">Copy Command</button>
+                                </div>
+                            </article>
+                            <article class="dsel-card">
+                                <div class="dsel-head">
+                                    <span class="surface-chip">NVIDIA</span>
+                                    <span class="dsel-hint">long 40 TPM</span>
+                                </div>
+                                <p class="dsel-copy">Gateway-routed fallback lane for long-turn operator work when you need more sustained output.</p>
+                                <code class="dsel-code" id="route-nvidia">/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct</code>
+                                <code class="dsel-code subtle" id="cmd-nvidia">cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env KILO_API_KEY="$KILO_API_KEY" --model '/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct'</code>
+                                <div class="copy-row">
+                                    <button type="button" class="copy-pill" data-copy-target="route-nvidia" data-copy-label="NVIDIA DSEL">Copy DSEL</button>
+                                    <button type="button" class="copy-pill" data-copy-target="cmd-nvidia" data-copy-label="NVIDIA lifecycle command">Copy Command</button>
+                                </div>
+                            </article>
+                        </div>
+                    </div>
+                    <div class="menu-section">
+                        <div class="section-heading">
+                            <span class="section-kicker">Inventory</span>
+                            <h2>Gateway and Pack</h2>
                         </div>
                         <ul class="menu-list">
-                            <li><span>Normalized env profile</span><strong>12 recognized / 2 unknown</strong></li>
-                            <li><span>Family inference</span><strong>Anthropic-compatible</strong></li>
-                            <li><span>Route confidence</span><strong>High with explicit reasons</strong></li>
-                            <li><span>Selected binding</span><strong>Provider key + unified port</strong></li>
+                            <li><span>DSEL pack</span><strong>configs/agent-host-free-lanes.dsel</strong></li>
+                            <li><span>Preferred keys</span><strong>KILOAI_API_KEY / KIMI_API_KEY / KILO_API_KEY</strong></li>
+                            <li><span>Host wrapper</span><strong>localhost:8888 unified-port</strong></li>
+                            <li><span>Launch discipline</span><strong>free first, gateway truth, local wrapper</strong></li>
                         </ul>
                     </div>
                     <div class="menu-section">
                         <div class="section-heading">
-                            <span class="section-kicker">Durability</span>
-                            <h2>Persistent Ledger</h2>
-                        </div>
-                        <ul class="menu-list">
-                            <li><span>TODO debt store</span><strong>3 open / 1 user-facing</strong></li>
-                            <li><span>Persistence posture</span><strong>SQLite-first, replicable later</strong></li>
-                            <li><span>Evidence tables</span><strong>env_snapshot, route_inference, todo_item</strong></li>
-                            <li><span>Current review mode</span><strong>Visible, local, non-destructive</strong></li>
-                        </ul>
-                    </div>
-                    <div class="menu-section">
-                        <div class="section-heading">
-                            <span class="section-kicker">Bundle</span>
-                            <h2>Bundled Surfaces</h2>
+                            <span class="section-kicker">Actions</span>
+                            <h2>Fast Copies</h2>
                         </div>
                         <div class="surface-stack">
-                            <div class="surface-chip">Model facade control</div>
-                            <div class="surface-chip">HTTP compatibility</div>
-                            <div class="surface-chip">QUIC transport</div>
-                            <div class="surface-chip">Quota / route review</div>
+                            <button type="button" class="action-pill" data-copy-target="gateway-models" data-copy-label="gateway models curl">Copy gateway models curl</button>
+                            <button type="button" class="action-pill" data-copy-target="pack-path" data-copy-label="DSEL pack path">Copy DSEL pack path</button>
+                            <button type="button" class="action-pill" data-copy-target="route-nvidia" data-copy-label="NVIDIA route">Copy NVIDIA lane</button>
                         </div>
                     </div>
-                    <div class="menu-actions">
-                        <button type="button" class="action-pill">Inspect Env DB</button>
-                        <button type="button" class="action-pill">Inspect Ledger</button>
-                        <button type="button" class="action-pill">Review Route</button>
-                    </div>
+                    <code class="menu-footnote" id="gateway-models">curl -s https://api.kilo.ai/api/gateway/models | jq -r '.data[].id' | rg ':free$'</code>
+                    <code class="menu-footnote" id="pack-path">/Users/jim/work/literbike/configs/agent-host-free-lanes.dsel</code>
                 </section>
             </div>
         </header>
@@ -84,24 +115,24 @@
         <main class="workbench">
             <section class="review-card hero-card">
                 <div class="card-heading">
-                    <span class="section-kicker">Review Thesis</span>
-                    <h2>Stop shipping fragments. Project one stable control surface.</h2>
+                    <span class="section-kicker">Operator Surface</span>
+                    <h2>Turn the menu icon into a route launcher, not a concept sketch.</h2>
                 </div>
                 <p class="card-copy">
-                    The toolbar icon should summarize confidence, persistence, and active route state. It should not impersonate a provider switcher or let bundled transports define the product.
+                    The icon now exposes copy-ready DSEL refs and lifecycle commands for the three free lanes that matter most: GLM5 for fast gateway work, Kimi K2.5 for deep context, and NVIDIA as the sustained fallback.
                 </p>
                 <div class="signal-grid">
                     <div class="signal-tile">
-                        <span class="signal-label">Route</span>
-                        <strong class="signal-value">`/{localhost:8888,tools}/anthropic/claude-3-5-sonnet`</strong>
+                        <span class="signal-label">Pack</span>
+                        <strong class="signal-value">configs/agent-host-free-lanes.dsel</strong>
                     </div>
                     <div class="signal-tile">
-                        <span class="signal-label">Readiness</span>
-                        <strong class="signal-value">ready=true; reason=provider api key selected</strong>
+                        <span class="signal-label">Host</span>
+                        <strong class="signal-value">localhost:8888 unified-port wrapper</strong>
                     </div>
                     <div class="signal-tile">
-                        <span class="signal-label">Toolbar state</span>
-                        <strong class="signal-value">confidence=high; todo_open=3; persistence=durable</strong>
+                        <span class="signal-label">Keys</span>
+                        <strong class="signal-value">KILOAI_API_KEY, KIMI_API_KEY, KILO_API_KEY</strong>
                     </div>
                 </div>
             </section>
@@ -109,40 +140,40 @@
             <section class="card-grid" aria-label="Review board">
                 <article class="review-card">
                     <div class="card-heading">
-                        <span class="section-kicker">Env Graph</span>
-                        <h2>Infer, Don’t Hand-Wire</h2>
+                        <span class="section-kicker">GLM5</span>
+                        <h2>Fast Gateway Lane</h2>
                     </div>
-                    <p class="card-copy">Normalize env pairs into recognized roles, family hints, bindings, probe results, and route reasons before any UI decides what the system is.</p>
+                    <p class="card-copy">Use GLM5 when you want the quickest free lane and a gateway-first provider contract. The pack pins it to the local wrapper instead of scattering route strings across agents.</p>
                     <ul class="card-list">
-                        <li>Known exact and alias binding recognition</li>
-                        <li>Models probe cache for generic endpoints</li>
-                        <li>Confidence + reason attached to each inference</li>
+                        <li>Free selector preserved through unified-port</li>
+                        <li>KILOAI alias preferred for Z-AI gateway routing</li>
+                        <li>Single copy surface for operator launch</li>
                     </ul>
                 </article>
 
                 <article class="review-card">
                     <div class="card-heading">
-                        <span class="section-kicker">Durable Debt</span>
-                        <h2>Replace TODO Fragments</h2>
+                        <span class="section-kicker">Kimi K2.5</span>
+                        <h2>Deep-Context Lane</h2>
                     </div>
-                    <p class="card-copy">Persist operator debt as structured records instead of markdown fragments or CC-switch-local state. The menu should expose backlog, blockers, and required user input.</p>
+                    <p class="card-copy">Keep the long-context Moonshot path easy to invoke from the same icon. The route stays local-first while the env contract remains explicit and inspectable.</p>
                     <ul class="card-list">
-                        <li>`todo_item` with scope, severity, and source</li>
-                        <li>`todo_event` for review and closure history</li>
-                        <li>Portable local-first store, replication later</li>
+                        <li>KIMI_API_KEY surfaced as the intended binding</li>
+                        <li>Pragmatic host-block ref stays copyable</li>
+                        <li>No extra proxy folklore in the operator path</li>
                     </ul>
                 </article>
 
                 <article class="review-card">
                     <div class="card-heading">
-                        <span class="section-kicker">Bundling</span>
-                        <h2>QUIC Is One Surface</h2>
+                        <span class="section-kicker">NVIDIA</span>
+                        <h2>Sustained Fallback Lane</h2>
                     </div>
-                    <p class="card-copy">Transport belongs in the bundle review, not in the product name. The operator should see which surfaces are active without confusing transport with routing semantics.</p>
+                    <p class="card-copy">When you need a longer sustained run, the menu exposes the NVIDIA free lane as a wrapped DSEL with the gateway key spelled out instead of hidden in client folklore.</p>
                     <ul class="card-list">
-                        <li>Model facade and route control</li>
-                        <li>HTTP compatibility shims</li>
-                        <li>QUIC/H3 transport as optional acceleration</li>
+                        <li>KILO_API_KEY remains the gateway-facing binding</li>
+                        <li>Long-40-TPM quota note lives with the route</li>
+                        <li>Same menu icon, same copy discipline</li>
                     </ul>
                 </article>
             </section>
@@ -150,26 +181,54 @@
 
         <footer>
             <div class="status-bar">
-                <span class="status-item"><span class="dot green"></span> CONTROL PLANE STRAW MAN</span>
-                <span class="status-item">ROUTE SURFACE: MODEL FACADE / HTTP / QUIC</span>
-                <span class="status-item" id="timestamp">REVIEW STUB OPEN</span>
+                <span class="status-item"><span class="dot green"></span> DSEL HOST WRAPPER READY</span>
+                <span class="status-item">FREE LANES: GLM5 / KIMI K2.5 / NVIDIA</span>
+                <span class="status-item" id="timestamp">READY TO COPY</span>
             </div>
         </footer>
     </div>
     <script>
         const menuTrigger = document.querySelector('.menu-trigger');
         const menuPanel = document.getElementById('review-menu');
+        const timestamp = document.getElementById('timestamp');
+
+        async function copyCodeFromTarget(targetId, label) {
+            const source = document.getElementById(targetId);
+            if (!source) {
+                return;
+            }
+
+            const text = source.textContent.trim();
+            try {
+                await navigator.clipboard.writeText(text);
+                timestamp.textContent = `${label} copied`;
+            } catch (_error) {
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(source);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                document.execCommand('copy');
+                selection.removeAllRanges();
+                timestamp.textContent = `${label} copied`;
+            }
+        }
 
         menuTrigger?.addEventListener('click', () => {
             const open = menuTrigger.getAttribute('aria-expanded') === 'true';
             menuTrigger.setAttribute('aria-expanded', String(!open));
             menuPanel.toggleAttribute('hidden', open);
+            timestamp.textContent = open ? 'READY TO COPY' : 'DSEL menu open';
         });
 
-        setInterval(() => {
-            const now = new Date();
-            document.getElementById('timestamp').textContent = 'REVIEW STUB OPEN ' + now.toLocaleTimeString();
-        }, 1000);
+        document.querySelectorAll('[data-copy-target]').forEach((button) => {
+            button.addEventListener('click', () => {
+                copyCodeFromTarget(
+                    button.getAttribute('data-copy-target'),
+                    button.getAttribute('data-copy-label') || 'DSEL'
+                );
+            });
+        });
     </script>
 </body>
 </html>

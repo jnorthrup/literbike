@@ -3866,4 +3866,60 @@ mod tests {
             Some("KIMI_API_KEY")
         );
     }
+
+    #[test]
+    fn parses_localhost_glm5_host_block_for_agent_host_quick_pick() {
+        let parsed = parse_pragmatic_model_ref(
+            "/{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5",
+        )
+        .expect("parse");
+
+        assert_eq!(parsed.host_token, "localhost:8888");
+        assert_eq!(parsed.modality.as_deref(), Some("free"));
+        assert_eq!(parsed.upstream_model_id, "z-ai/glm-5");
+        assert_eq!(
+            parsed.metadata.get("key").map(String::as_str),
+            Some("KILOAI_API_KEY")
+        );
+        assert_eq!(
+            parsed.metadata.get("quota").map(String::as_str),
+            Some("burst-free")
+        );
+        assert_eq!(parsed.notes, vec!["glm5-free".to_string()]);
+    }
+
+    #[test]
+    fn kimi_k25_host_pick_formats_local_route_line() {
+        let line = format_pragmatic_unified_port_route_line(
+            "/{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5",
+        )
+        .expect("line");
+
+        assert!(line.contains("host_scope=localhost:8888"));
+        assert!(line.contains("modality=free"));
+        assert!(line.contains("model=moonshotai/kimi-k2.5"));
+    }
+
+    #[test]
+    fn nvidia_host_pick_preserves_gateway_key_metadata() {
+        let route = resolve_pragmatic_unified_port_route(
+            "/{localhost:8888,chat,modality/free,meta:key=KILO_API_KEY,meta:quota=long-40tpm,note=nvidia-long-lane}/nvidia/llama-3.1-nemotron-70b-instruct",
+        )
+        .expect("route");
+
+        assert_eq!(route.host_scope.as_deref(), Some("localhost:8888"));
+        assert_eq!(
+            route.fragments.provider_fragment.as_deref(),
+            Some("nvidia")
+        );
+        assert_eq!(
+            route.metadata.get("key").map(String::as_str),
+            Some("KILO_API_KEY")
+        );
+        assert_eq!(
+            route.metadata.get("quota").map(String::as_str),
+            Some("long-40tpm")
+        );
+        assert!(route.dsel_tags.iter().any(|t| t == "modality/free"));
+    }
 }
