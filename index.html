@@ -8,34 +8,167 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>LiteBike QUIC Server</h1>
-            <p class="subtitle">Visual Quality Assurance - Signal Acquisition</p>
-        </header>
-        
-        <main>
-            <div class="monitor-frame">
-                <div class="screen">
-                    <img src="bw_test_pattern.png" alt="B&W TV Test Pattern" id="test-pattern">
-                    <div class="scanlines"></div>
-                    <div class="noise"></div>
+        <header class="masthead">
+            <div class="brand-block">
+                <p class="eyebrow">Macro Project Straw Man</p>
+                <h1>literbike Control Plane</h1>
+                <p class="subtitle">Infer-first env recognition, durable debt tracking, and bundled transport review.</p>
+                <div class="headline-tags" aria-label="Current product framing">
+                    <span class="headline-tag">MODEL FACADE</span>
+                    <span class="headline-tag">LOCAL-FIRST</span>
+                    <span class="headline-tag">QUIC BUNDLED</span>
                 </div>
             </div>
+            <div class="menu-wrap">
+                <button
+                    class="menu-trigger"
+                    type="button"
+                    aria-label="Literbike review menu"
+                    aria-expanded="true"
+                    aria-controls="review-menu"
+                >
+                    <span class="menu-icon-shell" aria-hidden="true">
+                        <img src="literbike-vrod-icon.svg" alt="" class="menu-icon">
+                    </span>
+                    <span class="menu-copy">
+                        <span class="menu-label">REVIEW</span>
+                        <span class="menu-caption">toolbar straw man</span>
+                    </span>
+                </button>
+                <section class="menu-panel" id="review-menu" aria-label="Toolbar review menu">
+                    <div class="menu-section">
+                        <div class="section-heading">
+                            <span class="section-kicker">Inference</span>
+                            <h2>Infer-First Env DB</h2>
+                        </div>
+                        <ul class="menu-list">
+                            <li><span>Normalized env profile</span><strong>12 recognized / 2 unknown</strong></li>
+                            <li><span>Family inference</span><strong>Anthropic-compatible</strong></li>
+                            <li><span>Route confidence</span><strong>High with explicit reasons</strong></li>
+                            <li><span>Selected binding</span><strong>Provider key + unified port</strong></li>
+                        </ul>
+                    </div>
+                    <div class="menu-section">
+                        <div class="section-heading">
+                            <span class="section-kicker">Durability</span>
+                            <h2>Persistent Ledger</h2>
+                        </div>
+                        <ul class="menu-list">
+                            <li><span>TODO debt store</span><strong>3 open / 1 user-facing</strong></li>
+                            <li><span>Persistence posture</span><strong>SQLite-first, replicable later</strong></li>
+                            <li><span>Evidence tables</span><strong>env_snapshot, route_inference, todo_item</strong></li>
+                            <li><span>Current review mode</span><strong>Visible, local, non-destructive</strong></li>
+                        </ul>
+                    </div>
+                    <div class="menu-section">
+                        <div class="section-heading">
+                            <span class="section-kicker">Bundle</span>
+                            <h2>Bundled Surfaces</h2>
+                        </div>
+                        <div class="surface-stack">
+                            <div class="surface-chip">Model facade control</div>
+                            <div class="surface-chip">HTTP compatibility</div>
+                            <div class="surface-chip">QUIC transport</div>
+                            <div class="surface-chip">Quota / route review</div>
+                        </div>
+                    </div>
+                    <div class="menu-actions">
+                        <button type="button" class="action-pill">Inspect Env DB</button>
+                        <button type="button" class="action-pill">Inspect Ledger</button>
+                        <button type="button" class="action-pill">Review Route</button>
+                    </div>
+                </section>
+            </div>
+        </header>
+        
+        <main class="workbench">
+            <section class="review-card hero-card">
+                <div class="card-heading">
+                    <span class="section-kicker">Review Thesis</span>
+                    <h2>Stop shipping fragments. Project one stable control surface.</h2>
+                </div>
+                <p class="card-copy">
+                    The toolbar icon should summarize confidence, persistence, and active route state. It should not impersonate a provider switcher or let bundled transports define the product.
+                </p>
+                <div class="signal-grid">
+                    <div class="signal-tile">
+                        <span class="signal-label">Route</span>
+                        <strong class="signal-value">`/{localhost:8888,tools}/anthropic/claude-3-5-sonnet`</strong>
+                    </div>
+                    <div class="signal-tile">
+                        <span class="signal-label">Readiness</span>
+                        <strong class="signal-value">ready=true; reason=provider api key selected</strong>
+                    </div>
+                    <div class="signal-tile">
+                        <span class="signal-label">Toolbar state</span>
+                        <strong class="signal-value">confidence=high; todo_open=3; persistence=durable</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card-grid" aria-label="Review board">
+                <article class="review-card">
+                    <div class="card-heading">
+                        <span class="section-kicker">Env Graph</span>
+                        <h2>Infer, Don’t Hand-Wire</h2>
+                    </div>
+                    <p class="card-copy">Normalize env pairs into recognized roles, family hints, bindings, probe results, and route reasons before any UI decides what the system is.</p>
+                    <ul class="card-list">
+                        <li>Known exact and alias binding recognition</li>
+                        <li>Models probe cache for generic endpoints</li>
+                        <li>Confidence + reason attached to each inference</li>
+                    </ul>
+                </article>
+
+                <article class="review-card">
+                    <div class="card-heading">
+                        <span class="section-kicker">Durable Debt</span>
+                        <h2>Replace TODO Fragments</h2>
+                    </div>
+                    <p class="card-copy">Persist operator debt as structured records instead of markdown fragments or CC-switch-local state. The menu should expose backlog, blockers, and required user input.</p>
+                    <ul class="card-list">
+                        <li>`todo_item` with scope, severity, and source</li>
+                        <li>`todo_event` for review and closure history</li>
+                        <li>Portable local-first store, replication later</li>
+                    </ul>
+                </article>
+
+                <article class="review-card">
+                    <div class="card-heading">
+                        <span class="section-kicker">Bundling</span>
+                        <h2>QUIC Is One Surface</h2>
+                    </div>
+                    <p class="card-copy">Transport belongs in the bundle review, not in the product name. The operator should see which surfaces are active without confusing transport with routing semantics.</p>
+                    <ul class="card-list">
+                        <li>Model facade and route control</li>
+                        <li>HTTP compatibility shims</li>
+                        <li>QUIC/H3 transport as optional acceleration</li>
+                    </ul>
+                </article>
+            </section>
         </main>
 
         <footer>
             <div class="status-bar">
-                <span class="status-item"><span class="dot green"></span> QUIC/H3 ACTIVE</span>
-                <span class="status-item">ENCRYPTION: AES-128-GCM</span>
-                <span class="status-item" id="timestamp">SIGNAL LOCKED</span>
+                <span class="status-item"><span class="dot green"></span> CONTROL PLANE STRAW MAN</span>
+                <span class="status-item">ROUTE SURFACE: MODEL FACADE / HTTP / QUIC</span>
+                <span class="status-item" id="timestamp">REVIEW STUB OPEN</span>
             </div>
         </footer>
     </div>
     <script>
-        // Subtle animation for the timestamp
+        const menuTrigger = document.querySelector('.menu-trigger');
+        const menuPanel = document.getElementById('review-menu');
+
+        menuTrigger?.addEventListener('click', () => {
+            const open = menuTrigger.getAttribute('aria-expanded') === 'true';
+            menuTrigger.setAttribute('aria-expanded', String(!open));
+            menuPanel.toggleAttribute('hidden', open);
+        });
+
         setInterval(() => {
             const now = new Date();
-            document.getElementById('timestamp').textContent = 'SIGNAL LOCKED ' + now.toLocaleTimeString();
+            document.getElementById('timestamp').textContent = 'REVIEW STUB OPEN ' + now.toLocaleTimeString();
         }, 1000);
     </script>
 </body>

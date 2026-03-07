@@ -20,7 +20,9 @@ pub mod cas_storage;
 pub mod channel;
 pub mod dht;
 pub mod reactor;
+pub mod api_translation;
 pub mod rbcursive;
+pub use rbcursive::precompile::{PRECOMPILED_PATTERNS, PrecompiledPatterns};
 pub mod model_mux;
 pub mod syscall_net;
 

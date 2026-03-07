@@ -10,6 +10,7 @@ pub mod combinators;
 pub mod continuation;
 pub mod patterns;
 pub mod protocols;
+pub mod precompile;
 pub mod scanner;
 pub mod simd;
 pub mod tunnel_config;
