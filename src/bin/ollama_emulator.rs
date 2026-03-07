@@ -50,6 +50,31 @@ async fn handle(mut stream: tokio::net::TcpStream, state: Arc<State>) {
     loop { line.clear(); if reader.read_line(&mut line).await.is_err() || line.trim().is_empty() { break; } }
     
     let body = match (method.as_str(), path.as_str()) {
+        ("GET", "/") => r#""Ollama is running""#.into(),
+        ("GET", "/api/version") => r#"{"version": "0.1.24"}"#.into(),
+        ("GET", "/api/tags") => {
+            let iter = state.providers.iter();
+            let mut ollama_models = Vec::new();
+            for p in iter {
+                ollama_models.push(serde_json::json!({
+                    "name": format!("{}/{}-model:latest", p.id, p.id),
+                    "model": format!("{}/{}-model:latest", p.id, p.id),
+                    "modified_at": "2023-11-01T00:00:00Z",
+                    "size": 0,
+                    "digest": "fake",
+                    "details": { "format": "gguf", "family": "llama", "parameter_size": "7B", "quantization_level": "Q4_0" }
+                }));
+                ollama_models.push(serde_json::json!({
+                    "name": format!("{}/default:latest", p.id),
+                    "model": format!("{}/default:latest", p.id),
+                    "modified_at": "2023-11-01T00:00:00Z",
+                    "size": 0,
+                    "digest": "fake",
+                    "details": { "format": "gguf", "family": "llama", "parameter_size": "7B", "quantization_level": "Q4_0" }
+                }));
+            }
+            serde_json::to_string(&serde_json::json!({ "models": ollama_models })).unwrap()
+        }
         ("GET", "/v1/models") | ("GET", "/models") => {
             let models: Vec<Model> = state.providers.iter().flat_map(|p| vec![
                 Model { id: format!("{}/{}-model", p.id, p.id), owned_by: p.id.clone() },
