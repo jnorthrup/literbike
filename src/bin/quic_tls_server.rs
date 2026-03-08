@@ -94,7 +94,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   ALPN negotiation enabled for H2/H3");
 
     let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(tls, 100));
-    let ctx = literbike::concurrency::ccek::EmptyContext + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
+    let ctx = literbike::concurrency::ccek::EmptyContext
+        + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
 
     let local = tokio::task::LocalSet::new();
     local.run_until(async move {

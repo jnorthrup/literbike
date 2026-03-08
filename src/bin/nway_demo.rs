@@ -5,10 +5,10 @@ use literbike::api_translation::*;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    
+
     println!("N-Way API Conversion Demo");
     println!("=========================\n");
-    
+
     println!("=== Detected Providers from Environment ===");
     let mut detected = Vec::new();
     for (key, _) in std::env::vars() {
@@ -20,18 +20,30 @@ async fn main() {
         }
     }
     println!();
-    
+
     if detected.is_empty() {
         println!("No API keys detected. Set OPENAI_API_KEY, ANTHROPIC_AUTH_TOKEN, etc.");
         return;
     }
-    
+
     println!("=== Provider Base URLs ===");
     for provider in &detected {
         println!("  {:?}: {}", provider, provider.base_url());
     }
     println!();
-    
-    println!("OpenAI-compatible: {}", detected.iter().filter(|p| p.is_openai_compatible()).count());
-    println!("Search providers: {}", detected.iter().filter(|p| matches!(p, Provider::BraveSearch | Provider::TavilySearch | Provider::SerperSearch)).count());
+
+    println!(
+        "OpenAI-compatible: {}",
+        detected.iter().filter(|p| p.is_openai_compatible()).count()
+    );
+    println!(
+        "Search providers: {}",
+        detected
+            .iter()
+            .filter(|p| matches!(
+                p,
+                Provider::BraveSearch | Provider::TavilySearch | Provider::SerperSearch
+            ))
+            .count()
+    );
 }

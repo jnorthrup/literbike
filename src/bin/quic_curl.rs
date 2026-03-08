@@ -1,18 +1,31 @@
-use literbike::quic::quic_protocol::{serialize_packet, deserialize_packet, QuicPacket, QuicHeader, QuicFrame, StreamFrame, ConnectionId, QuicPacketType};
-use std::net::{UdpSocket, ToSocketAddrs};
-use std::time::Duration;
+use literbike::quic::quic_protocol::{
+    deserialize_packet, serialize_packet, ConnectionId, QuicFrame, QuicHeader, QuicPacket,
+    QuicPacketType, StreamFrame,
+};
 use std::env;
+use std::net::{ToSocketAddrs, UdpSocket};
+use std::time::Duration;
 
-async fn fetch_resource(socket: &UdpSocket, host: &str, path: &str, stream_id: u64, verbose: bool) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+async fn fetch_resource(
+    socket: &UdpSocket,
+    host: &str,
+    path: &str,
+    stream_id: u64,
+    verbose: bool,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let header = QuicHeader {
         r#type: QuicPacketType::ShortHeader,
         version: 1,
-        destination_connection_id: ConnectionId { bytes: vec![1, 2, 3, 4, 5, 6, 7, 8] },
-        source_connection_id: ConnectionId { bytes: vec![2, 2, 2, 2, 2, 2, 2, 2] },
+        destination_connection_id: ConnectionId {
+            bytes: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        },
+        source_connection_id: ConnectionId {
+            bytes: vec![2, 2, 2, 2, 2, 2, 2, 2],
+        },
         packet_number: stream_id * 100, // Just a unique PN
         token: None,
     };
-    
+
     let request_str = format!("GET {} HTTP/3\r\nHost: {}\r\n\r\n", path, host);
     if verbose {
         println!("> {}", request_str.replace("\r\n", "\n> "));
@@ -24,14 +37,18 @@ async fn fetch_resource(socket: &UdpSocket, host: &str, path: &str, stream_id: u
         fin: false,
         data: request_str.into_bytes(),
     })];
-    
-    let packet = QuicPacket { header, frames, payload: Vec::new() };
+
+    let packet = QuicPacket {
+        header,
+        frames,
+        payload: Vec::new(),
+    };
     let serialized = serialize_packet(&packet)?;
     socket.send(&serialized)?;
-    
+
     let mut buf = [0u8; 65536];
     let mut data = Vec::new();
-    
+
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         match socket.recv(&mut buf) {
@@ -57,7 +74,7 @@ async fn fetch_resource(socket: &UdpSocket, host: &str, path: &str, stream_id: u
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    
+
     let mut url_str = "http://localhost:4433/";
     let mut verbose = false;
 
@@ -85,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = host_port.split(':').next().unwrap_or("localhost");
     let port = host_port.split(':').nth(1).unwrap_or("4433");
     let addr_str = format!("{}:{}", host, port);
-    
+
     let path = if url_parts.len() > 3 {
         format!("/{}", url_parts[3])
     } else {
@@ -93,12 +110,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!("* Connecting to {}...", addr_str);
-    
+
     let addrs: Vec<_> = addr_str.to_socket_addrs()?.collect();
     if addrs.is_empty() {
         return Err(format!("Could not resolve {}", addr_str).into());
     }
-    
+
     let target_addr = addrs[0];
     let bind_addr = if target_addr.is_ipv6() {
         "[::]:0"
@@ -113,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("* Connected via QUIC/UDP to {}", target_addr);
 
     let response = fetch_resource(&socket, host, &path, 1, verbose).await?;
-    
+
     if verbose {
         println!("< [Received {} bytes]", response.len());
         println!("<");
@@ -124,6 +141,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(s) => print!("{}", s),
         Err(_) => println!("[Binary data: {} bytes]", response.len()),
     }
-    
+
     Ok(())
 }

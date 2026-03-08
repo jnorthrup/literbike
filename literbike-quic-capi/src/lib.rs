@@ -1,10 +1,10 @@
+use literbike::dht::{DhtService, PeerId, PeerInfo};
 use literbike::quic::quic_engine::Role;
 use literbike::quic::quic_protocol::{
     deserialize_decoded_packet_with_dcid_len, ConnectionId, ConnectionState, QuicConnectionState,
     TransportParameters,
 };
 use literbike::quic::QuicEngine;
-use literbike::dht::{DhtService, PeerId, PeerInfo};
 use std::cell::RefCell;
 use std::ffi::{CStr, CString};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -575,7 +575,10 @@ pub extern "C" fn quic_dht_add_peer(service: *mut DhtService, peer_json: *const 
 }
 
 #[no_mangle]
-pub extern "C" fn quic_dht_get_peer(service: *mut DhtService, peer_id_b58: *const c_char) -> *mut c_char {
+pub extern "C" fn quic_dht_get_peer(
+    service: *mut DhtService,
+    peer_id_b58: *const c_char,
+) -> *mut c_char {
     if service.is_null() {
         set_last_error("dht service handle is null");
         return ptr::null_mut();
@@ -671,7 +674,8 @@ impl literbike::dht::service::DhtPersistence for DhtFfiPersistence {
         let json = serde_json::json!({
             "key": key,
             "value_hex": hex::encode(value)
-        }).to_string();
+        })
+        .to_string();
         let op = CString::new("upsert_value").unwrap();
         let data = CString::new(json).unwrap();
         (self.callback)(op.as_ptr(), data.as_ptr());
