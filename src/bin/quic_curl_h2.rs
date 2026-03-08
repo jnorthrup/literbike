@@ -19,8 +19,8 @@
 
 use clap::Parser;
 use literbike::curl_h2::{H2Client, H2Error, H2Request};
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
@@ -67,7 +67,14 @@ fn main() {
     println!("==========================================");
     println!("Server: {}", args.url);
     println!("Timeout: {}s", args.timeout);
-    println!("SSL Verification: {}", if args.verify_ssl { "enabled" } else { "disabled (self-signed OK)" });
+    println!(
+        "SSL Verification: {}",
+        if args.verify_ssl {
+            "enabled"
+        } else {
+            "disabled (self-signed OK)"
+        }
+    );
     println!();
 
     let mut client = match H2Client::with_timeout(args.timeout) {
@@ -96,7 +103,7 @@ fn main() {
 
     for path in test_paths {
         println!("📡 Testing: {}", path);
-        
+
         let start = Instant::now();
         let result = test_resource(&mut client, &args.url, &path, args.verbose);
         let duration = start.elapsed();
@@ -109,7 +116,7 @@ fn main() {
         let test_result = match result {
             Ok(response) => {
                 let size = response.body.len();
-                
+
                 // Save to output directory if specified
                 if let Some(ref output_dir) = args.output {
                     if let Err(e) = save_response(output_dir, &path, &response.body) {
@@ -135,7 +142,7 @@ fn main() {
                 duration_ms: duration.as_millis() as u64,
                 success: false,
                 error: Some(e.to_string()),
-            }
+            },
         };
 
         // Print result
@@ -147,13 +154,17 @@ fn main() {
     println!();
     println!("📊 Test Summary");
     println!("---------------");
-    println!("Total: {} | Success: {} | Failed: {}", 
-             results.len(), total_success, results.len() - total_success);
+    println!(
+        "Total: {} | Success: {} | Failed: {}",
+        results.len(),
+        total_success,
+        results.len() - total_success
+    );
 
     if total_success == results.len() {
         println!();
         println!("✨ All tests passed! QUIC server is serving HTTP/2 correctly.");
-        
+
         // Check HTTP/2 protocol
         if let Some(first_result) = results.first() {
             if first_result.status == 200 {
@@ -167,9 +178,14 @@ fn main() {
     }
 }
 
-fn test_resource(client: &mut H2Client, base_url: &str, path: &str, verbose: bool) -> Result<literbike::curl_h2::H2Response, H2Error> {
+fn test_resource(
+    client: &mut H2Client,
+    base_url: &str,
+    path: &str,
+    verbose: bool,
+) -> Result<literbike::curl_h2::H2Response, H2Error> {
     let url = format!("{}{}", base_url.trim_end_matches('/'), path);
-    
+
     if verbose {
         println!("  → GET {}", url);
     }
@@ -195,10 +211,12 @@ fn test_resource(client: &mut H2Client, base_url: &str, path: &str, verbose: boo
 
 fn print_result(result: &TestResult, verbose: bool) {
     let status_icon = if result.success { "✅" } else { "❌" };
-    
+
     if result.success {
-        println!("  {} {} - {} bytes ({}ms)", 
-                 status_icon, result.path, result.size, result.duration_ms);
+        println!(
+            "  {} {} - {} bytes ({}ms)",
+            status_icon, result.path, result.size, result.duration_ms
+        );
     } else {
         println!("  {} {} - FAILED", status_icon, result.path);
         if let Some(ref error) = result.error {
@@ -207,25 +225,27 @@ fn print_result(result: &TestResult, verbose: bool) {
     }
 
     if verbose && result.success {
-        println!("     Status: {} | Size: {} bytes | Duration: {}ms",
-                 result.status, result.size, result.duration_ms);
+        println!(
+            "     Status: {} | Size: {} bytes | Duration: {}ms",
+            result.status, result.size, result.duration_ms
+        );
     }
 }
 
 fn save_response(output_dir: &PathBuf, path: &str, body: &[u8]) -> std::io::Result<()> {
     // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir)?;
-    
+
     // Determine filename from path
     let filename = if path == "/" {
         "index.html".to_string()
     } else {
         path.trim_start_matches('/').to_string()
     };
-    
+
     let output_path = output_dir.join(filename);
     fs::write(&output_path, body)?;
-    
+
     Ok(())
 }
 

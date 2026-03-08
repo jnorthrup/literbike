@@ -1,6 +1,11 @@
 use literbike::git_sync;
 use literbike::knox_proxy::{start_knox_proxy, KnoxProxyConfig};
 use literbike::posix_sockets::PosixTcpStream;
+#[cfg(feature = "tls-quic")]
+use literbike::quic::tls;
+#[cfg(feature = "tls-quic")]
+use literbike::quic::tls_ccek;
+use literbike::quic::QuicServer;
 use literbike::rbcursive::protocols;
 use literbike::rbcursive::protocols::Listener;
 use literbike::rbcursive::protocols::ProtocolType;
@@ -10,11 +15,6 @@ use literbike::syscall_net::{
     get_default_local_ipv4, get_default_local_ipv6, guess_default_v6_interface, list_interfaces,
     InterfaceAddr,
 };
-use literbike::quic::QuicServer;
-#[cfg(feature = "tls-quic")]
-use literbike::quic::tls;
-#[cfg(feature = "tls-quic")]
-use literbike::quic::tls_ccek;
 use literbike::tethering_bypass::{enable_carrier_bypass, TetheringBypass};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -2241,12 +2241,14 @@ fn run_proxy_server(args: &[String]) {
     println!("📜 Initializing CCEK TLS Domain...");
     let terminator = literbike::quic::tls::TlsTerminator::localhost()
         .expect("Failed to initialize standalone TLS config");
-    
-    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(terminator, 100));
+
+    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(
+        terminator, 100,
+    ));
     // Build the CoroutineContext bundle
-    let _ccek_context = literbike::concurrency::ccek::EmptyContext 
+    let _ccek_context = literbike::concurrency::ccek::EmptyContext
         + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
-    
+
     // Spawn the background channel loop for the CCEK TLS config manager
     let tls_ccek_loop = tls_ccek.clone();
     std::thread::spawn(move || {
@@ -2276,11 +2278,15 @@ fn run_proxy_server(args: &[String]) {
                             let is_long_header = (first_byte & 0x80) != 0;
                             // Basic QUIC heuristic: Long header has version bits, short header has fixed bit 0x40
                             let is_quic = if is_long_header {
-                                data.len() >= 5 && (data[1] != 0 || data[2] != 0 || data[3] != 0 || data[4] != 0)
+                                data.len() >= 5
+                                    && (data[1] != 0
+                                        || data[2] != 0
+                                        || data[3] != 0
+                                        || data[4] != 0)
                             } else {
                                 (first_byte & 0x40) != 0
                             };
-                            
+
                             if is_quic {
                                 println!("🟢 QUIC Alteration [Port 8888] -> Source: {}, Bytes: {}, Type: {}", 
                                     src, 
@@ -2469,11 +2475,15 @@ fn run_proxy_server(args: &[String]) {
                                 ProtocolType::Unknown => {
                                     // Try lightweight HTTP request-line parse as a soft hint only
                                     match http.parse_request(&req).signal() {
-                                        literbike::rbcursive::combinators::Signal::Accept => println!("→ HTTP (soft-parse)"),
+                                        literbike::rbcursive::combinators::Signal::Accept => {
+                                            println!("→ HTTP (soft-parse)")
+                                        }
                                         literbike::rbcursive::combinators::Signal::NeedMore => {
                                             println!("→ Need more data to classify")
                                         }
-                                        literbike::rbcursive::combinators::Signal::Reject => println!("→ Unknown protocol (no match)"),
+                                        literbike::rbcursive::combinators::Signal::Reject => {
+                                            println!("→ Unknown protocol (no match)")
+                                        }
                                     }
                                 }
                             }
@@ -3817,7 +3827,9 @@ fn run_quic_vqa(args: &[String]) {
     println!("📜 Initializing CCEK TLS Domain...");
     let terminator = literbike::quic::tls::TlsTerminator::localhost()
         .expect("Failed to initialize standalone TLS config");
-    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(terminator, 100));
+    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(
+        terminator, 100,
+    ));
 
     // Build the CoroutineContext with TLS
     let ctx = literbike::concurrency::ccek::EmptyContext
