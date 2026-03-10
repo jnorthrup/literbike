@@ -4,13 +4,18 @@
 
 ## Overview
 
-This track positions `literbike` as the heavier half of the `litebike` /
-`literbike` system: the runtime that goes beyond edge proxying into unified
-traffic handling, transport depth, service adapters, and durable orchestration.
+This track positions `literbike` as the heavier heart/backplane of the
+`litebike` / `literbike` system: the repo that goes beyond edge proxying into
+transport depth, model/service coordination, and durable orchestration.
 
 `literbike` is not just the place where `litebike` code grew larger. It is the
-repo that should launch as the broader transport-and-services backplane that the
-lighter `litebike` edge process can feed.
+repo that should supply the deeper transport-and-services heart mounted into the
+`litebike` shell through a gated boundary. Direct `literbike` launches may
+exist for backplane validation or focused service work, but they are not the
+canonical outer shell.
+
+The composed ingress/operator surface is `litebike` `agent8888` on port `8888`.
+When `literbike` is mounted, that one `litebike` surface subsumes both repos.
 
 ## Problem
 
@@ -18,14 +23,15 @@ lighter `litebike` edge process can feed.
   content-addressed storage, protocol detection, and multi-service adapters.
 - Some historical or inherited documentation still blurs the boundary between
   the two repos or over-focuses on the `litebike` binary naming lineage.
-- Without a clear launch track, `literbike` can read like an oversized utility
-  binary instead of the unified traffic and services runtime it is becoming.
+- Without a clear launch track, `literbike` can read like a competing front
+  door instead of the heavy heart/backplane that `litebike` composes.
 
 ## Goals
 
-- Define `literbike` as the heavy unified runtime for transport and services.
-- Make the relationship to `litebike` explicit: `litebike` is the lean edge
-  ingress, `literbike` is the deeper traffic and service plane.
+- Define `literbike` as the heavy heart/backplane for transport and services.
+- Make the relationship to `litebike` explicit: `litebike` is the deployable
+  shell/operator surface, `literbike` is the deeper traffic, model, and service
+  plane mounted into it.
 - Highlight the subsystems that justify `literbike` existing as its own launch
   unit: QUIC, keymux/modelmux, API translation, DHT, CAS, reactor/runtime
   composition.
@@ -35,11 +41,13 @@ lighter `litebike` edge process can feed.
 ### 1. Unified Traffic Runtime Identity
 
 - `literbike` launch materials must describe the repo as the place where mixed
-  protocols, transports, and traffic policies are unified beyond the edge.
-- The canonical operator-facing ingress for the launch story is the shared
-  `8888` agent/unified-port surface; ad hoc alternate launch ports are not part
-  of the intended product posture unless explicitly documented as temporary test
-  seams.
+  protocols, transports, and traffic policies are unified beyond the edge
+  shell that `litebike` owns.
+- If direct operator-facing ingress is documented for `literbike`, it must be
+  clearly labeled as a secondary backplane or validation mode rather than the
+  primary shell/front door.
+- The canonical operator-facing story must identify `litebike` `agent8888` as
+  the one ingress/operator surface that subsumes both repos when composed.
 - The launch story should include:
   - QUIC and transport-heavy handling
   - keymux/modelmux policy, routing, and provider-surface ownership
@@ -62,14 +70,14 @@ lighter `litebike` edge process can feed.
 ### 3. Companion Boundary with LiteBike
 
 - `literbike` launch materials must define `litebike` as the lightweight edge
-  ingress and local proxy/router companion.
+  ingress, local proxy/router companion, and primary operator shell.
 - Expected handoff from `litebike` into `literbike` should be described as:
   local classification first, heavy transport/service handling second.
 - If `literbike` presents a direct visual/operator surface, that surface must
-  still align with the `agent8888` / unified-port contract rather than
-  introducing a competing default port identity.
-- The repo should avoid implying that all edge utility concerns belong inside
-  `literbike`.
+  be framed as a mounted guest surface or secondary backplane mode rather than
+  a competing shell identity.
+- The repo should avoid implying that all edge utility concerns or launch/menu
+  ownership belong inside `literbike`.
 
 ### 4. Launch Readiness Artifacts
 
@@ -98,8 +106,10 @@ lighter `litebike` edge process can feed.
    `literbike` today.
 4. The deployment relationship between the two repos is described in concise,
    operational terms.
-5. Any operator-facing launch path is reconciled to the canonical `8888`
-   unified-port story instead of drifting to an alternate default port.
+5. Any direct `literbike` launch path is explicitly described as secondary to
+   the `litebike` shell rather than a replacement for it.
+6. The launch materials explicitly define `litebike` `agent8888` as the single
+   composed ingress/operator surface that subsumes both repos.
 
 ## Out of Scope
 

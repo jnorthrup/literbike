@@ -8,7 +8,10 @@
 
 ## Executive Summary
 
-This document inventories all transport, traffic, and service subsystems present in `literbike` as of the unified services launch. It establishes the boundary between `litebike` (edge ingress) and `literbike` (heavy unified runtime).
+This document inventories all transport, traffic, and service subsystems
+present in `literbike` as of the unified services launch. It establishes the
+boundary between `litebike` (primary shell/edge ingress) and `literbike`
+(gated heavy heart/backplane).
 
 ---
 

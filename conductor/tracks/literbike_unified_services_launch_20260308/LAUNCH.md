@@ -2,40 +2,45 @@
 
 **Track:** `literbike_unified_services_launch_20260308`
 **Status:** Ready for Launch
-**Canonical Port:** `8888` (unified-port surface)
+**Canonical Surface:** `litebike` `agent8888` on port `8888`
 
 ---
 
 ## Executive Summary
 
-**LiterBike** is the heavy unified runtime for transport and services. It is the deeper backplane that handles mixed protocols, transport depth, service adapters, and durable orchestration.
+**LiterBike** is the heavy heart/backplane for transport and services. It is
+the deeper companion that gives `litebike` its transport, model, and service
+depth when the gate is open.
 
-LiterBike is not an oversized utility binary. It is the unified traffic and services runtime that the lighter `litebike` edge process feeds.
+LiterBike is not an oversized utility binary, and it is not the canonical outer
+shell. `litebike` remains the front door and operator surface; `literbike`
+extends it with heavier runtime capability.
+When composed, the single `litebike` `agent8888` surface subsumes both repos.
 
 ---
 
 ## The Split: LiteBike vs LiterBike
 
-### LiteBike (Edge Ingress)
-- **Role:** Lightweight edge ingress and local proxy/router companion
+### LiteBike (Shell / Edge Ingress)
+- **Role:** Primary deployable shell, lightweight edge ingress, local proxy/router companion
 - **Function:** Local protocol classification, fast operator-facing control path
-- **Canonical Surface:** Port 8888 (unified-port agent surface)
+- **Canonical Surface:** `agent8888` on port `8888`, subsuming both repos when composed
 - **Characteristics:** Lean, fast, local-first
 
-### LiterBike (Heavy Runtime)
-- **Role:** Heavy unified runtime for transport and services
-- **Function:** Transport depth, service adapters, durable orchestration
-- **Canonical Surface:** Port 8888 (shared unified-port surface)
+### LiterBike (Heart / Backplane)
+- **Role:** Gated heavy heart/backplane for transport, model, and service depth
+- **Function:** Transport depth, service adapters, durable orchestration, model DSEL
+- **Canonical Surface:** Mounted under `litebike` when composed; direct binds are secondary validation/backplane modes
 - **Characteristics:** Deep, comprehensive, service-oriented
 
 ### Handoff Pattern
 ```
-Clients/Agents → litebike (edge ingress, port 8888) → literbike (heavy runtime)
+Clients/Agents → litebike agent8888 (shell, subsumes both) → literbike (heart/backplane)
 ```
 
 1. **Classify early** in `litebike` (protocol detection, routing decisions)
 2. **Route heavier** transport/service/runtime work into `literbike`
-3. **Unified port** surface maintains consistent operator experience
+3. **`agent8888`** maintains one composed operator surface for both repos
 
 ---
 
@@ -70,13 +75,13 @@ LiterBike owns the following subsystems:
 ## Why the Split is Operationally Useful
 
 ### Separation of Concerns
-- **LiteBike** stays lean for edge deployment (low latency, minimal footprint)
-- **LiterBike** carries the heavy runtime (comprehensive features, deeper logic)
+- **LiteBike** stays lean for edge deployment and shell ownership
+- **LiterBike** carries the heavy runtime depth without taking the shell
 
 ### Deployment Flexibility
 - **Edge-only deployments:** LiteBike alone for simple proxying
 - **Full deployments:** LiteBike + LiterBike for complete service mesh
-- **Runtime-only deployments:** LiterBike for service backplane
+- **Backplane-only validation:** LiterBike direct run for focused service/backplane work
 
 ### Independent Evolution
 - **LiteBike** can evolve edge classification independently
@@ -173,11 +178,13 @@ litebike --port 8888 --backend literbike
 literbike --port 8888
 ```
 
-#### Mode 3: Runtime-Only (LiterBike)
+#### Mode 3: Backplane-Only (Secondary Direct Mode)
 ```bash
-# Service backplane deployment
+# Direct backplane validation or focused service run
 literbike --port 8888 --mode service
 ```
+
+This mode does not replace `litebike` as the canonical shell/operator surface.
 
 ---
 
@@ -281,7 +288,9 @@ lib.quic_close(conn)
 
 ## Conclusion
 
-LiterBike is the heavy unified runtime for transport and services. It complements LiteBike's edge ingress with deep transport logic, service adapters, and durable orchestration.
+LiterBike is the heavy heart/backplane for transport and services. It
+complements LiteBike's edge ingress and shell with deep transport logic,
+service adapters, model DSEL, and durable orchestration.
 
 The split is deliberate: LiteBike stays lean for edge deployment, while LiterBike carries the comprehensive runtime needed for production service meshes.
 

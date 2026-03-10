@@ -16,6 +16,14 @@ use literbike::syscall_net::{
     InterfaceAddr,
 };
 use literbike::tethering_bypass::{enable_carrier_bypass, TetheringBypass};
+
+// Conditional imports for quic-gated modules
+#[cfg(feature = "quic")]
+use literbike::raw_telnet;
+#[cfg(feature = "quic")]
+use literbike::host_trust;
+#[cfg(feature = "quic")]
+use literbike::radios;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -3476,19 +3484,53 @@ fn run_bootstrap(args: &[String]) {
     println!("✅ Bootstrap analysis complete");
 }
 
-fn run_proxy_node(_args: &[String]) {
-    println!("proxy-node: starting proxy node mode");
-    // TODO: Implement proxy node functionality
+fn run_proxy_node(args: &[String]) {
+    let server_mode = args.iter().any(|a| a == "--server");
+    let bind_addr = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--bind="))
+        .unwrap_or("0.0.0.0:8080");
+    println!(
+        "proxy-node: starting proxy node mode (server={}, bind={})",
+        server_mode, bind_addr
+    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async move {
+        literbike::knox_proxy::quick_start_knox_proxy(server_mode, bind_addr).await;
+    });
 }
 
-fn run_scan_ports(_args: &[String]) {
-    println!("scan-ports: scanning network ports");
-    // TODO: Implement port scanning functionality
+fn run_scan_ports(args: &[String]) {
+    let target = args
+        .get(0)
+        .map(|s| s.as_str())
+        .unwrap_or("127.0.0.1");
+    println!("scan-ports: scanning network ports on {}", target);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async move {
+        literbike::raw_telnet::quick_port_scan(target).await;
+    });
 }
 
-fn run_bonjour_discover(_args: &[String]) {
+fn run_bonjour_discover(args: &[String]) {
+    let want_json = args.iter().any(|a| a == "--json");
     println!("bonjour-discover: discovering Bonjour services");
-    // TODO: Implement Bonjour discovery functionality
+    // Gather radios first
+    let report = literbike::radios::gather_radios();
+    if want_json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(s) => println!("{}", s),
+            Err(e) => eprintln!("bonjour-discover --json: {}", e),
+        }
+    } else {
+        literbike::radios::print_radios_human(&report);
+    }
+    // Run UPnP aggressive scan
+    println!("\nRunning UPnP aggressive scan...");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async move {
+        literbike::upnp_aggressive::discover_upnp_devices().await;
+    });
 }
 
 fn run_carrier_bypass(_args: &[String]) {
@@ -3499,19 +3541,53 @@ fn run_carrier_bypass(_args: &[String]) {
     }
 }
 
-fn run_raw_connect(_args: &[String]) {
-    println!("raw-connect: establishing raw connection");
-    // TODO: Implement raw connection functionality
+fn run_raw_connect(args: &[String]) {
+    let target = args
+        .get(0)
+        .map(|s| s.as_str())
+        .unwrap_or("127.0.0.1:8080");
+    println!("raw-connect: establishing raw connection to {}", target);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async move {
+        literbike::raw_telnet::raw_connect(target).await;
+    });
 }
 
-fn run_trust_host(_args: &[String]) {
-    println!("trust-host: managing trusted hosts");
-    // TODO: Implement host trust functionality
+fn run_trust_host(args: &[String]) {
+    if let Some(host) = args.get(0) {
+        println!("trust-host: checking if host '{}' is trusted", host);
+        match literbike::host_trust::is_host_trusted(host) {
+            Ok(trusted) => {
+                if trusted {
+                    println!("Host '{}' is trusted", host);
+                } else {
+                    println!("Host '{}' is NOT trusted", host);
+                }
+            }
+            Err(e) => eprintln!("trust-host: error checking trust: {}", e),
+        }
+    } else {
+        println!("trust-host: trusting local network");
+        match literbike::host_trust::trust_local_network() {
+            Ok(_) => println!("Local network has been trusted"),
+            Err(e) => eprintln!("trust-host: error trusting local network: {}", e),
+        }
+    }
 }
 
-fn run_proxy_client(_args: &[String]) {
-    println!("proxy-client: starting proxy client mode");
-    // TODO: Implement proxy client functionality
+fn run_proxy_client(args: &[String]) {
+    let server_addr = args
+        .get(0)
+        .map(|s| s.as_str())
+        .unwrap_or("127.0.0.1:8080");
+    println!(
+        "proxy-client: starting proxy client mode (server={})",
+        server_addr
+    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async move {
+        literbike::knox_proxy::quick_start_knox_proxy(false, server_addr).await;
+    });
 }
 
 // Pattern matching command implementations
