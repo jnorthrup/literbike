@@ -148,6 +148,11 @@ impl IpfsClient {
         }
     }
 
+    /// Get routing table for peer management
+    pub fn routing_table(&self) -> &Mutex<RoutingTable> {
+        &self.routing_table
+    }
+
     /// Add content to IPFS
     pub async fn add(&self, data: Vec<u8>) -> CID {
         let hash = self.compute_hash(&data);

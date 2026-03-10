@@ -9,7 +9,7 @@
 //! use literbike::curl_h2::H2Client;
 //!
 //! let client = H2Client::new();
-//! let response = client.get("https://localhost:4433/").unwrap();
+//! let response = client.get("https://localhost:8888/").unwrap();
 //! println!("Status: {}", response.status);
 //! ```
 

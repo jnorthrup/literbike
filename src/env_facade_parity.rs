@@ -1532,8 +1532,12 @@ where
     let (provider_api_keys, exchange_api_keys, unknown_api_keys) =
         collect_modelmux_mvp_api_key_bindings(&env_profile);
     let selected_provider_api_key = select_modelmux_mvp_provider_key(&route, &provider_api_keys);
-    let readiness =
-        infer_modelmux_mvp_readiness(&route, selected_provider_api_key.as_ref(), &env_profile);
+    let readiness = infer_modelmux_mvp_readiness(
+        &route,
+        selected_provider_api_key.as_ref(),
+        &exchange_api_keys,
+        &env_profile,
+    );
     let search_enabled = !env_profile.search_key_groups.is_empty();
     let lifecycle_tags = build_modelmux_mvp_lifecycle_tags(
         &route,
@@ -2459,6 +2463,7 @@ fn family_to_pipeline_hint(family: ProviderFamily) -> &'static str {
 fn infer_modelmux_mvp_readiness(
     route: &PragmaticUnifiedPortRoute,
     selected_provider_key: Option<&ModelmuxMvpApiKeyBinding>,
+    exchange_keys: &[ModelmuxMvpApiKeyBinding],
     env_profile: &NormalizedEnvProfile,
 ) -> ModelmuxMvpReadiness {
     if selected_provider_key.is_some() {
@@ -2468,7 +2473,14 @@ fn infer_modelmux_mvp_readiness(
         };
     }
 
-    if route.host_scope.is_some() && route.route_key.contains("/health") {
+    if route_targets_exchange_surface(route) && !exchange_keys.is_empty() {
+        return ModelmuxMvpReadiness {
+            ready: true,
+            reason: "exchange api key selected for trading path".to_string(),
+        };
+    }
+
+    if route_targets_control_surface(route) {
         return ModelmuxMvpReadiness {
             ready: true,
             reason: "explicit host health/control path".to_string(),
@@ -2615,6 +2627,10 @@ fn infer_unified_port_pipeline_hints(
     {
         hints.push("quota-dsel-free".to_string());
     }
+    if parsed_targets_exchange_surface(parsed) {
+        hints.push("exchange-rest".to_string());
+        hints.push("trading-path".to_string());
+    }
 
     if parsed.option_specs.iter().any(|o| o.key == "vision") {
         hints.push("vision".to_string());
@@ -2633,6 +2649,45 @@ fn infer_unified_port_pipeline_hints(
     hints.sort();
     hints.dedup();
     hints
+}
+
+fn parsed_targets_exchange_surface(parsed: &PragmaticModelRef) -> bool {
+    parsed
+        .selector_prefixes
+        .iter()
+        .any(|s| matches!(s.as_str(), "trade" | "trading" | "exchange"))
+        || matches!(
+            parsed.modality.as_deref(),
+            Some("trade") | Some("trading") | Some("exchange")
+        )
+}
+
+fn route_targets_exchange_surface(route: &PragmaticUnifiedPortRoute) -> bool {
+    route
+        .selectors
+        .iter()
+        .any(|s| matches!(s.as_str(), "trade" | "trading" | "exchange"))
+        || matches!(
+            route.modality.as_deref(),
+            Some("trade") | Some("trading") | Some("exchange")
+        )
+        || route
+            .pipeline_hints
+            .iter()
+            .any(|h| matches!(h.as_str(), "exchange-rest" | "trading-path"))
+}
+
+fn route_targets_control_surface(route: &PragmaticUnifiedPortRoute) -> bool {
+    route.host_scope.is_some()
+        && (route.route_key.contains("/health")
+            || route.route_key.contains("/control/")
+            || route.route_key.contains("control/state")
+            || route.route_key.ends_with("/control")
+            || route.selectors.iter().any(|s| s == "control")
+            || route
+                .pipeline_hints
+                .iter()
+                .any(|h| matches!(h.as_str(), "control-plane" | "provider-control")))
 }
 
 fn infer_widened_model_candidates(
@@ -3780,6 +3835,51 @@ mod tests {
             .readiness
             .reason
             .contains("no provider api key selected"));
+    }
+
+    #[test]
+    fn trading_selector_route_is_ready_with_exchange_key() {
+        let lifecycle = run_modelmux_mvp_lifecycle(
+            vec![
+                kv("BINANCE_API_KEY", "bin"),
+                kv("BINANCE_BASE_URL", "https://api.binance.com"),
+            ],
+            "/trading/binance/btcusdt",
+        )
+        .expect("lifecycle");
+
+        assert_eq!(lifecycle.provider_api_keys.len(), 0);
+        assert_eq!(lifecycle.exchange_api_keys.len(), 1);
+        assert!(lifecycle.readiness.ready);
+        assert!(lifecycle
+            .readiness
+            .reason
+            .contains("exchange api key selected for trading path"));
+        assert!(lifecycle
+            .route
+            .pipeline_hints
+            .iter()
+            .any(|h| h == "exchange-rest"));
+        assert!(lifecycle
+            .route
+            .pipeline_hints
+            .iter()
+            .any(|h| h == "trading-path"));
+    }
+
+    #[test]
+    fn control_state_route_is_ready_without_provider_key() {
+        let lifecycle = run_modelmux_mvp_lifecycle(
+            vec![],
+            "/{localhost:11434,control,https}/control/state",
+        )
+        .expect("lifecycle");
+
+        assert!(lifecycle.readiness.ready);
+        assert!(lifecycle
+            .readiness
+            .reason
+            .contains("explicit host health/control path"));
     }
 
     #[test]

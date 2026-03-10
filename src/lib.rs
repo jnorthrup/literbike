@@ -17,6 +17,7 @@ pub mod curl_h2;
 pub mod adapters;
 pub mod cas_gateway;
 pub mod cas_storage;
+pub mod cas_backends;
 pub mod channel;
 pub mod dht;
 pub mod reactor;

@@ -234,12 +234,14 @@ async fn execute_quic_request(
 
     let state = build_client_state();
     let local_cid_len = state.local_connection_id.bytes.len();
+    let ctx = literbike::concurrency::ccek::CoroutineContext::new();
     let engine = Arc::new(QuicEngine::new(
         Role::Client,
         state,
         socket.clone(),
         remote_addr,
         vec![],
+        ctx,
     ));
     let stream_id = engine.create_stream();
 
@@ -518,6 +520,284 @@ pub extern "C" fn quic_protocol_mode_http3() -> u32 {
 }
 
 // ============================================================================
+// Stream Management C ABI (for Agent Harness)
+// ============================================================================
+
+/// Stream priority levels for multiplexing and scheduling
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LBQuicStreamPriority {
+    Low = 0,
+    Normal = 1,
+    High = 2,
+    Critical = 3,
+}
+
+/// Opaque handle for a QUIC stream
+#[repr(C)]
+pub struct LBQuicStream {
+    stream_id: u64,
+    priority: LBQuicStreamPriority,
+    engine: Arc<QuicEngine>,
+    remote_addr: SocketAddr,
+}
+
+#[no_mangle]
+pub extern "C" fn quic_stream_create(
+    conn: *mut LBQuicConnection,
+    priority: LBQuicStreamPriority,
+) -> *mut LBQuicStream {
+    if conn.is_null() {
+        set_last_error("connection handle is null");
+        return ptr::null_mut();
+    }
+
+    let conn_ref = unsafe { &*conn };
+    
+    // Create a temporary engine for this stream
+    // In a real implementation, you'd want to maintain a connection pool
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            let msg = format!("failed to create Tokio runtime: {e}");
+            set_last_error(&msg);
+            return ptr::null_mut();
+        }
+    };
+
+    let remote_addr = match (conn_ref.host.as_str(), conn_ref.port)
+        .to_socket_addrs()
+        .map_err(|e| {
+            set_last_error(format!("failed to resolve host: {e}"));
+        })
+        .and_then(|mut addrs| addrs.next().ok_or_else(|| {
+            set_last_error("no socket address resolved".to_string());
+        })) {
+        Ok(addr) => addr,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    let socket = match runtime.block_on(async {
+        tokio::net::UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|e| {
+                set_last_error(format!("failed to bind UDP socket: {e}"));
+            })
+    }) {
+        Ok(s) => Arc::new(s),
+        Err(_) => return ptr::null_mut(),
+    };
+
+    let state = build_client_state();
+    let ctx = literbike::concurrency::ccek::CoroutineContext::new();
+    let engine = Arc::new(QuicEngine::new(
+        Role::Client,
+        state,
+        socket,
+        remote_addr,
+        vec![],
+        ctx,
+    ));
+
+    let stream_id = match priority {
+        LBQuicStreamPriority::Critical => engine.create_stream_with_priority(
+            literbike::quic::quic_protocol::StreamPriority::Critical
+        ),
+        LBQuicStreamPriority::High => engine.create_stream_with_priority(
+            literbike::quic::quic_protocol::StreamPriority::High
+        ),
+        LBQuicStreamPriority::Low => engine.create_stream_with_priority(
+            literbike::quic::quic_protocol::StreamPriority::Low
+        ),
+        _ => engine.create_stream_with_priority(
+            literbike::quic::quic_protocol::StreamPriority::Normal
+        ),
+    };
+
+    set_last_error("literbike-quic-capi: no error");
+    Box::into_raw(Box::new(LBQuicStream {
+        stream_id,
+        priority,
+        engine,
+        remote_addr,
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn quic_stream_send(
+    stream: *mut LBQuicStream,
+    data_ptr: *const u8,
+    data_len: usize,
+) -> bool {
+    if stream.is_null() {
+        set_last_error("stream handle is null");
+        return false;
+    }
+
+    if data_ptr.is_null() && data_len != 0 {
+        set_last_error("data_ptr is null but data_len is non-zero");
+        return false;
+    }
+
+    let stream_ref = unsafe { &*stream };
+    let data = if !data_ptr.is_null() && data_len != 0 {
+        unsafe { slice::from_raw_parts(data_ptr, data_len) }.to_vec()
+    } else {
+        Vec::new()
+    };
+
+    let priority = match stream_ref.priority {
+        LBQuicStreamPriority::Critical => literbike::quic::quic_protocol::StreamPriority::Critical,
+        LBQuicStreamPriority::High => literbike::quic::quic_protocol::StreamPriority::High,
+        LBQuicStreamPriority::Low => literbike::quic::quic_protocol::StreamPriority::Low,
+        _ => literbike::quic::quic_protocol::StreamPriority::Normal,
+    };
+
+    let engine = stream_ref.engine.clone();
+    let stream_id = stream_ref.stream_id;
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            let msg = format!("failed to create Tokio runtime: {e}");
+            set_last_error(&msg);
+            return false;
+        }
+    };
+
+    match runtime.block_on(async {
+        engine.send_stream_data_priority(stream_id, data, priority).await
+    }) {
+        Ok(()) => {
+            set_last_error("literbike-quic-capi: no error");
+            true
+        }
+        Err(e) => {
+            set_last_error(format!("failed to send stream data: {e}"));
+            false
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn quic_stream_close(stream: *mut LBQuicStream) {
+    if !stream.is_null() {
+        unsafe {
+            drop(Box::from_raw(stream));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn quic_stream_finish(stream: *mut LBQuicStream) -> bool {
+    if stream.is_null() {
+        set_last_error("stream handle is null");
+        return false;
+    }
+
+    let stream_ref = unsafe { &*stream };
+    let engine = stream_ref.engine.clone();
+    let stream_id = stream_ref.stream_id;
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            let msg = format!("failed to create Tokio runtime: {e}");
+            set_last_error(&msg);
+            return false;
+        }
+    };
+
+    match runtime.block_on(async {
+        engine.send_stream_fin(stream_id).await
+    }) {
+        Ok(()) => {
+            set_last_error("literbike-quic-capi: no error");
+            true
+        }
+        Err(e) => {
+            set_last_error(format!("failed to finish stream: {e}"));
+            false
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn quic_stream_set_priority(
+    stream: *mut LBQuicStream,
+    priority: LBQuicStreamPriority,
+) {
+    if stream.is_null() {
+        set_last_error("stream handle is null");
+        return;
+    }
+
+    let stream_ref = unsafe { &mut *stream };
+    stream_ref.priority = priority;
+    
+    let quic_priority = match priority {
+        LBQuicStreamPriority::Critical => literbike::quic::quic_protocol::StreamPriority::Critical,
+        LBQuicStreamPriority::High => literbike::quic::quic_protocol::StreamPriority::High,
+        LBQuicStreamPriority::Low => literbike::quic::quic_protocol::StreamPriority::Low,
+        _ => literbike::quic::quic_protocol::StreamPriority::Normal,
+    };
+    
+    stream_ref.engine.set_stream_priority(stream_ref.stream_id, quic_priority);
+    set_last_error("literbike-quic-capi: no error");
+}
+
+#[no_mangle]
+pub extern "C" fn quic_stream_get_id(stream: *const LBQuicStream) -> u64 {
+    if stream.is_null() {
+        set_last_error("stream handle is null");
+        return 0;
+    }
+    unsafe { (*stream).stream_id }
+}
+
+// ============================================================================
+// Connection Lifecycle Management C ABI
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn quic_connection_status(conn: *const LBQuicConnection) -> u32 {
+    if conn.is_null() {
+        return 0; // Disconnected
+    }
+    // For now, return connected status
+    // In a full implementation, this would check the actual connection state
+    1 // Connected
+}
+
+#[no_mangle]
+pub extern "C" fn quic_idle_timeout(conn: *mut LBQuicConnection) -> bool {
+    if conn.is_null() {
+        return false;
+    }
+    // In a full implementation, this would check the engine's idle timeout
+    // For now, return false (not timed out)
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn quic_disconnect(conn: *mut LBQuicConnection) {
+    if !conn.is_null() {
+        unsafe {
+            drop(Box::from_raw(conn));
+        }
+    }
+}
+
+// ============================================================================
 // DHT Service C ABI
 // ============================================================================
 
@@ -713,7 +993,8 @@ mod tests {
                 .unwrap();
 
             rt.block_on(async move {
-                let server = QuicServer::bind("127.0.0.1:0".parse().unwrap())
+                let ctx = literbike::concurrency::ccek::CoroutineContext::new();
+                let server = QuicServer::bind("127.0.0.1:0".parse().unwrap(), ctx)
                     .await
                     .expect("bind quic server");
                 let local = tokio::task::LocalSet::new();

@@ -2246,8 +2246,10 @@ fn run_proxy_server(args: &[String]) {
         terminator, 100,
     ));
     // Build the CoroutineContext bundle
-    let _ccek_context = literbike::concurrency::ccek::EmptyContext
-        + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
+    let _ccek_context: literbike::concurrency::ccek::CoroutineContext =
+        literbike::concurrency::ccek::EmptyContext
+            + (tls_ccek.clone()
+                as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>);
 
     // Spawn the background channel loop for the CCEK TLS config manager
     let tls_ccek_loop = tls_ccek.clone();
@@ -3816,7 +3818,7 @@ fn run_quic_vqa(args: &[String]) {
     let port = args
         .get(0)
         .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(4433);
+        .unwrap_or(8888);
     let bind_addr = format!("0.0.0.0:{}", port);
 
     println!("🚀 Starting QUIC Visual QA Server");
@@ -3832,8 +3834,10 @@ fn run_quic_vqa(args: &[String]) {
     ));
 
     // Build the CoroutineContext with TLS
-    let ctx = literbike::concurrency::ccek::EmptyContext
-        + tls_ccek.clone() as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>;
+    let ctx: literbike::concurrency::ccek::CoroutineContext =
+        literbike::concurrency::ccek::EmptyContext
+            + (tls_ccek.clone()
+                as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>);
 
     // Spawn the background channel loop for the CCEK TLS config manager
     let tls_ccek_loop = tls_ccek.clone();
@@ -3867,7 +3871,7 @@ fn run_quic_vqa(args: &[String]) {
                                         let _ = stream.read(&mut buf).await;
                                         // Extremely simple HTTP response with Alt-Svc
                                         let response = "HTTP/1.1 200 OK\r\n\
-                                                        Alt-Svc: h3=\":4433\"; ma=86400\r\n\
+                                                        Alt-Svc: h3=\":8888\"; ma=86400\r\n\
                                                         Content-Type: text/html\r\n\
                                                         Connection: close\r\n\r\n\
                                                         <html><head><meta http-equiv='refresh' content='2'></head>\
@@ -3876,7 +3880,7 @@ fn run_quic_vqa(args: &[String]) {
                                                         <p>Browser connected via TCP. Sending Alt-Svc header...</p>\
                                                         <p>Refreshing in 2 seconds to transition to QUIC/H3.</p>\
                                                         <hr>\
-                                                        <p style='color:#666'>Note: If visual QA fails, ensure Chrome is launched with: --origin-to-force-quic-on=localhost:4433</p>\
+                                                        <p style='color:#666'>Note: If visual QA fails, ensure Chrome is launched with: --origin-to-force-quic-on=localhost:8888</p>\
                                                         </body></html>";
                                         let _ = stream.write_all(response.as_bytes()).await;
                                     });

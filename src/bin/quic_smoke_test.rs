@@ -73,7 +73,7 @@ async fn fetch_resource(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
-    socket.connect("127.0.0.1:4433")?;
+    socket.connect("127.0.0.1:8888")?;
     socket.set_read_timeout(Some(Duration::from_millis(500)))?;
 
     println!("🚀 Starting QUIC TDD Full Stack Verification (Robust)");
@@ -86,16 +86,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let css = fetch_resource(&socket, "/index.css", 3).await?;
     println!("✅ index.css: {} bytes", css.len());
 
-    // 3. Fetch bw_test_pattern.png
+    // 3. Fetch DSEL pack
+    let pack = fetch_resource(&socket, "/configs/agent-host-free-lanes.dsel", 5).await?;
+    println!("✅ configs/agent-host-free-lanes.dsel: {} bytes", pack.len());
+
+    // 4. Fetch bw_test_pattern.png
     println!("📥 Requesting PNG (this might take a second)...");
-    let png = fetch_resource(&socket, "/bw_test_pattern.png", 5).await?;
+    let png = fetch_resource(&socket, "/bw_test_pattern.png", 7).await?;
     println!("✅ bw_test_pattern.png: {} bytes", png.len());
 
-    if html.len() > 100 && css.len() > 100 && png.len() > 10000 {
+    let pack_text = String::from_utf8_lossy(&pack);
+
+    if html.len() > 100
+        && css.len() > 100
+        && pack.len() > 100
+        && pack_text.contains("moonshotai/kimi-k2.5")
+        && png.len() > 10000
+    {
         println!("\n✨✨ ALL ASSETS VERIFIED OVER QUIC ✨✨");
         println!("The server is READY for Chrome QA.");
     } else {
         println!("\n❌ Verification failed. Missing or small assets.");
+        if pack.len() == 0 {
+            println!("   TIP: Check if configs/agent-host-free-lanes.dsel is being served by the UI path.");
+        }
         if png.len() == 0 {
             println!("   TIP: Check if bw_test_pattern.png is splitting across many packets that the codec fails to handle.");
         }

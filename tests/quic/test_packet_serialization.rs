@@ -4,6 +4,7 @@
 //! and malformed packet handling.
 
 use literbike::quic::*;
+use literbike::quic::quic_protocol::ConnectionId;
 use anyhow::Result;
 
 // ============================================================================
@@ -17,8 +18,8 @@ fn test_packet_serialization_roundtrip() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::ShortHeader,
             version: 0x00000001,
-            destination_connection_id: vec![0x01, 0x02, 0x03, 0x04],
-            source_connection_id: vec![0x05, 0x06, 0x07, 0x08],
+            destination_connection_id: ConnectionId { bytes: vec![0x01, 0x02, 0x03, 0x04] },
+            source_connection_id: ConnectionId { bytes: vec![0x05, 0x06, 0x07, 0x08] },
             packet_number: 42,
             token: None,
         },
@@ -65,8 +66,8 @@ fn test_header_field_boundaries() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::Initial,
             version: 0x00000000,
-            destination_connection_id: vec![],
-            source_connection_id: vec![],
+            destination_connection_id: ConnectionId { bytes: vec![] },
+            source_connection_id: ConnectionId { bytes: vec![] },
             packet_number: 0,
             token: Some(vec![]),
         },
@@ -83,8 +84,8 @@ fn test_header_field_boundaries() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::Initial,
             version: 0xFFFFFFFF,
-            destination_connection_id: vec![],
-            source_connection_id: vec![],
+            destination_connection_id: ConnectionId { bytes: vec![] },
+            source_connection_id: ConnectionId { bytes: vec![] },
             packet_number: u64::MAX,
             token: None,
         },
@@ -102,8 +103,8 @@ fn test_header_field_boundaries() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::Initial,
             version: 1,
-            destination_connection_id: vec![0xFF; 255],
-            source_connection_id: vec![0xFF; 255],
+            destination_connection_id: ConnectionId { bytes: vec![0xFF; 255] },
+            source_connection_id: ConnectionId { bytes: vec![0xFF; 255] },
             packet_number: 1,
             token: None,
         },
@@ -113,7 +114,7 @@ fn test_header_field_boundaries() -> Result<()> {
 
     let serialized = bincode::serialize(&max_cid_packet)?;
     let deserialized: QuicPacket = bincode::deserialize(&serialized)?;
-    assert_eq!(deserialized.header.destination_connection_id.len(), 255);
+    assert_eq!(deserialized.header.destination_connection_id.bytes.len(), 255);
 
     Ok(())
 }
@@ -134,7 +135,7 @@ fn test_frame_enum_serialization() -> Result<()> {
 
     let serialized = bincode::serialize(&stream_frame)?;
     let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
+
     if let QuicFrame::Stream(sf) = deserialized {
         assert_eq!(sf.stream_id, 42);
         assert_eq!(sf.offset, 100);
@@ -153,7 +154,7 @@ fn test_frame_enum_serialization() -> Result<()> {
 
     let serialized = bincode::serialize(&ack_frame)?;
     let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
+
     if let QuicFrame::Ack(af) = deserialized {
         assert_eq!(af.largest_acknowledged, 100);
         assert_eq!(af.ack_delay, 50);
@@ -170,7 +171,7 @@ fn test_frame_enum_serialization() -> Result<()> {
 
     let serialized = bincode::serialize(&crypto_frame)?;
     let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
+
     if let QuicFrame::Crypto(cf) = deserialized {
         assert_eq!(cf.offset, 0);
         assert_eq!(cf.data, vec![0x01, 0x02, 0x03]);
@@ -179,11 +180,11 @@ fn test_frame_enum_serialization() -> Result<()> {
     }
 
     // Test Padding frame
-    let padding_frame = QuicFrame::Padding(10);
+    let padding_frame = QuicFrame::Padding { length: 10 };
     let serialized = bincode::serialize(&padding_frame)?;
     let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Padding(len) = deserialized {
+
+    if let QuicFrame::Padding { length: len } = deserialized {
         assert_eq!(len, 10);
     } else {
         panic!("Expected Padding frame");
@@ -206,8 +207,8 @@ fn test_packet_size_limits() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::ShortHeader,
             version: 1,
-            destination_connection_id: vec![1, 2, 3, 4],
-            source_connection_id: vec![5, 6, 7, 8],
+            destination_connection_id: ConnectionId { bytes: vec![1, 2, 3, 4] },
+            source_connection_id: ConnectionId { bytes: vec![5, 6, 7, 8] },
             packet_number: 1,
             token: None,
         },
@@ -228,8 +229,8 @@ fn test_packet_size_limits() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::ShortHeader,
             version: 1,
-            destination_connection_id: vec![1, 2, 3, 4],
-            source_connection_id: vec![5, 6, 7, 8],
+            destination_connection_id: ConnectionId { bytes: vec![1, 2, 3, 4] },
+            source_connection_id: ConnectionId { bytes: vec![5, 6, 7, 8] },
             packet_number: 1,
             token: None,
         },
@@ -270,8 +271,8 @@ fn test_malformed_packet_handling() {
         header: QuicHeader {
             r#type: QuicPacketType::ShortHeader,
             version: 1,
-            destination_connection_id: vec![1, 2, 3, 4],
-            source_connection_id: vec![5, 6, 7, 8],
+            destination_connection_id: ConnectionId { bytes: vec![1, 2, 3, 4] },
+            source_connection_id: ConnectionId { bytes: vec![5, 6, 7, 8] },
             packet_number: 1,
             token: None,
         },
@@ -280,7 +281,7 @@ fn test_malformed_packet_handling() {
     };
 
     let serialized = bincode::serialize(&valid_packet).unwrap();
-    
+
     // Truncate at various points
     for truncate_at in 0..serialized.len() {
         let truncated = &serialized[..truncate_at];
@@ -294,9 +295,9 @@ fn test_malformed_packet_handling() {
 
     // Test corrupted data (random bytes)
     use rand::Rng;
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     for _ in 0..10 {
-        let corrupt_data: Vec<u8> = (0..100).map(|_| rng.random()).collect();
+        let corrupt_data: Vec<u8> = (0..100).map(|_| rng.gen()).collect();
         let result: Result<QuicPacket, _> = bincode::deserialize(&corrupt_data);
         // Should fail for random data (or produce garbage that we ignore)
         if result.is_ok() {
@@ -316,8 +317,8 @@ fn test_version_compatibility() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::Initial,
             version: 0x00000001,
-            destination_connection_id: vec![1, 2, 3, 4],
-            source_connection_id: vec![5, 6, 7, 8],
+            destination_connection_id: ConnectionId { bytes: vec![1, 2, 3, 4] },
+            source_connection_id: ConnectionId { bytes: vec![5, 6, 7, 8] },
             packet_number: 1,
             token: None,
         },
@@ -334,8 +335,8 @@ fn test_version_compatibility() -> Result<()> {
         header: QuicHeader {
             r#type: QuicPacketType::VersionNegotiation,
             version: 0x00000000,
-            destination_connection_id: vec![1, 2, 3, 4],
-            source_connection_id: vec![5, 6, 7, 8],
+            destination_connection_id: ConnectionId { bytes: vec![1, 2, 3, 4] },
+            source_connection_id: ConnectionId { bytes: vec![5, 6, 7, 8] },
             packet_number: 0,
             token: None,
         },
@@ -349,13 +350,13 @@ fn test_version_compatibility() -> Result<()> {
     assert_eq!(deserialized.header.r#type, QuicPacketType::VersionNegotiation);
 
     // Test draft versions
-    for draft_version in [0xFF00001Du32, 0xFF00001Eu32, 0xFF00001Fu32] {
+    for draft_version in [0xFF00001Du64, 0xFF00001Eu64, 0xFF00001Fu64] {
         let draft_packet = QuicPacket {
             header: QuicHeader {
                 r#type: QuicPacketType::Initial,
                 version: draft_version,
-                destination_connection_id: vec![],
-                source_connection_id: vec![],
+                destination_connection_id: ConnectionId { bytes: vec![] },
+                source_connection_id: ConnectionId { bytes: vec![] },
                 packet_number: 0,
                 token: None,
             },

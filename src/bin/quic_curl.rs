@@ -75,7 +75,7 @@ async fn fetch_resource(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
-    let mut url_str = "http://localhost:4433/";
+    let mut url_str = "http://localhost:8888/";
     let mut verbose = false;
 
     let mut i = 1;
@@ -98,9 +98,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let url_parts: Vec<&str> = url.splitn(4, '/').collect();
-    let host_port = url_parts.get(2).unwrap_or(&"localhost:4433");
+    let host_port = url_parts.get(2).unwrap_or(&"localhost:8888");
     let host = host_port.split(':').next().unwrap_or("localhost");
-    let port = host_port.split(':').nth(1).unwrap_or("4433");
+    let port = host_port.split(':').nth(1).unwrap_or("8888");
     let addr_str = format!("{}:{}", host, port);
 
     let path = if url_parts.len() > 3 {

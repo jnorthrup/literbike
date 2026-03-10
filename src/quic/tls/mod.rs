@@ -131,11 +131,11 @@ impl TlsTerminator {
         println!("║                                                            ║");
         println!("  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\");
         println!("    --user-data-dir=/tmp/chrome-quic-profile \\");
-        println!("    --origin-to-force-quic-on=127.0.0.1:4433 \\");
+        println!("    --origin-to-force-quic-on=127.0.0.1:8888 \\");
         println!("    --ignore-certificate-errors \\");
         println!("    --ignore-certificate-errors-spki-list={} \\", spki_b64);
         println!("    --enable-quic \\");
-        println!("    https://127.0.0.1:4433");
+        println!("    https://127.0.0.1:8888");
         println!("║                                                            ║");
         println!("╚══════════════════════════════════════════════════════════════╝\n");
         println!("  Cert saved to: /tmp/literbike-quic.der");
