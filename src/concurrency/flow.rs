@@ -1,9 +1,6 @@
 //! Simplified Flow module
 //! Flow-based reactive streams with backpressure
 
-use std::pin::Pin;
-use tokio::sync::mpsc;
-use anyhow::Result;
 
 /// Flow - a cold asynchronous stream of values
 pub struct Flow<T: Send + 'static> {

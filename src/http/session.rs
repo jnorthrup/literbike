@@ -4,7 +4,6 @@
 
 use super::header_parser::{HeaderParser, HttpMethod, HttpStatus};
 use std::io::{self, Read, Write};
-use std::os::fd::RawFd;
 
 /// HTTP session state (like relaxfactory Tx)
 pub struct HttpSession {

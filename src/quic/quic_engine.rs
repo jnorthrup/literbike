@@ -96,7 +96,7 @@ impl QuicEngine {
             };
 
         // Try to get TlsCcekService from context to upgrade crypto_provider automatically
-        let mut final_provider = crypto_provider;
+        let final_provider = crypto_provider;
         #[cfg(feature = "tls-quic")]
         if let Some(tls_svc) = ctx.get_typed::<crate::quic::tls_ccek::TlsCcekService>("TlsCcekService") {
             {
@@ -293,7 +293,7 @@ impl QuicEngine {
         encoded_packet_number_len: Option<usize>,
     ) -> Result<(), QuicError> {
         // Prepare ACK data in a separate scope to drop guards early
-        let (_ack_packet_opt, ack_level_opt, serialized_ack_opt): (
+        let (_ack_packet_opt, _ack_level_opt, serialized_ack_opt): (
             Option<QuicPacket>,
             Option<EncryptionLevel>,
             Option<Vec<u8>>,
@@ -321,7 +321,7 @@ impl QuicEngine {
             self.crypto_provider
                 .on_inbound_header(&mut packet.header, &inbound_ctx)?;
             packet.header.packet_number = reconstructed_packet_number;
-            let inbound_packet_type = packet.header.r#type;
+            let _inbound_packet_type = packet.header.r#type;
 
             // Process each frame
             for frame in packet.frames.iter() {
@@ -733,6 +733,7 @@ impl QuicEngine {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn send_encrypted_frames(
         &self,
         level: EncryptionLevel,
@@ -914,6 +915,7 @@ impl QuicEngine {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn send_stream_frame(
         &self,
         stream_id: u64,
@@ -1521,6 +1523,7 @@ impl QuicEngine {
             .unwrap_or(packet.payload.len() as u64)
     }
 
+    #[allow(dead_code)]
     fn rollback_failed_stream_send(
         &self,
         stream_id: u64,

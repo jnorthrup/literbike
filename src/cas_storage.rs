@@ -8,7 +8,6 @@ use sha2::{Sha256, Digest};
 use anyhow::Result;
 use std::collections::HashMap;
 use parking_lot::RwLock;
-use std::sync::Arc;
 
 // ============================================================================
 // Content Hash Types

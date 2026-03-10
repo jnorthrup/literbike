@@ -2,7 +2,6 @@
 //!
 //! Source: ../superbikeshed/Trikeshed/src/commonMain/kotlin/borg/trikeshed/ipfs/IpfsCore.kt
 
-use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
 
