@@ -142,7 +142,7 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
-## [ ] Track: Fix Flaky Performance Test Thresholds
+## [x] Track: Fix Flaky Performance Test Thresholds
 
 Two lib tests fail under full `cargo test --lib` due to timing thresholds too tight
 for a debug build under concurrent test load.
