@@ -44,9 +44,11 @@ flowchart LR
 
 ## Short Read
 
-- `litebike` owns the edge-facing ingress and the canonical `8888` operator
-  surface.
-- `literbike` owns the heavier runtime, including `keymux`, `modelmux`, deeper
-  transport, adapters, and longer-horizon service/storage work.
+- `litebike` owns the outer shell, edge-facing ingress, and the canonical
+  `agent8888` surface on port `8888`.
+- That one `litebike` surface subsumes both repos when `literbike` is mounted.
+- `literbike` owns the heavier heart/backplane, including `keymux`,
+  `modelmux`, deeper transport, adapters, and longer-horizon service/storage
+  work.
 - The intended handoff is: classify early in `litebike`, then route heavier
   transport/service/runtime work into `literbike`.

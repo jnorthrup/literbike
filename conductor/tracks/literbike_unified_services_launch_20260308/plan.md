@@ -6,14 +6,16 @@
 
 - [x] Inventory the transport, traffic, and service subsystems already present
   in `literbike`. (SUBSYSTEMS.md)
-- [x] Distill the shortest accurate launch description for the repo as the heavy
-  unified runtime companion to `litebike`. (LAUNCH_NARRATIVE.md)
-- [x] Remove or supersede repo language that blurs the live split.
+- [x] Distill the shortest accurate launch description for the repo:
+  `litebike` is the shell; `literbike` is the gated heavy heart/backplane.
+  (LAUNCH_NARRATIVE.md)
+- [x] Remove or supersede repo language that blurs the live split or makes
+  `literbike` read like a competing shell.
 
 ## Phase 2: Launch Narrative
 
-- [x] Publish a launch-ready explanation of `literbike` as the deeper transport
-  and services plane. (LAUNCH_NARRATIVE.md)
+- [x] Publish a launch-ready explanation of `literbike` as the deeper transport,
+  model, and services heart/backplane. (LAUNCH_NARRATIVE.md)
 - [x] Call out the modules that justify the split: QUIC, keymux, modelmux, API
   translation, DHT, CAS, reactor/runtime composition, and adapters.
 - [x] Describe the handoff relationship from `litebike` edge ingress into
@@ -42,7 +44,7 @@
 
 - [x] Cross-reference the matching `litebike` launch track.
   - See: `conductor/tracks/literbike_unified_services_launch_20260308/LAUNCH_NARRATIVE.md`
-  - Handoff pattern: LiteBike (edge) → LiterBike (heavy runtime)
+  - Handoff pattern: LiteBike `agent8888` (subsumes both) → LiterBike heart/backplane
 - [x] Keep future work triage aligned so edge concerns land in `litebike` and
   unified traffic/service concerns land in `literbike`.
   - Edge concerns: protocol classification, lean proxy, fast control path
@@ -52,6 +54,10 @@
   - Documented in `LAUNCH_NARRATIVE.md` and `SUBSYSTEMS.md`
   - Enforced via workspace structure and feature gating
   - Workspace members clearly separate concerns
+- [x] Keep `literbike` direct launch paths explicitly secondary to the
+  `litebike` shell/operator front door.
+  - Direct runs remain valid for validation, FFI, or focused backplane work
+  - Direct runs do not replace shell ownership
 
 ## Progress Notes
 
@@ -69,3 +75,9 @@
 - 2026-03-09: Phase 1 complete - SUBSYSTEMS.md inventory created
 - 2026-03-09: Phase 2 complete - LAUNCH_NARRATIVE.md published
 - 2026-03-09: Phase 3 complete - Documentation and examples complete
+- 2026-03-10: cross-repo shell/heart course correction applied so `litebike`
+  remains the primary shell/operator surface and `literbike` is documented as
+  the gated heart/backplane plus secondary direct backplane launch modes.
+- 2026-03-10: clarified that `litebike` `agent8888` on port `8888` is the one
+  composed ingress/operator surface and subsumes both repos when `literbike` is
+  mounted.

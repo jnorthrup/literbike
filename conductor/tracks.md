@@ -2,6 +2,24 @@
 
 ---
 
+## [~] Track: LiterBike Unified Services Launch Alignment 🔄 IN PROGRESS
+
+Enshrine `literbike` as the gated heavy heart/backplane imported into the
+`litebike` shell, without letting direct `literbike` launch paths read like a
+competing front door.
+
+### Status
+- [x] Existing launch track already captures subsystem ownership (`keymux`,
+      `modelmux`, QUIC, DHT, CAS, adapters)
+- [x] Cross-repo shell/heart course correction applied on 2026-03-10
+- [x] Direct `literbike` launch language reframed as secondary
+      backplane/validation modes
+- [ ] Keep future launch/docs edits aligned with the `litebike` shell owner
+
+**Link:** [literbike_unified_services_launch_20260308](./tracks/literbike_unified_services_launch_20260308/)
+
+---
+
 ## [x] Track: CAS Lazy N-Way Gateway Projections ({git,torrent,ipfs,s3-blobs,kv})
 
 Define and implement a projection layer that maps a single CAS object model to
@@ -253,7 +271,7 @@ macOS control plane app.
 
 ---
 
-## [x] Track: Conductor CLI Smoke Integration
+## [ ] Track: Conductor CLI Smoke Integration
 
 Get the `conductor-cli` workspace member compiling and smoke-tested against
 the existing `conductor/tracks/` structure, then committed.
