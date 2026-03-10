@@ -45,6 +45,7 @@ pub struct QuicEngine {
     remote_addr: SocketAddr, // Add remote address for sending
     last_activity: Arc<Mutex<Instant>>,
     idle_timeout: Duration,
+    #[allow(dead_code)]
     ctx: crate::concurrency::ccek::CoroutineContext,
     initial_pn_counter: Arc<Mutex<u64>>,
     handshake_pn_counter: Arc<Mutex<u64>>,
@@ -61,7 +62,7 @@ impl QuicEngine {
         initial_state: QuicConnectionState,
         socket: Arc<UdpSocket>,
         remote_addr: SocketAddr,
-        private_key: Vec<u8>,
+        _private_key: Vec<u8>,
         ctx: crate::concurrency::ccek::CoroutineContext,
     ) -> Self {
         self::QuicEngine::new_with_crypto_provider(
@@ -69,7 +70,7 @@ impl QuicEngine {
             initial_state,
             socket,
             remote_addr,
-            private_key,
+            _private_key,
             Arc::new(NoopQuicCryptoProvider),
             ctx,
         )
@@ -80,7 +81,7 @@ impl QuicEngine {
         initial_state: QuicConnectionState,
         socket: Arc<UdpSocket>,
         remote_addr: SocketAddr,
-        private_key: Vec<u8>,
+        _private_key: Vec<u8>,
         crypto_provider: Arc<dyn QuicCryptoProvider>,
         ctx: crate::concurrency::ccek::CoroutineContext,
     ) -> Self {

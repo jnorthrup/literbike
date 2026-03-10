@@ -46,6 +46,7 @@ pub struct HttpEventHandler {
     default_handler: Option<Arc<dyn HttpHandler>>,
     
     /// Server info
+    #[allow(dead_code)]
     server_name: String,
     
     /// Active sessions keyed by file descriptor
@@ -90,6 +91,7 @@ impl HttpEventHandler {
     }
 
     /// Route request to handler
+    #[allow(dead_code)]
     fn route_request(&self, session: &mut HttpSession) {
         if let Some(path) = session.path() {
             // Strip query string for routing
@@ -344,7 +346,7 @@ impl HttpServer {
     /// Stop server
     pub fn stop(&mut self) {
         self.running = false;
-        if let Some(ref listener) = self.listener {
+        if let Some(ref _listener) = self.listener {
             log::info!("HTTP Server '{}' stopping", self.name);
             // Drop listener
             self.listener = None;

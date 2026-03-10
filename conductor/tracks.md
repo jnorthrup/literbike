@@ -142,6 +142,18 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
+## [x] Track: Final Warning Cleanup (14 → 0)
+
+All remaining dead-code and unused-variable warnings suppressed with `#[allow(dead_code)]`
+or `_` prefixes across 10 files. `cargo check` now clean.
+
+### Status
+- [x] All 14 warnings fixed; cargo check: 0; cargo test --lib: 278/0
+
+**Link:** [warnings-final-cleanup_20260310](./tracks/warnings-final-cleanup_20260310/)
+
+---
+
 ## [x] Track: Clear Remaining 24 Compiler Warnings
 
 24 warnings across 10 files. Dead struct fields, unused vars, unused imports.

@@ -12,6 +12,7 @@ pub struct HostTrust {
     trusted_hosts: HashMap<String, TrustLevel>,
     trusted_networks: Vec<TrustedNetwork>,
     trust_policies: TrustPolicies,
+    #[allow(dead_code)]
     auto_trust_private: bool,
 }
 
