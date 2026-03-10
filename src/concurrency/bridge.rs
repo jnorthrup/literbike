@@ -4,7 +4,6 @@
 //! and the Tokio async runtime ecosystem.
 
 use crate::concurrency::CoroutineContext;
-use std::sync::Arc;
 use tokio::runtime::Handle;
 
 /// CCEK-aware Tokio runtime wrapper
@@ -107,13 +106,14 @@ pub fn to_async_channel<T: Send + 'static>(
 ) -> async_channel::Sender<T> {
     // Note: This is a placeholder - in practice you'd want to
     // migrate all code to use async-channel directly
-    let (tx, _rx) = async_channel::bounded(100);
-    tx
+    let (_tx, _rx) = async_channel::bounded(100);
+    _tx
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use crate::concurrency::{EmptyContext, ProtocolDetector, DHTService, ContextElement, SupervisorScope};
 
     #[tokio::test]

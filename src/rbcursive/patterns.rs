@@ -194,7 +194,7 @@ impl PatternMatcher for SimdPatternMatcher {
                 }
 
                 // Add numbered captures
-                for (i, cap) in capture.iter().enumerate().skip(1) {
+                for (_i, cap) in capture.iter().enumerate().skip(1) {
                     if let Some(cap) = cap {
                         captures.push(PatternCapture {
                             name: None,
@@ -262,7 +262,7 @@ impl PatternMatcher for SimdPatternMatcher {
             }
 
             // Add numbered captures
-            for (i, cap) in capture.iter().enumerate().skip(1) {
+            for (_i, cap) in capture.iter().enumerate().skip(1) {
                 if let Some(cap) = cap {
                     captures.push(PatternCapture {
                         name: None,

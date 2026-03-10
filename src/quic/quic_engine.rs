@@ -525,13 +525,41 @@ impl QuicEngine {
         write_varint(data.len() as u64, &mut frame).map_err(QuicError::Protocol)?;
         frame.extend_from_slice(&data);
 
-        if let Err(err) = self.send_1rtt_frames(frame).await {
-            if let Some(stream) = self.stream_states.lock().get_mut(&stream_id) {
-                stream.state = previous_state;
-                stream.send_offset = previous_send_offset;
-                stream.send_buffer.truncate(previous_send_buffer_len);
+        let (packet_number, wire_len) = match self.send_1rtt_frames(frame).await {
+            Ok(meta) => meta,
+            Err(err) => {
+                if let Some(stream) = self.stream_states.lock().get_mut(&stream_id) {
+                    stream.state = previous_state;
+                    stream.send_offset = previous_send_offset;
+                    stream.send_buffer.truncate(previous_send_buffer_len);
+                }
+                return Err(err);
             }
-            return Err(err);
+        };
+
+        {
+            let mut state_guard = self.state.lock();
+            let version = state_guard.version;
+            let destination_connection_id = state_guard.remote_connection_id.clone();
+            let source_connection_id = state_guard.local_connection_id.clone();
+            state_guard.sent_packets.push(QuicPacket {
+                header: QuicHeader {
+                    r#type: QuicPacketType::ShortHeader,
+                    version,
+                    destination_connection_id,
+                    source_connection_id,
+                    packet_number,
+                    token: None,
+                },
+                frames: vec![QuicFrame::Stream(StreamFrame {
+                    stream_id,
+                    offset,
+                    data: data.clone(),
+                    fin,
+                })],
+                payload: data.clone(),
+            });
+            state_guard.bytes_in_flight = state_guard.bytes_in_flight.saturating_add(wire_len);
         }
 
         // Update stream statistics on successful send
@@ -740,7 +768,8 @@ impl QuicEngine {
         frames: Vec<u8>,
     ) -> Result<(), QuicError> {
         if level == EncryptionLevel::OneRtt {
-            return self.send_1rtt_frames(frames).await;
+            self.send_1rtt_frames(frames).await?;
+            return Ok(());
         }
 
         let (local_cid, remote_cid) = {
@@ -838,7 +867,7 @@ impl QuicEngine {
     }
 
     // RFC 9000 §17.3: 1-RTT short-header packet assembly with DCID and encryption
-    async fn send_1rtt_frames(&self, frames: Vec<u8>) -> Result<(), QuicError> {
+    async fn send_1rtt_frames(&self, frames: Vec<u8>) -> Result<(u64, u64), QuicError> {
         // For 1-RTT packets (short header):
         // Per RFC 9000 §17.3, DCID = connection ID the sender wants receiver to use
         // For server→client: DCID should be the server's connection ID
@@ -854,7 +883,12 @@ impl QuicEngine {
         // Per RFC 9000 §17.3: DCID = ID the sender wants receiver to use
         // Server→client packet: DCID = client's SCID (stored in remote_connection_id)
         let dcid = remote_cid;
-        println!("📨 1-RTT packet: DCID={:02x?}, local_cid={:02x?}", &dcid[..dcid.len().min(8)], &local_cid[..local_cid.len().min(8)]);
+        tracing::trace!(
+            target: "quic::tx",
+            dcid = ?&dcid[..dcid.len().min(8)],
+            local_cid = ?&local_cid[..local_cid.len().min(8)],
+            "sending 1-RTT packet"
+        );
 
         let pn = {
             let mut c = self.onertt_pn_counter.lock();
@@ -866,7 +900,14 @@ impl QuicEngine {
         let pn_len = 1usize;
         let tag_len = 16usize;
         let payload_len = pn_len + frames.len() + tag_len;
-        println!("📨 1-RTT payload: {} bytes frames, {} pn_len, {} tag = {} total", frames.len(), pn_len, tag_len, payload_len);
+        tracing::trace!(
+            target: "quic::tx",
+            frames_len = frames.len(),
+            pn_len,
+            tag_len,
+            payload_len,
+            "assembled 1-RTT payload"
+        );
 
         // Short header first byte: bit7=0, bit6=1 (fixed), bits1-0 = pn_len - 1
         let first_byte: u8 = 0x40 | ((pn_len - 1) as u8);
@@ -880,18 +921,32 @@ impl QuicEngine {
         let mut aad = hdr.clone();
         aad.push(pn as u8);
 
-        println!("📨 1-RTT before encrypt: aad={} bytes, first={:02x}, pn={}", aad.len(), first_byte, pn);
+        tracing::trace!(
+            target: "quic::tx",
+            aad_len = aad.len(),
+            first_byte,
+            pn,
+            "encrypting 1-RTT payload"
+        );
 
         let mut payload = frames;
         // RFC 9001 §5.3: Packet body AEAD encryption
-        self.crypto_provider.encrypt_packet(EncryptionLevel::OneRtt, pn, &aad, &mut payload)
-            .map_err(|e| { println!("❌ 1-RTT encrypt failed: {:?}", e); e })?;
+        self.crypto_provider
+            .encrypt_packet(EncryptionLevel::OneRtt, pn, &aad, &mut payload)
+            .map_err(|e| {
+                tracing::debug!(target: "quic::tx", error = ?e, "1-RTT encrypt failed");
+                e
+            })?;
 
         let mut packet = hdr;
         packet.push(pn as u8);
         packet.extend_from_slice(&payload);
 
-        println!("📨 1-RTT after encrypt: packet={} bytes", packet.len());
+        tracing::trace!(
+            target: "quic::tx",
+            packet_len = packet.len(),
+            "1-RTT payload encrypted"
+        );
 
         // Apply header protection
         let sample_offset = pn_offset + 4;
@@ -902,17 +957,27 @@ impl QuicEngine {
             if self.crypto_provider.apply_header_protection(EncryptionLevel::OneRtt, &sample, &mut first, &mut pn_byte).is_ok() {
                 packet[0] = first;
                 packet[pn_offset] = pn_byte[0];
-                println!("📨 1-RTT header protection applied");
+                tracing::trace!(target: "quic::tx", "1-RTT header protection applied");
             } else {
-                println!("⚠️  1-RTT header protection failed");
+                tracing::debug!(target: "quic::tx", "1-RTT header protection failed");
             }
         } else {
-            println!("⚠️  1-RTT sample offset out of bounds: sample_offset={}, packet_len={}", sample_offset, packet.len());
+            tracing::debug!(
+                target: "quic::tx",
+                sample_offset,
+                packet_len = packet.len(),
+                "1-RTT sample offset out of bounds"
+            );
         }
 
-        println!("📨 Sending 1-RTT packet: {} bytes to {}", packet.len(), self.remote_addr);
+        tracing::trace!(
+            target: "quic::tx",
+            packet_len = packet.len(),
+            remote_addr = %self.remote_addr,
+            "sending 1-RTT datagram"
+        );
         self.socket.send_to(&packet, self.remote_addr).await.map_err(QuicError::Io)?;
-        Ok(())
+        Ok((pn, packet.len() as u64))
     }
 
     #[allow(dead_code)]
@@ -1002,6 +1067,7 @@ impl QuicEngine {
 
     pub fn create_stream(&self) -> u64 {
         let mut state_guard = self.state.lock();
+        let mut stream_states_guard = self.stream_states.lock();
         // Preserve any caller-provided non-zero seed, but align the default seed
         // to a role-specific stream-ID lane and allocate subsequent IDs in steps
         // of four (matching QUIC stream-type/initiator bit lanes).
@@ -1014,6 +1080,21 @@ impl QuicEngine {
 
         let new_stream_id = state_guard.next_stream_id;
         state_guard.next_stream_id = state_guard.next_stream_id.saturating_add(4);
+        stream_states_guard
+            .entry(new_stream_id)
+            .or_insert_with(|| QuicStreamState {
+                stream_id: new_stream_id,
+                send_buffer: Vec::new(),
+                receive_buffer: Vec::new(),
+                send_offset: 0,
+                receive_offset: 0,
+                max_data: state_guard.transport_params.max_stream_data,
+                state: StreamState::Idle,
+                priority: StreamPriority::Normal,
+                bytes_sent: 0,
+                bytes_received: 0,
+                last_activity: Some(std::time::Instant::now()),
+            });
         new_stream_id
     }
 

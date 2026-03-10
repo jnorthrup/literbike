@@ -2,6 +2,7 @@ use crate::traffic_mirror::TrafficMirror;
 use std::net::{SocketAddr, TcpStream};
 
 /// Knox-Resistant Tunnel Configuration
+#[allow(dead_code)]
 pub struct KnoxResistantTunnel {
     /// Origin-mirrored TLS configuration
     tls_mirror: TrafficMirror,
@@ -14,6 +15,7 @@ pub struct KnoxResistantTunnel {
 }
 
 /// Port Hopping Configuration for Dynamic Knox Bypass
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct PortHoppingConfig {
     /// Primary ports for HTX traffic
@@ -27,6 +29,7 @@ pub struct PortHoppingConfig {
 }
 
 /// DPI Evasion Configuration
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct DPIEvasionConfig {
     /// Noise protocol camouflage techniques
@@ -121,7 +124,7 @@ impl DPIEvasionConfig {
     }
 
     /// Apply noise protocol camouflage
-    pub fn apply_noise_camouflage(&self, stream: &TcpStream) {
+    pub fn apply_noise_camouflage(&self, _stream: &TcpStream) {
         // Implement traffic pattern mimicry
         // Add random HTTP/2 PING frames
         // Simulate realistic browser behavior

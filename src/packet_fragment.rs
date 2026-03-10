@@ -117,6 +117,7 @@ pub struct PacketFragment {
 }
 
 /// Intelligent packet fragmenter for DPI evasion
+#[allow(dead_code)]
 pub struct PacketFragmenter {
     config: FragmentConfig,
     pattern: MobileFragmentPattern,
@@ -286,7 +287,7 @@ impl PacketFragmenter {
     
     /// Adaptive fragment sizing based on detection risk
     fn adaptive_fragment_size(&self, remaining: usize) -> usize {
-        let rng = rand::thread_rng();
+        let _rng = rand::thread_rng();
         
         // Simple heuristic: vary size based on time and remaining data
         let time_factor = (Instant::now().elapsed().as_millis() % 1000) as f64 / 1000.0;
@@ -305,7 +306,7 @@ impl PacketFragmenter {
     }
     
     /// Add overlapping fragments for advanced DPI evasion
-    fn add_overlapping_fragments(&self, fragments: &mut Vec<PacketFragment>, original_data: &[u8]) {
+    fn add_overlapping_fragments(&self, fragments: &mut Vec<PacketFragment>, _original_data: &[u8]) {
         if fragments.len() < 2 {
             return;
         }
