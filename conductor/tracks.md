@@ -142,6 +142,22 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
+## [x] Track: Clear Remaining 24 Compiler Warnings
+
+24 warnings across 10 files. Dead struct fields, unused vars, unused imports.
+Fix with #[allow(dead_code)] or _ prefixes. Two parallel kilo workers.
+
+### Status
+- [x] Worker A: tunnel_config.rs, packet_fragment.rs, patterns.rs
+- [x] Worker B: http/server.rs, quic_engine*.rs, bridge.rs, posix_sockets.rs, etc.
+- [x] cargo check: 5 warnings (recursive fns — acceptable); cargo test --lib: 278/0
+
+**Delegation:** Worker A = kilo, Worker B = kilo (parallel)
+
+**Link:** [remaining-warnings_20260310](./tracks/remaining-warnings_20260310/)
+
+---
+
 ## [x] Track: Fix Infinite Recursion in Join Trait Impls
 
 `src/rbcursive/mod.rs` Join<String> and Join<&str> impls call themselves infinitely.
