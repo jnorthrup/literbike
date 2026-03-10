@@ -28,7 +28,6 @@
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::ops::Add;
 use std::sync::Arc;
 use parking_lot::RwLock;
@@ -146,7 +145,7 @@ impl std::fmt::Debug for CoroutineContext {
 impl Add<Arc<dyn ContextElement>> for CoroutineContext {
     type Output = Self;
     
-    fn add(mut self, element: Arc<dyn ContextElement>) -> Self::Output {
+    fn add(self, element: Arc<dyn ContextElement>) -> Self::Output {
         {
             let mut elements = self.elements.write();
             elements.insert(element.key(), element);
@@ -167,7 +166,7 @@ impl Add<CoroutineContext> for CoroutineContext {
 impl<E: ContextElement + Clone> Add<Arc<E>> for CoroutineContext {
     type Output = Self;
     
-    fn add(mut self, element: Arc<E>) -> Self::Output {
+    fn add(self, element: Arc<E>) -> Self::Output {
         let ctx_element: Arc<dyn ContextElement> = element;
         {
             let mut elements = self.elements.write();
@@ -182,7 +181,7 @@ impl Add<Arc<dyn ContextElement>> for EmptyContext {
     type Output = CoroutineContext;
     
     fn add(self, element: Arc<dyn ContextElement>) -> Self::Output {
-        let mut ctx = CoroutineContext::new();
+        let ctx = CoroutineContext::new();
         {
             let mut elements = ctx.elements.write();
             elements.insert(element.key(), element);
@@ -196,7 +195,7 @@ impl<E: ContextElement + Clone> Add<Arc<E>> for EmptyContext {
     
     fn add(self, element: Arc<E>) -> Self::Output {
         let ctx_element: Arc<dyn ContextElement> = element;
-        let mut ctx = CoroutineContext::new();
+        let ctx = CoroutineContext::new();
         {
             let mut elements = ctx.elements.write();
             elements.insert(ctx_element.key(), ctx_element);

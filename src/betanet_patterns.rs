@@ -12,7 +12,7 @@
 //! - betanet-enhanced-ipfs/src/commonMain/kotlin/BetanetIPFSCore.kt
 //! - betanet-integration-demo/src/commonMain/kotlin/BetanetIntegrationDemo.kt
 
-use crate::concurrency::ccek::{ContextElement, ContextKey};
+use crate::concurrency::ccek::ContextElement;
 use std::sync::Arc;
 
 /// Indexed type for zero-allocation access patterns
@@ -552,7 +552,7 @@ fn base58_encode(data: &[u8]) -> String {
     }
     
     // Add leading '1's for leading zeros
-    for &byte in data.iter().take_while(|&&b| b == 0) {
+    for _ in data.iter().take_while(|&&b| b == 0) {
         result.push(ALPHABET[0]);
     }
     

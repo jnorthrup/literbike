@@ -1,10 +1,9 @@
 use super::quic_engine::{QuicEngine, Role};
 use super::quic_error::QuicError;
 use super::quic_session_cache::{DefaultQuicSessionCache, SessionCacheService};
-use super::quic_failure_log as qfail;
 use super::quic_protocol::{
     deserialize_decoded_packet_with_dcid_len, ConnectionId, ConnectionState,
-    QuicConnectionState, QuicFrame, StreamFrame, StreamState, TransportParameters,
+    QuicConnectionState, QuicFrame, StreamState, TransportParameters,
 };
 
 #[cfg(feature = "tls-quic")]

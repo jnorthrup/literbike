@@ -142,6 +142,23 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
+## [x] Track: Compiler Warning Cleanup
+
+54 warnings in literbike crate (32 unused import/dead_code). Run cargo fix + manual
+fixes. Also gitignore .artifacts/ (contains built macOS app).
+
+### Status
+- [ ] `cargo fix --lib -p literbike` — apply 22+ auto-suggestions
+- [ ] Add `.artifacts/` to `.gitignore`
+- [ ] Fix remaining non-auto warnings to reach 0 crate warnings
+- [ ] `cargo test --lib` still 278/0
+
+**Delegation:** Worker A = kilo
+
+**Link:** [warning-cleanup_20260310](./tracks/warning-cleanup_20260310/)
+
+---
+
 ## [x] Track: Export http Module from lib.rs
 
 `src/http/` exists (server, session, header_parser) but is not exported from

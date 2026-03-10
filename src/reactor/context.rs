@@ -1,7 +1,6 @@
 //! Reactor CCEK Context Integration
 
 use crate::concurrency::ccek::ContextElement;
-use std::sync::Arc;
 
 /// CCEK Context Element for Reactor Service
 pub struct ReactorService {
@@ -69,6 +68,7 @@ impl Clone for ReactorService {
 mod tests {
     use super::*;
     use crate::concurrency::EmptyContext;
+    use std::sync::Arc;
     
     #[test]
     fn test_reactor_service_key() {

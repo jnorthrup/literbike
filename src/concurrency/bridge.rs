@@ -3,7 +3,7 @@
 //! This module provides integration between our CCEK context system
 //! and the Tokio async runtime ecosystem.
 
-use crate::concurrency::{CoroutineContext, ContextElement, SupervisorScope};
+use crate::concurrency::CoroutineContext;
 use std::sync::Arc;
 use tokio::runtime::Handle;
 
@@ -114,7 +114,7 @@ pub fn to_async_channel<T: Send + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::concurrency::{EmptyContext, ProtocolDetector, DHTService};
+    use crate::concurrency::{EmptyContext, ProtocolDetector, DHTService, ContextElement, SupervisorScope};
 
     #[tokio::test]
     async fn test_ccek_runtime_spawn() {
