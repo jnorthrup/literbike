@@ -6,9 +6,7 @@
 
 ## Phase 2: Fix Reactor API Mismatch in server.rs
 
-- [ ] `src/http/server.rs` imports `EventHandler<T,H>`, `Attachment<T,H>`, `Interest`
-  which don't exist in the current reactor. Reactor has: `EventHandler` (on_readable,
-  on_writable, on_error), `InterestSet`, no Attachment type.
+- [x] `src/http/server.rs` reactor API mismatch resolved — see below
 - [x] Rewrote `HttpEventHandler` to implement `EventHandler` (on_readable/on_writable/on_error)
   with sessions stored internally; removed Attachment/Interest generics
 - [x] Fixed `try_parse_headers` to extract body bytes already in parser buffer into
