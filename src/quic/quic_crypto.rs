@@ -269,7 +269,7 @@ mod tests {
             data: vec![1, 2, 3],
         };
         let state = sample_state();
-        let disposition = provider.on_crypto_frame(&frame, &state).unwrap();
+        let disposition = provider.on_crypto_frame(&frame, EncryptionLevel::Initial, &state).unwrap();
         assert_eq!(disposition, CryptoFrameDisposition::ProgressedHandshake);
         assert_eq!(provider.handshake_phase(), HandshakePhase::OneRtt);
         assert!(provider.header_protection_ready());

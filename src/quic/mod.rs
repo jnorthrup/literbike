@@ -30,7 +30,13 @@ pub use quic_crypto::{HandshakePhase, NoopQuicCryptoProvider, QuicCryptoProvider
 pub use quic_engine::{QuicEngine, QuicEngineDiagnosticsSnapshot};
 pub use quic_engine_hybrid::{QuicEngineHybrid, QuicState, QuicStats};
 pub use quic_error::QuicError;
-pub use quic_protocol::{QuicFrame, QuicHeader, QuicPacket, QuicPacketType, QuicProtocol};
+pub use quic_protocol::{
+    AckFrame, ConnectionId, ConnectionState, CryptoFrame, QuicConnectionState, QuicFrame,
+    QuicHeader, QuicPacket, QuicPacketType, QuicProtocol, QuicStreamState, StreamFrame,
+    StreamState, TransportParameters,
+};
+pub use quic_engine::Role;
+pub use quic_stream::QuicStream;
 pub use quic_server::QuicServer;
 
 // TLS exports (feature-gated)

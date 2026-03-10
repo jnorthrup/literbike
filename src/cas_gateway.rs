@@ -11,6 +11,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+/// Threshold in bytes below which objects are stored as a single inline blob.
+pub const SMALL_OBJECT_THRESHOLD: usize = 4096;
+
 /// Backends supported by the lazy projection gateway.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProjectionBackend {
@@ -29,6 +32,48 @@ impl ProjectionBackend {
             ProjectionBackend::Ipfs => "ipfs",
             ProjectionBackend::S3Blobs => "s3-blobs",
             ProjectionBackend::Kv => "kv",
+        }
+    }
+}
+
+/// Strategy for how objects are chunked before CAS storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChunkStrategy {
+    /// Store as a single blob (used for objects <= SMALL_OBJECT_THRESHOLD bytes).
+    Inline,
+    /// Split into fixed-size chunks and store a manifest referencing each chunk hash.
+    FixedSize { chunk_bytes: usize },
+}
+
+/// Manifest for chunked objects: ordered list of chunk hashes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChunkManifest {
+    pub strategy: ChunkStrategy,
+    /// For Inline: single-element vec with the object hash.
+    /// For FixedSize: ordered chunk hashes.
+    pub chunk_hashes: Vec<ContentHash>,
+    pub total_size: u64,
+}
+
+impl ChunkManifest {
+    pub fn from_bytes(bytes: &[u8], strategy: ChunkStrategy) -> Self {
+        match &strategy {
+            ChunkStrategy::Inline => ChunkManifest {
+                chunk_hashes: vec![digest(bytes)],
+                total_size: bytes.len() as u64,
+                strategy,
+            },
+            ChunkStrategy::FixedSize { chunk_bytes } => {
+                let chunk_hashes = bytes
+                    .chunks(*chunk_bytes)
+                    .map(digest)
+                    .collect();
+                ChunkManifest {
+                    chunk_hashes,
+                    total_size: bytes.len() as u64,
+                    strategy,
+                }
+            }
         }
     }
 }
@@ -111,12 +156,39 @@ impl ProjectionAdapter for InMemoryProjectionAdapter {
     }
 }
 
+/// Policy controlling when projections are triggered and the fallback order.
+#[derive(Debug, Clone)]
+pub struct ProjectionPolicy {
+    /// Backends to auto-project when `put` is called (eager mode).
+    /// Empty means fully lazy — project only on explicit `project()` call.
+    pub eager_backends: Vec<ProjectionBackend>,
+    /// Preferred fallback order for `get` when no backend is specified.
+    pub fallback_order: Vec<ProjectionBackend>,
+}
+
+impl Default for ProjectionPolicy {
+    fn default() -> Self {
+        Self {
+            eager_backends: vec![],
+            fallback_order: vec![
+                ProjectionBackend::Kv,
+                ProjectionBackend::Git,
+                ProjectionBackend::S3Blobs,
+                ProjectionBackend::Ipfs,
+                ProjectionBackend::Torrent,
+            ],
+        }
+    }
+}
+
 /// Canonical CAS + lazy backend projection gateway.
 pub struct LazyProjectionGateway {
     canonical: ContentAddressedStore,
     envelopes: RwLock<HashMap<ContentHash, CasEnvelope>>,
     adapters: RwLock<HashMap<ProjectionBackend, Arc<dyn ProjectionAdapter>>>,
     projection_index: RwLock<HashMap<(ContentHash, ProjectionBackend), String>>,
+    manifests: RwLock<HashMap<ContentHash, ChunkManifest>>,
+    policy: RwLock<ProjectionPolicy>,
 }
 
 impl Default for LazyProjectionGateway {
@@ -132,6 +204,8 @@ impl LazyProjectionGateway {
             envelopes: RwLock::new(HashMap::new()),
             adapters: RwLock::new(HashMap::new()),
             projection_index: RwLock::new(HashMap::new()),
+            manifests: RwLock::new(HashMap::new()),
+            policy: RwLock::new(ProjectionPolicy::default()),
         }
     }
 
@@ -140,10 +214,29 @@ impl LazyProjectionGateway {
         self.adapters.write().insert(adapter.backend(), adapter);
     }
 
+    /// Replace the projection policy.
+    pub fn set_policy(&self, policy: ProjectionPolicy) {
+        *self.policy.write() = policy;
+    }
+
+    /// Return the chunk manifest for a stored object, if present.
+    pub fn manifest(&self, hash: &ContentHash) -> Option<ChunkManifest> {
+        self.manifests.read().get(hash).cloned()
+    }
+
     /// Store bytes once in canonical CAS.
     pub fn put(&self, bytes: Vec<u8>, media_type: impl Into<String>) -> Result<PutResult> {
+        let strategy = if bytes.len() <= SMALL_OBJECT_THRESHOLD {
+            ChunkStrategy::Inline
+        } else {
+            ChunkStrategy::FixedSize { chunk_bytes: SMALL_OBJECT_THRESHOLD }
+        };
+        let manifest = ChunkManifest::from_bytes(&bytes, strategy);
+
         let blob = ContentBlob::new(bytes);
         self.canonical.store(&blob)?;
+
+        self.manifests.write().insert(blob.hash, manifest);
 
         let envelope = CasEnvelope {
             algorithm: "sha2-256",
@@ -151,6 +244,13 @@ impl LazyProjectionGateway {
             media_type: media_type.into(),
         };
         self.envelopes.write().insert(blob.hash, envelope.clone());
+
+        // Eager projection for registered backends in policy.
+        let eager_backends = self.policy.read().eager_backends.clone();
+        for backend in eager_backends {
+            // Best-effort: ignore errors from eager projection (adapter may not be registered).
+            let _ = self.project(&blob.hash, backend);
+        }
 
         Ok(PutResult {
             hash: blob.hash,
@@ -304,5 +404,124 @@ mod tests {
             .get(&put.hash, &[ProjectionBackend::Ipfs, ProjectionBackend::Git])
             .expect("get");
         assert_eq!(fetched, Some(bytes));
+    }
+
+    // --- Phase 4 tests ---
+
+    #[test]
+    fn parity_digest_round_trip_all_backends() {
+        let gw = LazyProjectionGateway::new();
+        let _adapters = register_all(&gw);
+
+        let bytes = b"parity fixture bytes for all backends".to_vec();
+        let put = gw.put(bytes.clone(), "application/octet-stream").expect("put");
+
+        let all_backends = [
+            ProjectionBackend::Git,
+            ProjectionBackend::Torrent,
+            ProjectionBackend::Ipfs,
+            ProjectionBackend::S3Blobs,
+            ProjectionBackend::Kv,
+        ];
+
+        for backend in all_backends {
+            gw.project(&put.hash, backend).expect("project");
+        }
+
+        let fetched = gw
+            .get(&put.hash, &all_backends)
+            .expect("get")
+            .expect("should be Some");
+
+        let retrieved_hash = digest(&fetched);
+        assert_eq!(retrieved_hash, put.hash, "digest mismatch after round-trip");
+        assert_eq!(fetched, bytes);
+    }
+
+    #[test]
+    fn lazy_write_not_materialized_without_explicit_project() {
+        let gw = LazyProjectionGateway::new();
+        let adapters = register_all(&gw);
+
+        // Default policy has no eager backends.
+        let _put = gw.put(b"lazy object bytes".to_vec(), "application/octet-stream").expect("put");
+
+        for adapter in adapters.values() {
+            assert_eq!(
+                adapter.write_count(),
+                0,
+                "backend {:?} should have 0 writes without explicit project",
+                adapter.backend
+            );
+        }
+    }
+
+    #[test]
+    fn eager_policy_materializes_selected_backends_on_put() {
+        let gw = LazyProjectionGateway::new();
+        let adapters = register_all(&gw);
+
+        gw.set_policy(ProjectionPolicy {
+            eager_backends: vec![ProjectionBackend::Git, ProjectionBackend::Kv],
+            fallback_order: ProjectionPolicy::default().fallback_order,
+        });
+
+        let _put = gw.put(b"eager object bytes".to_vec(), "application/octet-stream").expect("put");
+
+        assert_eq!(adapters[&ProjectionBackend::Git].write_count(), 1, "Git should be eager");
+        assert_eq!(adapters[&ProjectionBackend::Kv].write_count(), 1, "Kv should be eager");
+        assert_eq!(adapters[&ProjectionBackend::Torrent].write_count(), 0, "Torrent should be lazy");
+        assert_eq!(adapters[&ProjectionBackend::Ipfs].write_count(), 0, "Ipfs should be lazy");
+        assert_eq!(adapters[&ProjectionBackend::S3Blobs].write_count(), 0, "S3 should be lazy");
+    }
+
+    #[test]
+    fn partial_outage_get_falls_back_to_next_backend() {
+        struct MissingProjectionAdapter {
+            backend: ProjectionBackend,
+        }
+
+        impl ProjectionAdapter for MissingProjectionAdapter {
+            fn backend(&self) -> ProjectionBackend {
+                self.backend
+            }
+
+            fn deterministic_locator(&self, hash: &ContentHash) -> String {
+                format!("missing/{}", hex::encode(hash))
+            }
+
+            fn project(&self, hash: &ContentHash, _bytes: &[u8]) -> Result<String> {
+                Ok(self.deterministic_locator(hash))
+            }
+
+            fn fetch(&self, _locator: &str) -> Result<Option<Vec<u8>>> {
+                Ok(None) // always missing
+            }
+        }
+
+        let gw = LazyProjectionGateway::new();
+
+        // Register a failing adapter for Git and a working one for Kv.
+        let failing_git = Arc::new(MissingProjectionAdapter { backend: ProjectionBackend::Git });
+        gw.register_adapter(failing_git);
+
+        let kv_adapter = Arc::new(InMemoryProjectionAdapter::new(ProjectionBackend::Kv, "kv"));
+        gw.register_adapter(kv_adapter.clone());
+
+        let bytes = b"partial outage test bytes".to_vec();
+        let put = gw.put(bytes.clone(), "application/octet-stream").expect("put");
+
+        // Project to both Git (failing) and Kv (working).
+        gw.project(&put.hash, ProjectionBackend::Git).expect("project git");
+        gw.project(&put.hash, ProjectionBackend::Kv).expect("project kv");
+
+        // Fallback order: Git first (will return None), then Kv.
+        let fetched = gw
+            .get(&put.hash, &[ProjectionBackend::Git, ProjectionBackend::Kv])
+            .expect("get")
+            .expect("should fall back to Kv");
+
+        assert_eq!(fetched, bytes, "should have fetched from Kv fallback");
+        assert_eq!(kv_adapter.write_count(), 1, "Kv should have been written");
     }
 }

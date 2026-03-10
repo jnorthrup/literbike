@@ -1,4 +1,5 @@
 use literbike::quic::QuicServer;
+use literbike::concurrency::ccek::CoroutineContext;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -18,7 +19,8 @@ fn main() {
         .expect("build tokio runtime");
 
     rt.block_on(async move {
-        let server = QuicServer::bind(bind_addr).await.expect("bind quic server");
+        let ctx = CoroutineContext::new();
+        let server = QuicServer::bind(bind_addr, ctx).await.expect("bind quic server");
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async move {

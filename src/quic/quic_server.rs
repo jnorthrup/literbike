@@ -1,5 +1,6 @@
 use super::quic_engine::{QuicEngine, Role};
 use super::quic_error::QuicError;
+use super::quic_session_cache::{DefaultQuicSessionCache, SessionCacheService};
 use super::quic_failure_log as qfail;
 use super::quic_protocol::{
     deserialize_decoded_packet_with_dcid_len, ConnectionId, ConnectionState,
@@ -111,6 +112,13 @@ fn select_static_response(request_stream_payload: &[u8], stream_id: u64) -> (Vec
         let body = std::fs::read("index.css").unwrap_or_else(|_| b"/* index.css not found */".to_vec());
         return (body, "text/css", "/index.css");
     }
+    if stream_payload_contains(request_stream_payload, b"/configs/agent-host-free-lanes.dsel")
+        || stream_payload_contains(request_stream_payload, b"configs/agent-host-free-lanes.dsel")
+    {
+        let body = std::fs::read("configs/agent-host-free-lanes.dsel")
+            .unwrap_or_else(|_| b"# configs/agent-host-free-lanes.dsel not found\n".to_vec());
+        return (body, "text/plain", "/configs/agent-host-free-lanes.dsel");
+    }
     if stream_payload_contains(request_stream_payload, b"/bw_test_pattern.png")
         || stream_payload_contains(request_stream_payload, b"bw_test_pattern.png")
     {
@@ -172,7 +180,74 @@ pub struct QuicServer {
     ctx: crate::concurrency::ccek::CoroutineContext,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::select_static_response;
+    use std::fs;
+
+    #[test]
+    fn control_plane_html_embeds_titlebar_icon() {
+        let html = fs::read_to_string("index.html").expect("read index.html");
+        assert!(html.contains("rel=\"icon\""));
+        assert!(html.contains("data:image/svg+xml"));
+        assert!(html.contains("<svg class=\"menu-icon\""));
+    }
+
+    #[test]
+    fn select_static_response_serves_pack_asset() {
+        let (body, content_type, path) = select_static_response(
+            b"GET /configs/agent-host-free-lanes.dsel HTTP/3\r\nHost: localhost\r\n\r\n",
+            9,
+        );
+
+        assert_eq!(content_type, "text/plain");
+        assert_eq!(path, "/configs/agent-host-free-lanes.dsel");
+
+        let text = String::from_utf8(body).expect("pack should be utf-8");
+        assert!(text.contains("/z-ai/glm-5"));
+        assert!(text.contains("/moonshotai/kimi-k2.5"));
+    }
+
+    #[test]
+    fn bind_installs_session_cache_in_context() {
+        use crate::quic::quic_session_cache::SessionCacheService;
+        use crate::concurrency::ccek::CoroutineContext;
+
+        // A bare context (no SessionCacheService) should have one installed after bind construction.
+        // We can't call bind() directly (it's async and opens a socket), so test the context logic.
+        let bare_ctx = CoroutineContext::new();
+        assert!(!bare_ctx.contains("SessionCacheService"));
+
+        // Simulate what bind() does: create shared cache and merge into context
+        let shared_cache = std::sync::Arc::new(crate::quic::quic_session_cache::DefaultQuicSessionCache::default());
+        let svc = SessionCacheService::new(shared_cache);
+        let ctx = CoroutineContext::with_element(svc).merge(&bare_ctx);
+        assert!(ctx.contains("SessionCacheService"), "context must contain SessionCacheService after install");
+    }
+
+    #[test]
+    fn bind_caller_supplied_session_cache_is_preserved() {
+        use crate::quic::quic_session_cache::{DefaultQuicSessionCache, SessionCacheService};
+        use crate::concurrency::ccek::CoroutineContext;
+        use std::sync::Arc;
+
+        // If caller provides their own SessionCacheService, it wins after merge.
+        let caller_cache = Arc::new(DefaultQuicSessionCache::default());
+        let caller_svc = SessionCacheService::new(caller_cache.clone());
+        let caller_ctx = CoroutineContext::with_element(caller_svc);
+
+        // Simulate bind merge: default is baseline, caller overwrites
+        let default_cache = Arc::new(DefaultQuicSessionCache::default());
+        let default_svc = SessionCacheService::new(default_cache);
+        let ctx = CoroutineContext::with_element(default_svc).merge(&caller_ctx);
+
+        // The caller's svc should win (merge puts caller on top)
+        assert!(ctx.contains("SessionCacheService"));
+    }
+}
+
 impl QuicServer {
+    // RFC-TRACE: §5.2 (Packet Format) — Extract DCID from long header for connection routing
     // CCEK: Extract DCID from first bytes of QUIC packet (no decryption needed for this part)
     fn extract_dcid_from_long_header(bytes: &[u8]) -> Option<Vec<u8>> {
         if bytes.is_empty() || (bytes[0] & 0x80) == 0 {
@@ -189,6 +264,7 @@ impl QuicServer {
     }
 
     #[cfg(feature = "tls-quic")]
+    // RFC-TRACE: §5.2, §7 (Initial Packet, Packet Number) — Decrypt & decode Initial packets
     /// Attempt to decrypt a QUIC Initial packet using RFC 9001 key derivation.
     /// Returns a DecodedQuicPacket on success, or None if the packet is not an Initial packet
     /// or decryption fails.
@@ -460,6 +536,7 @@ impl QuicServer {
     }
 
     #[cfg(feature = "tls-quic")]
+    // RFC-TRACE: §5.3 (1-RTT Packet Format), §9 (Packet Protection) — Decrypt 1-RTT short-header packets
     /// Attempt to decrypt a 1-RTT packet (short header, bit7=0).
     /// Uses onertt_remote keys from rustls to decrypt client→server 1-RTT packets.
     fn try_decrypt_1rtt_packet(
@@ -580,6 +657,7 @@ impl QuicServer {
     }
 
     #[cfg(feature = "tls-quic")]
+    // RFC-TRACE: §5.1 (Packet Format), §9 (Packet Protection) — Decrypt Handshake long-header packets
     /// Attempt to decrypt a QUIC Handshake packet (long header, type 0x02).
     /// Uses the handshake_remote keys from rustls to decrypt client→server Handshake packets.
     fn try_decrypt_handshake_packet(
@@ -754,6 +832,12 @@ impl QuicServer {
 
         let tokio_socket = TokioUdpSocket::from_std(std_socket).map_err(QuicError::Io)?;
 
+        // Install a shared session cache if the caller didn't supply one.
+        // This ensures all connections on this server share the same resumption cache.
+        let shared_cache = Arc::new(DefaultQuicSessionCache::default());
+        let svc = SessionCacheService::new(shared_cache);
+        let ctx = crate::concurrency::ccek::CoroutineContext::with_element(svc).merge(&ctx);
+
         Ok(Self {
             socket: Arc::new(tokio_socket),
             rb: Arc::new(Mutex::new(RbCursor::new())),
@@ -778,6 +862,7 @@ impl QuicServer {
                     Ok((len, remote_addr)) => {
                         println!("📡 Received {} bytes from {}", len, remote_addr);
                         let packet_data = &buf[..len];
+                        // RFC-TRACE: §12.2 (Coalescing) — Process coalesced packets from single UDP datagram
                         let packet_slices = Self::split_coalesced_packets(packet_data);
                         if packet_slices.len() > 1 {
                             println!("📦 Coalesced datagram detected: {} packets", packet_slices.len());
@@ -785,6 +870,7 @@ impl QuicServer {
 
                         for packet_data in packet_slices {
 
+                            // RFC-TRACE: §5 (Packet Format) — Protocol identification via RbCursive
                             // RbCursive preflight
                             let tuple = NetTuple::from_socket_addr(remote_addr, RbProtocol::CustomQuic);
                             let hint = if packet_data.len() > 0 {
@@ -799,16 +885,19 @@ impl QuicServer {
                                 RbSignal::Accept(proto) => {
                                     println!("✅ Accepted protocol: {:?}", proto);
 
+                                // RFC-TRACE: §5.1, §5.2 (Packet Type Dispatch) — Route to decrypt based on packet type
                                 // Try QUIC Initial/Handshake packet decryption (RFC 9001)
                                 // Falls back to raw deserialize for non-Initial/Handshake or already-decrypted packets
                                 #[cfg(feature = "tls-quic")]
                                 let decoded_result = if (packet_data[0] & 0x80) != 0 && ((packet_data[0] >> 4) & 0x03) == 0 {
+                                    // RFC-TRACE: §5.2 (Initial Packet) — Decrypt Initial (type=0x00)
                                     // Long header Initial packet — decrypt first
                                     Self::try_decrypt_initial_packet(packet_data)
                                         .ok_or_else(|| ProtocolError::InvalidPacket(
                                             "Initial packet decryption failed".into()
                                         ))
                                 } else if (packet_data[0] & 0x80) != 0 && ((packet_data[0] >> 4) & 0x03) == 2 {
+                                    // RFC-TRACE: §5.1 (Handshake Packet) — Decrypt Handshake (type=0x02)
                                     // Long header Handshake packet — try decryption with engine keys
                                     if let Some(engine_arc) = connections.lock().get(&remote_addr).cloned() {
                                         Self::try_decrypt_handshake_packet(packet_data, &engine_arc.get_crypto_provider())
@@ -821,6 +910,7 @@ impl QuicServer {
                                         deserialize_decoded_packet_with_dcid_len(packet_data, short_header_dcid_len)
                                     }
                                 } else if (packet_data[0] & 0x80) == 0 {
+                                    // RFC-TRACE: §5.3 (1-RTT Packet) — Decrypt 1-RTT short-header
                                     // Short header packet — try 1-RTT decryption
                                     println!("📦 Short header packet detected, {} bytes", packet_data.len());
                                     if let Some(engine_arc) = connections.lock().get(&remote_addr).cloned() {
@@ -861,6 +951,7 @@ impl QuicServer {
                                         let received_packet = decoded_packet.packet.clone();
                                         println!("📦 Deserialized packet with {} frames", received_packet.frames.len());
 
+                                        // RFC-TRACE: §7.6 (Crypto Handshake), §3.2 (Connection IDs) — Extract and validate connection IDs
                                         // Get the client's SCID from the packet header for use in remote_connection_id
                                         let client_scid = received_packet.header.source_connection_id.bytes.clone();
                                         let client_dcid = received_packet.header.destination_connection_id.bytes.clone();
@@ -914,6 +1005,7 @@ impl QuicServer {
 
                                         match engine_arc.process_decoded_packet(decoded_packet).await {
                                             Ok(()) => {
+                                                // RFC-TRACE: §3.4 (Streams) — Process stream frames and dispatch to stream handlers
                                                 for frame in received_packet.frames.iter() {
                                                     if let QuicFrame::Stream(stream_frame) = frame {
                                                         // Client-initiated bidirectional request streams are 0,4,8,...

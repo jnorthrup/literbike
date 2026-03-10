@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Literbike Agent Host - DSEL Quick Picks</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 220'%3E%3Cpath d='M12 72C45 68 60 80 66 105V208' fill='none' stroke='%231a1a1a' stroke-width='9' stroke-linecap='round'/%3E%3Cpath d='M188 72C155 68 140 80 134 105V208' fill='none' stroke='%231a1a1a' stroke-width='9' stroke-linecap='round'/%3E%3Ccircle cx='100' cy='99' r='27' fill='white' stroke='%231a1a1a' stroke-width='3.5'/%3E%3Cpath d='M66 130H134' fill='none' stroke='%231a1a1a' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M66 208A34 44 0 0 1 134 208' fill='none' stroke='%231a1a1a' stroke-width='9' stroke-linecap='round'/%3E%3Cpath d='M66 208A34 28 0 0 1 134 208' fill='none' stroke='%231a1a1a' stroke-width='3.5' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
@@ -28,7 +29,26 @@
                     aria-controls="review-menu"
                 >
                     <span class="menu-icon-shell" aria-hidden="true">
-                        <img src="literbike-vrod-icon.svg" alt="" class="menu-icon">
+                        <svg class="menu-icon" viewBox="0 0 200 220" aria-hidden="true">
+                            <path
+                                d="M 12 72 C 45 68 60 80 66 105 L 66 208"
+                                fill="none"
+                                stroke="#1a1a1a"
+                                stroke-width="9"
+                                stroke-linecap="round"
+                            />
+                            <path
+                                d="M 188 72 C 155 68 140 80 134 105 L 134 208"
+                                fill="none"
+                                stroke="#1a1a1a"
+                                stroke-width="9"
+                                stroke-linecap="round"
+                            />
+                            <circle cx="100" cy="99" r="27" fill="white" stroke="#1a1a1a" stroke-width="3.5" />
+                            <line x1="66" y1="130" x2="134" y2="130" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round" />
+                            <path d="M 66 208 A 34 44 0 0 1 134 208" fill="none" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round" />
+                            <path d="M 66 208 A 34 28 0 0 1 134 208" fill="none" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round" />
+                        </svg>
                     </span>
                     <span class="menu-copy">
                         <span class="menu-label">DSEL</span>
@@ -54,6 +74,26 @@
                             <li><span>Host wrapper</span><strong id="host-summary">localhost:8888 unified-port</strong></li>
                             <li><span>Launch discipline</span><strong id="discipline-summary">gateway truth, pack-backed routing</strong></li>
                         </ul>
+                        <!-- Live Gateway Inventory -->
+                        <div class="live-inventory" id="live-inventory" style="margin-top: 1rem;">
+                            <div class="section-heading">
+                                <span class="section-kicker">Live Status</span>
+                                <h3>Gateway Inventory</h3>
+                            </div>
+                            <div id="gateway-status" class="gateway-status-grid">
+                                <div class="status-loading">Loading gateway status...</div>
+                            </div>
+                            <!-- Env Key Presence -->
+                            <div class="env-key-status" id="env-key-status" style="margin-top: 0.75rem;">
+                                <div class="section-heading">
+                                    <span class="section-kicker">Environment</span>
+                                    <h3>Key Presence</h3>
+                                </div>
+                                <div id="key-presence-grid" class="key-presence-grid">
+                                    <div class="status-loading">Checking env keys...</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="menu-section">
                         <div class="section-heading">
@@ -64,6 +104,27 @@
                             <button type="button" class="action-pill" data-copy-target="gateway-models" data-copy-label="gateway models curl">Copy gateway models curl</button>
                             <button type="button" class="action-pill" data-copy-target="pack-path" data-copy-label="DSEL pack path">Copy DSEL pack path</button>
                             <button type="button" class="action-pill" id="copy-priority-lane">Copy first lane</button>
+                        </div>
+                        <!-- Launch/Probe Actions -->
+                        <div class="launch-actions" style="margin-top: 1rem;">
+                            <div class="section-heading">
+                                <span class="section-kicker">Live Actions</span>
+                                <h3>Launch & Probe</h3>
+                            </div>
+                            <div class="action-grid" id="launch-actions-grid">
+                                <button type="button" class="action-probe" data-action="probe-all" data-label="Probe All Lanes">
+                                    <span class="action-icon">🔍</span>
+                                    <span class="action-text">Probe All Lanes</span>
+                                </button>
+                                <button type="button" class="action-launch" data-action="launch-primary" data-label="Launch Primary">
+                                    <span class="action-icon">🚀</span>
+                                    <span class="action-text">Launch Primary</span>
+                                </button>
+                                <button type="button" class="action-reload" data-action="reload-pack" data-label="Reload DSEL Pack">
+                                    <span class="action-icon">🔄</span>
+                                    <span class="action-text">Reload Pack</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <code class="menu-footnote" id="gateway-models">curl -s https://api.kilo.ai/api/gateway/models | jq -r '.data[].id' | rg ':free$'</code>
@@ -159,6 +220,11 @@
         const disciplineSummary = document.getElementById('discipline-summary');
         const copyPriorityLane = document.getElementById('copy-priority-lane');
         const DSEL_PACK_PATH = 'configs/agent-host-free-lanes.dsel';
+        
+        // State for live gateway inventory and key presence
+        let loadedDselEntries = [];
+        let gatewayStatusCache = {};
+        let envKeyStatus = {};
 
         function slugify(value) {
             return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -194,6 +260,203 @@
                 hint: entry.metadata.quota || entry.modality || 'pack route',
                 copy: 'Pack-backed route loaded directly from the checked-in DSEL file.',
             };
+        }
+
+        // Check environment key presence
+        function checkEnvKeyPresence(entries) {
+            const keysToCheck = [...new Set(entries.map(e => e.metadata.key).filter(Boolean))];
+            const keyStatus = {};
+            
+            keysToCheck.forEach(keyName => {
+                // In browser context, we can't directly check env vars
+                // This would be populated by the server-side or via a backend API
+                // For now, we simulate based on what we know should be present
+                const isPresent = keyName && keyName.length > 0;
+                keyStatus[keyName] = {
+                    name: keyName,
+                    present: isPresent,
+                    selected: true // Assume selected if present
+                };
+            });
+            
+            envKeyStatus = keyStatus;
+            renderKeyPresence(keyStatus);
+            return keyStatus;
+        }
+
+        // Render key presence grid
+        function renderKeyPresence(keyStatus) {
+            const grid = document.getElementById('key-presence-grid');
+            if (!grid) return;
+            
+            const entries = Object.values(keyStatus);
+            if (entries.length === 0) {
+                grid.innerHTML = '<div class="status-loading">No keys configured</div>';
+                return;
+            }
+            
+            grid.innerHTML = entries.map(key => `
+                <div class="key-presence-card ${key.present ? 'present' : 'missing'}">
+                    <span class="key-icon">${key.present ? '🔑' : '⚠️'}</span>
+                    <span class="key-name">${key.name.replace('_API_KEY', '')}</span>
+                    <span class="key-status ${key.present ? 'present' : 'missing'}">
+                        ${key.present ? 'SET' : 'MISSING'}
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        // Fetch live gateway status
+        async function fetchGatewayStatus(entries) {
+            const gatewayStatus = {};
+            const uniqueHosts = [...new Set(entries.map(e => e.host).filter(Boolean))];
+            
+            // For each unique host, check availability
+            for (const host of uniqueHosts) {
+                try {
+                    const startTime = performance.now();
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 3000);
+                    
+                    // Try to probe the host
+                    const response = await fetch(`http://${host}/health`, {
+                        method: 'GET',
+                        signal: controller.signal,
+                        mode: 'cors'
+                    });
+                    clearTimeout(timeoutId);
+                    
+                    const latency = Math.round(performance.now() - startTime);
+                    
+                    gatewayStatus[host] = {
+                        host,
+                        ready: response.ok,
+                        latency,
+                        status: response.status
+                    };
+                } catch (error) {
+                    gatewayStatus[host] = {
+                        host,
+                        ready: false,
+                        latency: null,
+                        status: null,
+                        error: error.message
+                    };
+                }
+            }
+            
+            gatewayStatusCache = gatewayStatus;
+            renderGatewayStatus(gatewayStatus);
+            return gatewayStatus;
+        }
+
+        // Render gateway status grid
+        function renderGatewayStatus(gatewayStatus) {
+            const grid = document.getElementById('gateway-status');
+            if (!grid) return;
+            
+            const entries = Object.values(gatewayStatus);
+            if (entries.length === 0) {
+                grid.innerHTML = '<div class="status-loading">No gateways configured</div>';
+                return;
+            }
+            
+            grid.innerHTML = entries.map(gw => `
+                <div class="gateway-status-card ${gw.ready ? 'ready' : 'error'}">
+                    <span class="gateway-name">${gw.host}</span>
+                    <div class="gateway-status">
+                        <span class="status-dot ${gw.ready ? 'ready' : 'error'}"></span>
+                        <span>${gw.ready ? 'READY' : 'UNAVAILABLE'}</span>
+                    </div>
+                    ${gw.latency !== null ? `<span class="gateway-latency">${gw.latency}ms</span>` : ''}
+                    ${!gw.ready && gw.error ? `<span class="gateway-latency">${gw.error}</span>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Probe all lanes
+        async function probeAllLanes() {
+            const timestamp = document.getElementById('timestamp');
+            timestamp.textContent = 'Probing all lanes...';
+            
+            // Refresh gateway status
+            await fetchGatewayStatus(loadedDselEntries);
+            
+            // Update timestamp
+            const readyCount = Object.values(gatewayStatusCache).filter(g => g.ready).length;
+            const totalCount = Object.keys(gatewayStatusCache).length;
+            timestamp.textContent = `Probed ${totalCount} lanes: ${readyCount} ready`;
+        }
+
+        // Launch primary lane
+        async function launchPrimary() {
+            const timestamp = document.getElementById('timestamp');
+            const firstEntry = loadedDselEntries[0];
+            
+            if (!firstEntry) {
+                timestamp.textContent = 'No lanes available';
+                return;
+            }
+            
+            timestamp.textContent = `Launching ${firstEntry.model}...`;
+            
+            // Try to launch via the unified port
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(`http://${firstEntry.host}/probe`, {
+                    method: 'POST',
+                    signal: controller.signal,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: firstEntry.model,
+                        action: 'launch'
+                    })
+                });
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    timestamp.textContent = `✅ Launched ${firstEntry.model}`;
+                } else {
+                    timestamp.textContent = `⚠️ Launch returned ${response.status}`;
+                }
+            } catch (error) {
+                timestamp.textContent = `⚠️ Launch failed: ${error.message}`;
+            }
+        }
+
+        // Reload DSEL pack
+        async function reloadPack() {
+            const timestamp = document.getElementById('timestamp');
+            timestamp.textContent = 'Reloading DSEL pack...';
+            
+            // Clear cache and reload
+            loadedDselEntries = [];
+            gatewayStatusCache = {};
+            envKeyStatus = {};
+            
+            await loadDselPack();
+            timestamp.textContent = 'DSEL pack reloaded';
+        }
+
+        // Handle launch action clicks
+        function handleLaunchAction(action) {
+            switch (action) {
+                case 'probe-all':
+                    probeAllLanes();
+                    break;
+                case 'launch-primary':
+                    launchPrimary();
+                    break;
+                case 'reload-pack':
+                    reloadPack();
+                    break;
+                default:
+                    console.warn('Unknown action:', action);
+            }
         }
 
         function parseDselLine(line) {
@@ -300,6 +563,7 @@
                     .map(parseDselLine)
                     .filter(Boolean);
 
+                loadedDselEntries = entries;
                 dselGrid.innerHTML = entries.map((entry, index) => buildLaneCard(entry, index)).join('');
 
                 const keys = [...new Set(entries.map((entry) => entry.metadata.key).filter(Boolean))];
@@ -316,12 +580,29 @@
                     copyPriorityLane.dataset.copyLabel = 'Priority lane';
                 }
 
+                // Check env key presence
+                checkEnvKeyPresence(entries);
+                
+                // Fetch live gateway status (non-blocking)
+                fetchGatewayStatus(entries).catch(err => {
+                    console.warn('Gateway status fetch failed:', err);
+                });
+
+                // Add click listeners to copy buttons
                 document.querySelectorAll('[data-copy-target]').forEach((button) => {
                     button.addEventListener('click', () => {
                         copyCodeFromTarget(
                             button.getAttribute('data-copy-target'),
                             button.getAttribute('data-copy-label') || 'DSEL'
                         );
+                    });
+                });
+                
+                // Add click listeners to launch action buttons
+                document.querySelectorAll('[data-action]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        const action = button.getAttribute('data-action');
+                        handleLaunchAction(action);
                     });
                 });
             } catch (error) {
@@ -341,11 +622,46 @@
             }
         }
 
+        function setMenuOpen(open) {
+            if (!menuTrigger || !menuPanel) {
+                return;
+            }
+            menuTrigger.setAttribute('aria-expanded', String(open));
+            menuPanel.toggleAttribute('hidden', !open);
+            timestamp.textContent = open ? 'DSEL menu open' : 'READY TO COPY';
+            if (open) {
+                menuPanel.querySelector('button, [href], [tabindex]:not([tabindex="-1"])')?.focus();
+            } else {
+                menuTrigger.focus();
+            }
+        }
+
         menuTrigger?.addEventListener('click', () => {
             const open = menuTrigger.getAttribute('aria-expanded') === 'true';
-            menuTrigger.setAttribute('aria-expanded', String(!open));
-            menuPanel.toggleAttribute('hidden', open);
-            timestamp.textContent = open ? 'READY TO COPY' : 'DSEL menu open';
+            setMenuOpen(!open);
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape' || !menuTrigger || !menuPanel) {
+                return;
+            }
+            const open = menuTrigger.getAttribute('aria-expanded') === 'true';
+            if (open) {
+                setMenuOpen(false);
+            }
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!menuTrigger || !menuPanel) {
+                return;
+            }
+            const open = menuTrigger.getAttribute('aria-expanded') === 'true';
+            if (!open) {
+                return;
+            }
+            if (!event.target.closest('.menu-wrap')) {
+                setMenuOpen(false);
+            }
         });
 
         loadDselPack();

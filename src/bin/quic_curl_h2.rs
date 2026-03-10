@@ -1,17 +1,17 @@
 //! QUIC Server HTTP/2 Test Client using curl-h2
 //!
 //! This binary tests the QUIC server's HTTP/2 (H2) capabilities using curl with HTTP/2 support.
-//! It fetches the UI test pattern assets (index.html, index.css, bw_test_pattern.png) and verifies
+//! It fetches the UI control-plane assets (index.html, index.css, the DSEL pack, bw_test_pattern.png) and verifies
 //! they are served correctly over HTTP/2.
 //!
 //! # Usage
 //!
 //! ```bash
-//! # Run with default settings (localhost:4433)
+//! # Run with default settings (localhost:8888)
 //! cargo run --bin quic_curl_h2 --features curl-h2
 //!
 //! # Run with custom URL
-//! cargo run --bin quic_curl_h2 --features curl-h2 -- --url https://localhost:4433
+//! cargo run --bin quic_curl_h2 --features curl-h2 -- --url https://localhost:8888
 //!
 //! # Run with verbose output
 //! cargo run --bin quic_curl_h2 --features curl-h2 -- --verbose
@@ -27,7 +27,7 @@ use std::time::Instant;
 #[command(author, version, about = "QUIC Server HTTP/2 Test Client", long_about = None)]
 struct Args {
     /// Server URL
-    #[arg(short, long, default_value = "https://localhost:4433")]
+    #[arg(short, long, default_value = "https://localhost:8888")]
     url: String,
 
     /// Output directory for downloaded files
@@ -94,6 +94,7 @@ fn main() {
         vec![
             "/".to_string(),
             "/index.css".to_string(),
+            "/configs/agent-host-free-lanes.dsel".to_string(),
             "/bw_test_pattern.png".to_string(),
         ]
     };
@@ -244,6 +245,9 @@ fn save_response(output_dir: &PathBuf, path: &str, body: &[u8]) -> std::io::Resu
     };
 
     let output_path = output_dir.join(filename);
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     fs::write(&output_path, body)?;
 
     Ok(())
@@ -256,7 +260,7 @@ mod tests {
     #[test]
     fn test_args_parsing() {
         let args = Args::parse_from(["quic_curl_h2"]);
-        assert_eq!(args.url, "https://localhost:4433");
+        assert_eq!(args.url, "https://localhost:8888");
         assert_eq!(args.timeout, 30);
         assert!(!args.verify_ssl);
     }

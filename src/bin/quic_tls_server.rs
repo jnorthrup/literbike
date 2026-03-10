@@ -14,7 +14,7 @@ struct Args {
     bind: String,
 
     /// Port number
-    #[arg(short, long, default_value = "4433")]
+    #[arg(short, long, default_value = "8888")]
     port: u16,
 
     /// Domain name for certificate
@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             if let Ok((mut stream, _)) = listener.accept().await {
                                 tokio::task::spawn_local(async move {
                                     let response = "HTTP/1.1 200 OK\r\n\
-                                                    Alt-Svc: h3=\":4433\"; ma=86400\r\n\
+                                                    Alt-Svc: h3=\":8888\"; ma=86400\r\n\
                                                     Content-Type: text/html\r\n\
                                                     Connection: close\r\n\r\n\
                                                     <html><head><meta http-equiv='refresh' content='2'></head>\

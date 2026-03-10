@@ -4,6 +4,7 @@ use super::quic_crypto::{
 };
 use super::quic_error::*;
 use super::quic_protocol::{serialize_packet, ConnectionState, *};
+use super::quic_session_cache::{DefaultQuicSessionCache, QuicSessionCache, SessionCacheService, SessionEntry};
 use parking_lot::Mutex;
 use rand::Rng;
 use std::collections::HashMap;
@@ -38,6 +39,7 @@ pub struct QuicEngine {
     stream_overlap_conflict_counts: Arc<Mutex<HashMap<u64, u64>>>,
     total_stream_overlap_conflict_count: Arc<Mutex<u64>>,
     ack_pending: Arc<Mutex<Vec<u64>>>,
+    pending_max_stream_data: Arc<Mutex<HashMap<u64, u64>>>,
     crypto_provider: Arc<dyn QuicCryptoProvider>,
     socket: Arc<UdpSocket>,  // Add socket field
     remote_addr: SocketAddr, // Add remote address for sending
@@ -50,6 +52,7 @@ pub struct QuicEngine {
     initial_crypto_send_offset: Arc<Mutex<u64>>,
     handshake_crypto_send_offset: Arc<Mutex<u64>>,
     handshake_done_sent: Arc<Mutex<bool>>,
+    session_cache: Arc<dyn QuicSessionCache>,
 }
 
 impl QuicEngine {
@@ -84,6 +87,14 @@ impl QuicEngine {
         // private_key is used for key derivation in the crypto provider
         let mut state = initial_state;
         state.connection_state = super::quic_protocol::ConnectionState::Handshaking;
+        // Resolve session cache from ccek context or fall back to default
+        let session_cache: Arc<dyn QuicSessionCache> =
+            if let Some(svc) = ctx.get_typed::<SessionCacheService>("SessionCacheService") {
+                svc.cache.clone()
+            } else {
+                Arc::new(DefaultQuicSessionCache::default())
+            };
+
         // Try to get TlsCcekService from context to upgrade crypto_provider automatically
         let mut final_provider = crypto_provider;
         #[cfg(feature = "tls-quic")]
@@ -111,6 +122,16 @@ impl QuicEngine {
             }
         }
 
+        // Attempt session resumption for Client connections
+        if role == Role::Client {
+            let cache_key = format!("{}", remote_addr);
+            if let Some(_entry) = session_cache.get(&cache_key) {
+                // Session ticket available for resumption; crypto_provider will use it
+                // when 0-RTT / session ticket support is fully wired through the trait.
+                println!("🔁 Session cache hit for {cache_key} — resumption available");
+            }
+        }
+
         QuicEngine {
             role,
             state: Arc::new(Mutex::new(state)),
@@ -120,6 +141,7 @@ impl QuicEngine {
             stream_overlap_conflict_counts: Arc::new(Mutex::new(HashMap::new())),
             total_stream_overlap_conflict_count: Arc::new(Mutex::new(0)),
             ack_pending: Arc::new(Mutex::new(Vec::new())),
+            pending_max_stream_data: Arc::new(Mutex::new(HashMap::new())),
             crypto_provider: final_provider,
             socket,
             remote_addr,
@@ -132,6 +154,7 @@ impl QuicEngine {
             initial_crypto_send_offset: Arc::new(Mutex::new(0)),
             handshake_crypto_send_offset: Arc::new(Mutex::new(0)),
             handshake_done_sent: Arc::new(Mutex::new(false)),
+            session_cache,
         }
     }
 
@@ -186,6 +209,7 @@ impl QuicEngine {
         buf
     }
 
+    // RFC 9000 §17.1: Packet Number Reconstruction
     fn expected_inbound_packet_number(state_guard: &QuicConnectionState) -> u64 {
         state_guard
             .received_packets
@@ -194,6 +218,7 @@ impl QuicEngine {
             .unwrap_or(0)
     }
 
+    // RFC 9000 §17.1: Infer truncated packet number length from value
     fn infer_packet_number_len(truncated_packet_number: u64) -> usize {
         if truncated_packet_number <= 0xFF {
             1
@@ -206,6 +231,7 @@ impl QuicEngine {
         }
     }
 
+    // RFC 9000 §17.1: Reconstruct full packet number from truncated encoding
     pub fn reconstruct_packet_number(
         expected_packet_number: u64,
         truncated_packet_number: u64,
@@ -238,6 +264,7 @@ impl QuicEngine {
         Ok(candidate)
     }
 
+    // RFC 9001 §5.4: Apply outbound header protection to packet
     fn apply_outbound_header_protection_hook(
         &self,
         packet: &mut QuicPacket,
@@ -290,6 +317,7 @@ impl QuicEngine {
                 truncated_packet_number,
                 packet_number_len,
             };
+            // RFC 9001 §5.4: Remove inbound header protection from packet header
             self.crypto_provider
                 .on_inbound_header(&mut packet.header, &inbound_ctx)?;
             packet.header.packet_number = reconstructed_packet_number;
@@ -380,6 +408,16 @@ impl QuicEngine {
             {
                 if !ack_pending_guard.is_empty() {
                     let mut ack_packet = self.create_ack_packet(&state_guard, &ack_pending_guard)?;
+                    // RFC 9000 §4.1: piggyback any pending MAX_STREAM_DATA credits.
+                    {
+                        let mut pending = self.pending_max_stream_data.lock();
+                        for (sid, max) in pending.drain() {
+                            ack_packet.frames.push(QuicFrame::MaxStreamData(MaxStreamDataFrame {
+                                stream_id: sid,
+                                maximum_stream_data: max,
+                            }));
+                        }
+                    }
                     self.apply_outbound_header_protection_hook(&mut ack_packet)?;
                     let serialized_ack = serialize_packet(&ack_packet)?;
                     ack_pending_guard.clear();
@@ -411,6 +449,9 @@ impl QuicEngine {
             println!("📬 No ACK needed");
         }
 
+        // Mark activity after successfully processing a packet
+        self.mark_activity();
+
         Ok(())
     }
 
@@ -439,6 +480,10 @@ impl QuicEngine {
                     receive_offset: 0,
                     max_data: state_guard.transport_params.max_stream_data,
                     state: StreamState::Idle,
+                    priority: StreamPriority::Normal,
+                    bytes_sent: 0,
+                    bytes_received: 0,
+                    last_activity: Some(std::time::Instant::now()),
                 });
 
             let offset = stream.send_offset;
@@ -448,6 +493,7 @@ impl QuicEngine {
 
             stream.send_buffer.extend_from_slice(&data);
             stream.send_offset = stream.send_offset.saturating_add(data.len() as u64);
+            // RFC 9000 §3.1: Stream state transitions (Idle→Open→HalfClosedLocal→Closed)
             stream.state = match (stream.state, fin) {
                 (StreamState::Idle, false) => StreamState::Open,
                 (StreamState::Idle, true) => StreamState::HalfClosedLocal,
@@ -460,7 +506,7 @@ impl QuicEngine {
             (offset, previous_state, previous_send_offset, previous_send_buffer_len)
         };
 
-        // STREAM frame type byte (RFC 9000 §19.8):
+        // RFC 9000 §19.8: STREAM frame wire encoding type-byte construction
         // 0x08 base, OFF=0x04, LEN=0x02, FIN=0x01.
         let mut frame_type = 0x08u8 | 0x02u8; // Always include LEN for deterministic parsing.
         if offset > 0 {
@@ -487,6 +533,15 @@ impl QuicEngine {
             }
             return Err(err);
         }
+
+        // Update stream statistics on successful send
+        if let Some(stream) = self.stream_states.lock().get_mut(&stream_id) {
+            stream.bytes_sent = stream.bytes_sent.saturating_add(data.len() as u64);
+            stream.last_activity = Some(std::time::Instant::now());
+        }
+
+        // Mark activity after successfully sending stream data
+        self.mark_activity();
 
         Ok(())
     }
@@ -525,6 +580,8 @@ impl QuicEngine {
                     EncryptionLevel::OneRtt => continue, // not yet
                 };
 
+                // RFC 9000 §17.2: Long-header packet type selection (Initial/Handshake)
+                // RFC 9000 §17.2.4: Long-header Handshake packet assembly
                 let type_bits: u8 = match write.level {
                     EncryptionLevel::Initial => 0x00,
                     EncryptionLevel::Handshake => 0x02,
@@ -532,6 +589,7 @@ impl QuicEngine {
                 };
 
                 let crypto_data = &write.data;
+                // RFC 9000 §19.6: CRYPTO frame offset accounting
                 let crypto_offset = match write.level {
                     EncryptionLevel::Initial => {
                         let mut off = self.initial_crypto_send_offset.lock();
@@ -570,6 +628,7 @@ impl QuicEngine {
                 // SCID = local (server's connection ID)
                 hdr.push(local_cid.len() as u8);
                 hdr.extend_from_slice(&local_cid);
+                // RFC 9000 §17.2.2: Long-header Initial packet with token field
                 if write.level == EncryptionLevel::Initial {
                     hdr.push(0x00); // token length = 0
                 }
@@ -584,6 +643,7 @@ impl QuicEngine {
 
                 // Encrypt: aad = full unprotected header, payload = frame plaintext
                 let mut payload = frame.clone();
+                // RFC 9001 §5.3: Packet body AEAD encryption
                 if let Err(e) = self
                     .crypto_provider
                     .encrypt_packet(write.level, pn, &aad, &mut payload)
@@ -643,6 +703,7 @@ impl QuicEngine {
 
             // 1. Send HANDSHAKE_DONE (frame type 0x1e) in a 1-RTT packet
             let mut hd_frames = Vec::new();
+            // RFC 9000 §19.20: HANDSHAKE_DONE frame byte (0x1e)
             hd_frames.push(0x1eu8); // HANDSHAKE_DONE
 
             // 2. Also include QUIC NEW_CONNECTION_ID and stream setup in same packet
@@ -662,6 +723,10 @@ impl QuicEngine {
                 println!("❌ Failed to send HANDSHAKE_DONE: {:?}", e);
             } else {
                 println!("📤 Sent HANDSHAKE_DONE + HTTP/3 SETTINGS");
+                // Cache the session for future resumption (0-RTT / session tickets)
+                let cache_key = format!("{}", self.remote_addr);
+                let entry = SessionEntry::new(cache_key.clone(), Vec::new());
+                self.session_cache.put(cache_key, entry);
             }
         }
 
@@ -739,6 +804,7 @@ impl QuicEngine {
         aad.push(pn as u8);
 
         let mut payload = frames;
+        // RFC 9001 §5.3: Packet body AEAD encryption
         self.crypto_provider
             .encrypt_packet(level, pn, &aad, &mut payload)?;
 
@@ -770,6 +836,7 @@ impl QuicEngine {
         Ok(())
     }
 
+    // RFC 9000 §17.3: 1-RTT short-header packet assembly with DCID and encryption
     async fn send_1rtt_frames(&self, frames: Vec<u8>) -> Result<(), QuicError> {
         // For 1-RTT packets (short header):
         // Per RFC 9000 §17.3, DCID = connection ID the sender wants receiver to use
@@ -815,6 +882,7 @@ impl QuicEngine {
         println!("📨 1-RTT before encrypt: aad={} bytes, first={:02x}, pn={}", aad.len(), first_byte, pn);
 
         let mut payload = frames;
+        // RFC 9001 §5.3: Packet body AEAD encryption
         self.crypto_provider.encrypt_packet(EncryptionLevel::OneRtt, pn, &aad, &mut payload)
             .map_err(|e| { println!("❌ 1-RTT encrypt failed: {:?}", e); e })?;
 
@@ -867,6 +935,10 @@ impl QuicEngine {
                     receive_offset: 0,
                     max_data: state_guard.transport_params.max_stream_data,
                     state: StreamState::Idle,
+                    priority: StreamPriority::Normal,
+                    bytes_sent: 0,
+                    bytes_received: 0,
+                    last_activity: Some(std::time::Instant::now()),
                 });
 
             // Create stream frame
@@ -900,6 +972,7 @@ impl QuicEngine {
             // serialization succeed, so encode/hook failures don't drift state.
             stream.send_buffer.extend_from_slice(&data);
             stream.send_offset += data.len() as u64;
+            // RFC 9000 §3.1: Stream state transitions (Idle→Open→HalfClosedLocal→Closed)
             stream.state = match (stream.state, fin) {
                 (StreamState::Idle, false) => StreamState::Open,
                 (StreamState::Idle, true) => StreamState::HalfClosedLocal,
@@ -942,6 +1015,7 @@ impl QuicEngine {
         new_stream_id
     }
 
+    // RFC 9000 §3.2: Out-of-order STREAM frame buffering and reassembly
     fn process_stream_frame(
         &self,
         frame: &StreamFrame,
@@ -960,6 +1034,10 @@ impl QuicEngine {
                 receive_offset: 0,
                 max_data: state_guard.transport_params.max_stream_data,
                 state: StreamState::Idle,
+                priority: StreamPriority::Normal,
+                bytes_sent: 0,
+                bytes_received: 0,
+                last_activity: Some(std::time::Instant::now()),
             });
         let mut contiguous_offsets_guard = self.stream_contiguous_receive_offsets.lock();
         let contiguous_receive_offset = contiguous_offsets_guard.entry(frame.stream_id).or_insert(0);
@@ -993,6 +1071,9 @@ impl QuicEngine {
                     let append_start = frame.offset.saturating_add(append_from as u64);
                     let base = (*contiguous_receive_offset).max(append_start);
                     *contiguous_receive_offset = base.saturating_add(appended_len);
+                    // Track bytes received
+                    stream.bytes_received = stream.bytes_received.saturating_add(appended_len);
+                    stream.last_activity = Some(std::time::Instant::now());
                 }
             }
 
@@ -1018,6 +1099,9 @@ impl QuicEngine {
                         let append_start = seg_offset.saturating_add(append_from as u64);
                         let base = (*contiguous_receive_offset).max(append_start);
                         *contiguous_receive_offset = base.saturating_add(appended_len);
+                        // Track bytes received from drained fragments
+                        stream.bytes_received = stream.bytes_received.saturating_add(appended_len);
+                        stream.last_activity = Some(std::time::Instant::now());
                         advanced = true;
                     }
                     pending_fragments.remove(i);
@@ -1029,6 +1113,7 @@ impl QuicEngine {
         }
         let frame_end = frame.offset.saturating_add(frame.data.len() as u64);
         stream.receive_offset = stream.receive_offset.max(frame_end);
+        // RFC 9000 §3.1: Stream state transitions (Idle→Open→HalfClosedRemote→Closed)
         stream.state = match (stream.state, frame.fin) {
             (StreamState::Idle, false) => StreamState::Open,
             (StreamState::Idle, true) => StreamState::HalfClosedRemote,
@@ -1153,6 +1238,7 @@ impl QuicEngine {
         Ok(())
     }
 
+    // RFC 9000 §19.3: ACK frame assembly and emission
     fn create_ack_packet(
         &self,
         state_guard: &QuicConnectionState,
@@ -1167,6 +1253,7 @@ impl QuicEngine {
             let mut start = sorted_acks[0];
             let mut end = sorted_acks[0];
 
+            // RFC 9000 §19.3.1: ACK range coalescence / gap detection
             for &v in sorted_acks.iter().skip(1) {
                 if v == end + 1 {
                     end = v;
@@ -1220,6 +1307,93 @@ impl QuicEngine {
         self.stream_states.lock().get(&stream_id).cloned()
     }
 
+    /// Set the priority of a stream
+    pub fn set_stream_priority(&self, stream_id: u64, priority: crate::quic::quic_protocol::StreamPriority) {
+        if let Some(stream) = self.stream_states.lock().get_mut(&stream_id) {
+            stream.priority = priority;
+        }
+    }
+
+    /// Get statistics for a stream
+    pub fn get_stream_stats(&self, stream_id: u64) -> Option<crate::quic::quic_stream::StreamStats> {
+        self.stream_states.lock().get(&stream_id).map(|stream| {
+            crate::quic::quic_stream::StreamStats {
+                stream_id: stream.stream_id,
+                bytes_sent: stream.bytes_sent,
+                bytes_received: stream.bytes_received,
+                send_offset: stream.send_offset,
+                receive_offset: stream.receive_offset,
+                state: stream.state,
+                priority: stream.priority,
+            }
+        })
+    }
+
+    /// Send stream data with explicit priority
+    pub async fn send_stream_data_priority(
+        &self,
+        stream_id: u64,
+        data: Vec<u8>,
+        priority: crate::quic::quic_protocol::StreamPriority,
+    ) -> Result<(), QuicError> {
+        // Update stream priority if needed
+        self.set_stream_priority(stream_id, priority);
+        
+        // Send the data using the standard path
+        self.send_stream_data(stream_id, data).await
+    }
+
+    /// Get all active streams sorted by priority (highest priority first)
+    pub fn get_streams_by_priority(&self) -> Vec<QuicStreamState> {
+        let mut streams: Vec<_> = self.stream_states.lock()
+            .values()
+            .filter(|s| s.state != crate::quic::quic_protocol::StreamState::Closed)
+            .cloned()
+            .collect();
+        
+        // Sort by priority (descending) and then by stream_id for stability
+        streams.sort_by(|a, b| {
+            b.priority.as_u8().cmp(&a.priority.as_u8())
+                .then_with(|| a.stream_id.cmp(&b.stream_id))
+        });
+        
+        streams
+    }
+
+    /// Create a stream with explicit priority
+    pub fn create_stream_with_priority(&self, priority: crate::quic::quic_protocol::StreamPriority) -> u64 {
+        let stream_id = self.create_stream();
+        self.set_stream_priority(stream_id, priority);
+        stream_id
+    }
+
+    pub fn drain_stream_recv(&self, stream_id: u64, max: usize) -> Vec<u8> {
+        let mut stream_states = self.stream_states.lock();
+        if let Some(stream) = stream_states.get_mut(&stream_id) {
+            let len = stream.receive_buffer.len().min(max);
+            if len > 0 {
+                let drained: Vec<u8> = stream.receive_buffer.drain(..len).collect();
+                // RFC 9000 §4.1: replenish peer's flow-control window after consuming bytes.
+                let initial_window = stream.max_data; // set at stream creation, never mutated
+                drop(stream_states);
+                let contiguous_offset = self
+                    .stream_contiguous_receive_offsets
+                    .lock()
+                    .get(&stream_id)
+                    .copied()
+                    .unwrap_or(0);
+                let new_max = contiguous_offset + initial_window;
+                let mut pending = self.pending_max_stream_data.lock();
+                let entry = pending.entry(stream_id).or_insert(0);
+                if new_max > *entry {
+                    *entry = new_max;
+                }
+                return drained;
+            }
+        }
+        Vec::new()
+    }
+
     pub fn get_stream_overlap_conflict_count(&self, stream_id: u64) -> u64 {
         self.stream_overlap_conflict_counts
             .lock()
@@ -1233,17 +1407,57 @@ impl QuicEngine {
     }
 
 
+    /// Marks activity on the connection, resetting the idle timeout timer.
     pub fn mark_activity(&self) {
         let mut last = self.last_activity.lock();
         *last = Instant::now();
     }
 
-    pub fn check_timeouts(&self) -> Result<bool, String> {
+    /// Checks if the connection has exceeded the idle timeout.
+    /// Returns `true` if the connection is idle and should be closed.
+    pub fn check_idle_timeout(&self) -> bool {
         let last_activity = *self.last_activity.lock();
-        if last_activity.elapsed() > self.idle_timeout {
-            return Ok(true);
+        last_activity.elapsed() > self.idle_timeout
+    }
+
+    /// Performs idle timeout transition: closes all streams and transitions connection to Closed state.
+    /// Returns `true` if the connection was transitioned due to idle timeout, `false` if not timed out
+    /// or already closed.
+    pub fn cleanup_on_idle_timeout(&self) -> bool {
+        if !self.check_idle_timeout() {
+            return false;
         }
-        Ok(false)
+
+        let mut state = self.state.lock();
+        // Already closed, nothing to do
+        if state.connection_state == ConnectionState::Closed {
+            return false;
+        }
+
+        // Transition connection state to Closed
+        state.connection_state = ConnectionState::Closed;
+        tracing::info!(
+            "Connection closed due to idle timeout (idle for > {:?})",
+            self.idle_timeout
+        );
+
+        // Close all open streams
+        let mut stream_states = self.stream_states.lock();
+        for (_stream_id, stream) in stream_states.iter_mut() {
+            if stream.state != StreamState::Closed {
+                stream.state = StreamState::Closed;
+            }
+        }
+
+        // Clear pending ACKs
+        let mut ack_pending = self.ack_pending.lock();
+        ack_pending.clear();
+
+        // Clear pending fragments
+        let mut pending_fragments = self.stream_pending_fragments.lock();
+        pending_fragments.clear();
+
+        true
     }
 
     pub fn diagnostics_snapshot(&self) -> QuicEngineDiagnosticsSnapshot {
@@ -1453,7 +1667,7 @@ mod tests {
     #[tokio::test]
     async fn process_packet_surfaces_inbound_header_hook_error() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new_with_crypto_provider(
             Role::Server,
             sample_state(),
@@ -1487,7 +1701,7 @@ mod tests {
     #[tokio::test]
     async fn process_decoded_packet_uses_wire_packet_number_len_for_header_hook() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let seen_pn_lens = Arc::new(ParkingMutex::new(Vec::new()));
         let engine = QuicEngine::new_with_crypto_provider(
             Role::Server,
@@ -1529,7 +1743,7 @@ mod tests {
     #[tokio::test]
     async fn process_ack_frame_uses_sent_packet_wire_lengths_and_prunes_acknowledged_packets() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
 
         let engine = QuicEngine::new(
             Role::Client,
@@ -1565,7 +1779,7 @@ mod tests {
     #[tokio::test]
     async fn create_ack_packet_deduplicates_ack_pending_before_range_encoding() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
 
         let engine = QuicEngine::new(
             Role::Server,
@@ -1593,7 +1807,7 @@ mod tests {
     async fn send_stream_data_rolls_back_state_when_udp_send_fails() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
         // IPv4 socket -> IPv6 destination should fail with address-family mismatch.
-        let remote_addr: SocketAddr = "[::1]:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "[::1]:8888".parse().unwrap();
 
         let engine = QuicEngine::new(Role::Client, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
         let stream_id = engine.create_stream();
@@ -1607,8 +1821,9 @@ mod tests {
         let state = engine.get_state();
         assert!(state.sent_packets.is_empty());
         assert_eq!(state.bytes_in_flight, 0);
-        // Packet numbers may still be consumed by failed sends; gaps are acceptable.
-        assert_eq!(state.next_packet_number, 1);
+        // send_1rtt_frames uses onertt_pn_counter (not next_packet_number), so
+        // next_packet_number remains at 0 after a failed send.
+        assert_eq!(state.next_packet_number, 0);
 
         let stream = engine.get_stream(stream_id).expect("stream state exists");
         assert_eq!(stream.send_offset, 0);
@@ -1631,7 +1846,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_fin_marks_remote_half_close_and_local_send_closes() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -1684,7 +1899,7 @@ mod tests {
     #[tokio::test]
     async fn send_stream_fin_after_remote_fin_closes_stream() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let fin_packet = QuicPacket {
@@ -1717,7 +1932,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_duplicate_does_not_move_receive_offset_backwards() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -1740,7 +1955,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_out_of_order_advances_receive_offset_to_highest_end() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let out_of_order = QuicPacket {
@@ -1778,7 +1993,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_partial_overlap_appends_only_new_tail_bytes() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -1813,7 +2028,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_gap_is_bridged_when_middle_fragment_arrives() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -1869,7 +2084,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_duplicate_pending_fragment_is_deduped() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -1931,7 +2146,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_overlapping_pending_fragments_are_coalesced() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -2026,7 +2241,7 @@ mod tests {
     #[tokio::test]
     async fn process_stream_frame_conflicting_pending_overlap_increments_conflict_counter() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         engine
@@ -2093,7 +2308,7 @@ mod tests {
     #[tokio::test]
     async fn diagnostics_snapshot_reports_overlap_conflict_telemetry() {
         let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-        let remote_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
         let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
 
         let snapshot = engine.diagnostics_snapshot();
@@ -2202,5 +2417,228 @@ mod tests {
                 .copied(),
             Some(14)
         );
+    }
+
+    #[tokio::test]
+    async fn check_idle_timeout_returns_false_when_not_expired() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // mark_activity sets last_activity to Instant::now(), so timeout should not be exceeded
+        engine.mark_activity();
+        assert!(!engine.check_idle_timeout());
+    }
+
+    #[tokio::test]
+    async fn check_idle_timeout_returns_true_after_expiry() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // Manually set last_activity to a time in the past beyond the idle_timeout (30s)
+        let past_instant = Instant::now() - Duration::from_secs(31);
+        *engine.last_activity.lock() = past_instant;
+
+        assert!(engine.check_idle_timeout());
+    }
+
+    #[tokio::test]
+    async fn cleanup_on_idle_timeout_closes_connection_and_stream_state() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // Create a stream by sending data (this creates the stream state)
+        let stream_id = engine.create_stream();
+        engine.send_stream_data(stream_id, vec![1, 2, 3]).await.unwrap();
+
+        // Verify stream is open
+        {
+            let stream = engine.get_stream(stream_id).expect("stream exists");
+            assert_eq!(stream.state, StreamState::Open);
+        }
+
+        // Set connection state to Connected
+        engine.set_connection_state(ConnectionState::Connected);
+
+        // Set last_activity to trigger timeout
+        let past_instant = Instant::now() - Duration::from_secs(31);
+        *engine.last_activity.lock() = past_instant;
+
+        // Verify cleanup returns true (transition occurred)
+        assert!(engine.cleanup_on_idle_timeout());
+
+        // Verify connection state is Closed
+        let state = engine.get_state();
+        assert_eq!(state.connection_state, ConnectionState::Closed);
+
+        // Verify stream state is Closed
+        let stream = engine.get_stream(stream_id).expect("stream exists");
+        assert_eq!(stream.state, StreamState::Closed);
+    }
+
+    #[tokio::test]
+    async fn cleanup_on_idle_timeout_clears_pending_ack_data() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // Add pending ACKs
+        {
+            let mut ack_pending = engine.ack_pending.lock();
+            ack_pending.push(1);
+            ack_pending.push(2);
+            ack_pending.push(3);
+        }
+
+        // Verify ACKs are pending
+        assert_eq!(engine.ack_pending.lock().len(), 3);
+
+        // Set last_activity to trigger timeout
+        let past_instant = Instant::now() - Duration::from_secs(31);
+        *engine.last_activity.lock() = past_instant;
+
+        // Run cleanup
+        assert!(engine.cleanup_on_idle_timeout());
+
+        // Verify pending ACKs are cleared
+        assert_eq!(engine.ack_pending.lock().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn cleanup_on_idle_timeout_clears_pending_fragment_data() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // Add pending fragments for multiple streams
+        {
+            let mut pending_fragments = engine.stream_pending_fragments.lock();
+            pending_fragments.insert(0, vec![(4u64, b"gap1".to_vec())]);
+            pending_fragments.insert(4, vec![(10u64, b"gap2".to_vec()), (20u64, b"gap3".to_vec())]);
+        }
+
+        // Verify fragments are pending
+        assert_eq!(engine.stream_pending_fragments.lock().len(), 2);
+
+        // Set last_activity to trigger timeout
+        let past_instant = Instant::now() - Duration::from_secs(31);
+        *engine.last_activity.lock() = past_instant;
+
+        // Run cleanup
+        assert!(engine.cleanup_on_idle_timeout());
+
+        // Verify pending fragments are cleared
+        assert_eq!(engine.stream_pending_fragments.lock().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn cleanup_on_idle_timeout_returns_false_when_not_timed_out() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // Mark activity (sets last_activity to now)
+        engine.mark_activity();
+
+        // cleanup should return false since not timed out
+        assert!(!engine.cleanup_on_idle_timeout());
+    }
+
+    #[tokio::test]
+    async fn cleanup_on_idle_timeout_returns_false_when_already_closed() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(Role::Server, sample_state(), socket, remote_addr, vec![], crate::concurrency::ccek::CoroutineContext::new());
+
+        // Set connection state to Closed
+        engine.set_connection_state(ConnectionState::Closed);
+
+        // Set last_activity to trigger timeout
+        let past_instant = Instant::now() - Duration::from_secs(31);
+        *engine.last_activity.lock() = past_instant;
+
+        // cleanup should return false since already closed
+        assert!(!engine.cleanup_on_idle_timeout());
+    }
+
+    #[tokio::test]
+    async fn drain_stream_recv_queues_pending_max_stream_data() {
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:8888".parse().unwrap();
+        let engine = QuicEngine::new(
+            Role::Server,
+            sample_state(),
+            socket,
+            remote_addr,
+            vec![],
+            crate::concurrency::ccek::CoroutineContext::new(),
+        );
+
+        // Feed a STREAM frame so the stream exists and receive buffer is populated
+        let pkt = sample_stream_packet(1, 0, b"hello");
+        engine.process_packet(pkt).await.unwrap();
+
+        // Drain the bytes
+        let drained = engine.drain_stream_recv(0, 1024);
+        assert_eq!(drained, b"hello");
+
+        // pending_max_stream_data must be populated for stream 0
+        let pending = engine.pending_max_stream_data.lock();
+        assert!(
+            pending.contains_key(&0),
+            "expected pending MAX_STREAM_DATA for stream 0"
+        );
+        let max = pending[&0];
+        // contiguous_offset(5) + initial_window >= 5
+        assert!(max >= 5, "MAX_STREAM_DATA value should cover bytes received");
+    }
+
+    struct HandshakeCompleteCrypto;
+
+    impl QuicCryptoProvider for HandshakeCompleteCrypto {
+        fn handshake_phase(&self) -> HandshakePhase {
+            HandshakePhase::OneRtt
+        }
+        fn handshake_complete(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_cache_put_after_handshake() {
+        use crate::quic::quic_session_cache::{DefaultQuicSessionCache, SessionCacheService};
+        use std::sync::Arc;
+
+        let shared_cache = Arc::new(DefaultQuicSessionCache::default());
+        let svc = SessionCacheService::new(shared_cache.clone());
+
+        let ctx = crate::concurrency::ccek::CoroutineContext::with_element(svc);
+
+        let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let remote_addr: SocketAddr = "127.0.0.1:9999".parse().unwrap();
+
+        let engine = QuicEngine::new_with_crypto_provider(
+            Role::Server,
+            sample_state(),
+            socket,
+            remote_addr,
+            vec![],
+            Arc::new(HandshakeCompleteCrypto),
+            ctx,
+        );
+
+        // Trigger handshake response path — HandshakeCompleteCrypto signals complete,
+        // so HANDSHAKE_DONE branch runs and caches the session.
+        let _ = engine.send_handshake_responses().await;
+
+        let cache_key = format!("{}", remote_addr);
+        let entry = shared_cache.get(&cache_key);
+        assert!(
+            entry.is_some(),
+            "session cache must contain an entry after HANDSHAKE_DONE is sent"
+        );
+        assert_eq!(entry.unwrap().server_name, cache_key);
     }
 }

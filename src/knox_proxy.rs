@@ -56,7 +56,12 @@ impl KnoxProxy {
             active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
-    
+
+    /// Get the bind address
+    pub fn get_bind_addr(&self) -> &str {
+        &self.config.bind_addr
+    }
+
     /// Start the Knox proxy server
     pub async fn start(&mut self) -> io::Result<()> {
         info!("🚀 Starting Knox Proxy");

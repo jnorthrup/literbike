@@ -222,8 +222,39 @@ pub struct QuicConnectionState {
     pub connection_state: ConnectionState, // Add connection state field
 }
 
+// Stream priority for multiplexing and scheduling
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StreamPriority {
+    /// Lowest priority - background traffic
+    Low = 0,
+    /// Normal priority - default for most streams
+    Normal = 1,
+    /// High priority - time-sensitive data
+    High = 2,
+    /// Critical priority - control streams, handshake data
+    Critical = 3,
+}
+
+impl Default for StreamPriority {
+    fn default() -> Self {
+        StreamPriority::Normal
+    }
+}
+
+impl StreamPriority {
+    /// Get numeric priority value for comparison (higher = more important)
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
+    }
+
+    /// Check if this priority is higher than another
+    pub fn is_higher_than(&self, other: &StreamPriority) -> bool {
+        self.as_u8() > other.as_u8()
+    }
+}
+
 // Stream state
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuicStreamState {
     pub stream_id: u64,
     pub send_buffer: Vec<u8>,
@@ -232,15 +263,187 @@ pub struct QuicStreamState {
     pub receive_offset: u64,
     pub max_data: u64,
     pub state: StreamState,
+    /// Priority level for stream scheduling and multiplexing
+    pub priority: StreamPriority,
+    /// Number of bytes sent on this stream (for congestion control)
+    pub bytes_sent: u64,
+    /// Number of bytes received on this stream
+    pub bytes_received: u64,
+    /// Last activity timestamp for idle timeout tracking (not serialized)
+    pub last_activity: Option<std::time::Instant>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+impl serde::Serialize for QuicStreamState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("QuicStreamState", 9)?;
+        state.serialize_field("stream_id", &self.stream_id)?;
+        state.serialize_field("send_buffer", &self.send_buffer)?;
+        state.serialize_field("receive_buffer", &self.receive_buffer)?;
+        state.serialize_field("send_offset", &self.send_offset)?;
+        state.serialize_field("receive_offset", &self.receive_offset)?;
+        state.serialize_field("max_data", &self.max_data)?;
+        state.serialize_field("state", &self.state)?;
+        state.serialize_field("priority", &self.priority)?;
+        state.serialize_field("bytes_sent", &self.bytes_sent)?;
+        state.serialize_field("bytes_received", &self.bytes_received)?;
+        // Note: last_activity is not serialized
+        state.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for QuicStreamState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            StreamId,
+            SendBuffer,
+            ReceiveBuffer,
+            SendOffset,
+            ReceiveOffset,
+            MaxData,
+            State,
+            Priority,
+            BytesSent,
+            BytesReceived,
+        }
+
+        struct QuicStreamStateVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for QuicStreamStateVisitor {
+            type Value = QuicStreamState;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct QuicStreamState")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<QuicStreamState, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut stream_id = None;
+                let mut send_buffer = None;
+                let mut receive_buffer = None;
+                let mut send_offset = None;
+                let mut receive_offset = None;
+                let mut max_data = None;
+                let mut state = None;
+                let mut priority = None;
+                let mut bytes_sent = None;
+                let mut bytes_received = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::StreamId => stream_id = Some(map.next_value()?),
+                        Field::SendBuffer => send_buffer = Some(map.next_value()?),
+                        Field::ReceiveBuffer => receive_buffer = Some(map.next_value()?),
+                        Field::SendOffset => send_offset = Some(map.next_value()?),
+                        Field::ReceiveOffset => receive_offset = Some(map.next_value()?),
+                        Field::MaxData => max_data = Some(map.next_value()?),
+                        Field::State => state = Some(map.next_value()?),
+                        Field::Priority => priority = Some(map.next_value()?),
+                        Field::BytesSent => bytes_sent = Some(map.next_value()?),
+                        Field::BytesReceived => bytes_received = Some(map.next_value()?),
+                    }
+                }
+
+                Ok(QuicStreamState {
+                    stream_id: stream_id.ok_or_else(|| serde::de::Error::missing_field("stream_id"))?,
+                    send_buffer: send_buffer.ok_or_else(|| serde::de::Error::missing_field("send_buffer"))?,
+                    receive_buffer: receive_buffer.ok_or_else(|| serde::de::Error::missing_field("receive_buffer"))?,
+                    send_offset: send_offset.ok_or_else(|| serde::de::Error::missing_field("send_offset"))?,
+                    receive_offset: receive_offset.ok_or_else(|| serde::de::Error::missing_field("receive_offset"))?,
+                    max_data: max_data.ok_or_else(|| serde::de::Error::missing_field("max_data"))?,
+                    state: state.ok_or_else(|| serde::de::Error::missing_field("state"))?,
+                    priority: priority.unwrap_or(StreamPriority::Normal),
+                    bytes_sent: bytes_sent.unwrap_or(0),
+                    bytes_received: bytes_received.unwrap_or(0),
+                    last_activity: Some(std::time::Instant::now()),
+                })
+            }
+        }
+
+        const FIELDS: &[&str] = &[
+            "stream_id",
+            "send_buffer",
+            "receive_buffer",
+            "send_offset",
+            "receive_offset",
+            "max_data",
+            "state",
+            "priority",
+            "bytes_sent",
+            "bytes_received",
+        ];
+        deserializer.deserialize_struct("QuicStreamState", FIELDS, QuicStreamStateVisitor)
+    }
+}
+
+impl Default for QuicStreamState {
+    fn default() -> Self {
+        QuicStreamState {
+            stream_id: 0,
+            send_buffer: Vec::new(),
+            receive_buffer: Vec::new(),
+            send_offset: 0,
+            receive_offset: 0,
+            max_data: 262144, // 256 KB default
+            state: StreamState::Idle,
+            priority: StreamPriority::Normal,
+            bytes_sent: 0,
+            bytes_received: 0,
+            last_activity: None,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum StreamState {
+    #[default]
     Idle,
     Open,
     HalfClosedLocal,
     HalfClosedRemote,
     Closed,
+}
+
+impl Default for ConnectionId {
+    fn default() -> Self {
+        ConnectionId { bytes: Vec::new() }
+    }
+}
+
+impl Default for ConnectionState {
+    fn default() -> Self {
+        ConnectionState::Handshaking
+    }
+}
+
+impl Default for QuicConnectionState {
+    fn default() -> Self {
+        QuicConnectionState {
+            local_connection_id: ConnectionId::default(),
+            remote_connection_id: ConnectionId::default(),
+            version: 0,
+            transport_params: TransportParameters::default(),
+            streams: Vec::new(),
+            sent_packets: Vec::new(),
+            received_packets: Vec::new(),
+            next_packet_number: 0,
+            next_stream_id: 0,
+            congestion_window: 0,
+            bytes_in_flight: 0,
+            rtt: 0,
+            connection_state: ConnectionState::Handshaking,
+        }
+    }
 }
 
 // QUIC stream IDs are 62-bit values represented as u64
@@ -547,6 +750,13 @@ fn encode_frame(frame: &QuicFrame, out: &mut Vec<u8>) -> Result<(), ProtocolErro
             write_varint(frame.offset, out)?;
             write_varint(frame.data.len() as u64, out)?;
             out.extend_from_slice(&frame.data);
+            Ok(())
+        }
+        QuicFrame::MaxStreamData(frame) => {
+            // RFC-TRACE [RFC9000§19.10]: MAX_STREAM_DATA raises per-stream data limit.
+            out.push(QuicFrameType::MaxStreamData as u8);
+            write_varint(frame.stream_id, out)?;
+            write_varint(frame.maximum_stream_data, out)?;
             Ok(())
         }
         QuicFrame::Stream(frame) => {

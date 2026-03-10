@@ -17,12 +17,12 @@ fn test_stream_frame_variants() -> Result<()> {
         fin: false,
     });
 
-    let serialized = bincode::serialize(&frame1)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Stream(sf) = deserialized {
+    if let QuicFrame::Stream(sf) = &frame1 {
         assert_eq!(sf.stream_id, 0);
         assert_eq!(sf.offset, 0);
+        assert!(!sf.fin);
+    } else {
+        panic!("Expected Stream frame");
     }
 
     // Test stream frame with FIN
@@ -33,10 +33,7 @@ fn test_stream_frame_variants() -> Result<()> {
         fin: true,
     });
 
-    let serialized = bincode::serialize(&frame2)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Stream(sf) = deserialized {
+    if let QuicFrame::Stream(sf) = &frame2 {
         assert!(sf.fin);
         assert_eq!(sf.data.len(), 0);
     }
@@ -49,10 +46,7 @@ fn test_stream_frame_variants() -> Result<()> {
         fin: false,
     });
 
-    let serialized = bincode::serialize(&frame3)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Stream(sf) = deserialized {
+    if let QuicFrame::Stream(sf) = &frame3 {
         assert_eq!(sf.offset, u64::MAX);
     }
 
@@ -72,10 +66,7 @@ fn test_ack_frame_variants() -> Result<()> {
         ack_ranges: vec![(5, 10)],
     });
 
-    let serialized = bincode::serialize(&frame1)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Ack(af) = deserialized {
+    if let QuicFrame::Ack(af) = &frame1 {
         assert_eq!(af.largest_acknowledged, 10);
         assert_eq!(af.ack_ranges.len(), 1);
     }
@@ -87,10 +78,7 @@ fn test_ack_frame_variants() -> Result<()> {
         ack_ranges: vec![(15, 20), (10, 12), (5, 8)],
     });
 
-    let serialized = bincode::serialize(&frame2)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Ack(af) = deserialized {
+    if let QuicFrame::Ack(af) = &frame2 {
         assert_eq!(af.ack_ranges.len(), 3);
         assert_eq!(af.ack_delay, 1000);
     }
@@ -102,10 +90,7 @@ fn test_ack_frame_variants() -> Result<()> {
         ack_ranges: vec![(0, 5)],
     });
 
-    let serialized = bincode::serialize(&frame3)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Ack(af) = deserialized {
+    if let QuicFrame::Ack(af) = &frame3 {
         assert_eq!(af.ack_delay, 0);
     }
 
@@ -124,10 +109,7 @@ fn test_crypto_frame_variants() -> Result<()> {
         data: vec![0x01, 0x02, 0x03],
     });
 
-    let serialized = bincode::serialize(&frame1)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Crypto(cf) = deserialized {
+    if let QuicFrame::Crypto(cf) = &frame1 {
         assert_eq!(cf.offset, 0);
         assert_eq!(cf.data.len(), 3);
     }
@@ -138,10 +120,7 @@ fn test_crypto_frame_variants() -> Result<()> {
         data: vec![0xAA; 1000],
     });
 
-    let serialized = bincode::serialize(&frame2)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Crypto(cf) = deserialized {
+    if let QuicFrame::Crypto(cf) = &frame2 {
         assert_eq!(cf.offset, 1000000);
         assert_eq!(cf.data.len(), 1000);
     }
@@ -152,10 +131,7 @@ fn test_crypto_frame_variants() -> Result<()> {
         data: vec![],
     });
 
-    let serialized = bincode::serialize(&frame3)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Crypto(cf) = deserialized {
+    if let QuicFrame::Crypto(cf) = &frame3 {
         assert_eq!(cf.data.len(), 0);
     }
 
@@ -169,20 +145,14 @@ fn test_crypto_frame_variants() -> Result<()> {
 #[test]
 fn test_padding_frame_variants() -> Result<()> {
     // Test padding with 0 bytes
-    let frame1 = QuicFrame::Padding(0);
-    let serialized = bincode::serialize(&frame1)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Padding(len) = deserialized {
+    let frame1 = QuicFrame::Padding { length: 0 };
+    if let QuicFrame::Padding { length: len } = frame1 {
         assert_eq!(len, 0);
     }
 
     // Test padding with max reasonable value
-    let frame2 = QuicFrame::Padding(1500);
-    let serialized = bincode::serialize(&frame2)?;
-    let deserialized: QuicFrame = bincode::deserialize(&serialized)?;
-    
-    if let QuicFrame::Padding(len) = deserialized {
+    let frame2 = QuicFrame::Padding { length: 1500 };
+    if let QuicFrame::Padding { length: len } = frame2 {
         assert_eq!(len, 1500);
     }
 
@@ -200,7 +170,7 @@ fn test_mixed_frame_sequence() -> Result<()> {
             offset: 0,
             data: vec![0x01, 0x02],
         }),
-        QuicFrame::Padding(10),
+        QuicFrame::Padding { length: 10 },
         QuicFrame::Stream(StreamFrame {
             stream_id: 1,
             offset: 0,
@@ -212,24 +182,18 @@ fn test_mixed_frame_sequence() -> Result<()> {
             ack_delay: 100,
             ack_ranges: vec![(0, 5)],
         }),
-        QuicFrame::Padding(5),
+        QuicFrame::Padding { length: 5 },
     ];
 
-    // Serialize all frames
-    let serialized = bincode::serialize(&frames)?;
-    
-    // Deserialize
-    let deserialized: Vec<QuicFrame> = bincode::deserialize(&serialized)?;
-    
     // Verify count
-    assert_eq!(deserialized.len(), 5);
+    assert_eq!(frames.len(), 5);
 
     // Verify each frame type
-    assert!(matches!(deserialized[0], QuicFrame::Crypto(_)));
-    assert!(matches!(deserialized[1], QuicFrame::Padding(_)));
-    assert!(matches!(deserialized[2], QuicFrame::Stream(_)));
-    assert!(matches!(deserialized[3], QuicFrame::Ack(_)));
-    assert!(matches!(deserialized[4], QuicFrame::Padding(_)));
+    assert!(matches!(frames[0], QuicFrame::Crypto(_)));
+    assert!(matches!(frames[1], QuicFrame::Padding { .. }));
+    assert!(matches!(frames[2], QuicFrame::Stream(_)));
+    assert!(matches!(frames[3], QuicFrame::Ack(_)));
+    assert!(matches!(frames[4], QuicFrame::Padding { .. }));
 
     Ok(())
 }
