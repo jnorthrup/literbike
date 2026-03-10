@@ -127,11 +127,12 @@ pub enum LogEntryType {
 pub struct QuicContentLogger {
     tx: Sender<QuicLogEntry>,
     store: Arc<RwLock<ContentAddressedStore>>,
+    #[allow(dead_code)]
     batch_size: usize,
 }
 
 impl QuicContentLogger {
-    pub fn new(db_path: &str, batch_size: usize) -> Self {
+    pub fn new(_db_path: &str, batch_size: usize) -> Self {
         let (tx, rx) = bounded(1024); // MPSC channel
         let store = Arc::new(RwLock::new(ContentAddressedStore::new()));
 
