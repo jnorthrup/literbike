@@ -158,6 +158,15 @@ impl HttpSession {
                     self.state = SessionState::Processing;
                 }
                 
+                // Move any body bytes already read into parser buffer over to body_buffer
+                if let Some(offset) = self.parser.body_offset() {
+                    let buf = self.parser.buffer();
+                    if buf.len() > offset {
+                        let body_bytes = buf[offset..].to_vec();
+                        self.body_buffer.extend_from_slice(&body_bytes);
+                    }
+                }
+                
                 // Check Connection header for keep-alive
                 if let Some(conn) = self.parser.header("Connection") {
                     self.keep_alive = conn.eq_ignore_ascii_case("keep-alive");

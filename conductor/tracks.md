@@ -142,6 +142,22 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
+## [x] Track: Export http Module from lib.rs
+
+`src/http/` exists (server, session, header_parser) but is not exported from
+`src/lib.rs`. `examples/http_server.rs` fails to compile with unresolved import.
+
+### Status
+- [ ] Add `pub mod http;` to `src/lib.rs`
+- [ ] `cargo build --example http_server` passes
+- [ ] `cargo test --lib` still 265/0
+
+**Delegation:** Worker A = kilo (fix src/lib.rs), Worker B = opencode (commit)
+
+**Link:** [http-module-export_20260309](./tracks/http-module-export_20260309/)
+
+---
+
 ## [x] Track: Fix Flaky Performance Test Thresholds
 
 Two lib tests fail under full `cargo test --lib` due to timing thresholds too tight

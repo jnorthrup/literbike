@@ -3,7 +3,7 @@
 //! Zero-copy, minimal-allocation HTTP server using POSIX select reactor
 //! Pattern borrowed from relaxfactory RxfBenchMarkHttpServer and ShardNode2
 
-use crate::reactor::{Reactor, EventHandler, Attachment, Interest};
+use crate::reactor::handler::EventHandler;
 use super::session::{HttpSession, SessionState};
 use super::header_parser::{HttpStatus, headers, mime};
 
@@ -47,6 +47,9 @@ pub struct HttpEventHandler {
     
     /// Server info
     server_name: String,
+    
+    /// Active sessions keyed by file descriptor
+    sessions: HashMap<RawFd, HttpSession>,
 }
 
 impl HttpEventHandler {
@@ -56,6 +59,7 @@ impl HttpEventHandler {
             routes: Arc::new(RwLock::new(HashMap::new())),
             default_handler: None,
             server_name: server_name.to_string(),
+            sessions: HashMap::new(),
         }
     }
 
@@ -110,11 +114,45 @@ impl HttpEventHandler {
             );
         }
     }
+
+    /// Get or create session for fd
+    pub fn get_session_mut(&mut self, fd: RawFd) -> Option<&mut HttpSession> {
+        self.sessions.get_mut(&fd)
+    }
+
+    /// Add a new session
+    pub fn add_session(&mut self, fd: RawFd, session: HttpSession) {
+        self.sessions.insert(fd, session);
+    }
+
+    /// Remove a session
+    pub fn remove_session(&mut self, fd: RawFd) {
+        self.sessions.remove(&fd);
+    }
 }
 
-impl EventHandler<HttpSessionContainer, HttpEventHandler> for HttpEventHandler {
-    fn on_read(&mut self, fd: RawFd, attachment: &mut Attachment<HttpSessionContainer, HttpEventHandler>) {
-        let session = &mut attachment.session.session;
+impl EventHandler for HttpEventHandler {
+    fn on_readable(&mut self, fd: RawFd) {
+        // Get path first (before getting mutable session)
+        let path = {
+            let session = match self.sessions.get(&fd) {
+                Some(s) => s,
+                None => return,
+            };
+            session.path().map(|p| p.split('?').next().unwrap_or(p).to_string())
+        };
+        
+        // Get handler if route exists
+        let handler = path.and_then(|p| {
+            let routes = self.routes.read();
+            routes.get(&p).cloned()
+        });
+        
+        // Now get mutable session and process
+        let session = match self.sessions.get_mut(&fd) {
+            Some(s) => s,
+            None => return,
+        };
 
         // Read from socket - create temporary stream for reading
         let mut buf = [0u8; 1024];
@@ -128,8 +166,7 @@ impl EventHandler<HttpSessionContainer, HttpEventHandler> for HttpEventHandler {
         match n {
             Ok(0) => {
                 // EOF - close connection
-                attachment.interest.read = false;
-                attachment.interest.write = false;
+                self.sessions.remove(&fd);
             }
             Ok(bytes_read) => {
                 session.parser.append(&buf[..bytes_read]);
@@ -140,7 +177,10 @@ impl EventHandler<HttpSessionContainer, HttpEventHandler> for HttpEventHandler {
                         // Headers complete
                         if session.body_complete() {
                             session.finish_reading_body();
-                            self.route_request(session);
+                            // Route the request if we have a handler
+                            if let Some(ref h) = handler {
+                                h.handle(session);
+                            }
                         }
                     }
                     Ok(false) => {
@@ -156,26 +196,23 @@ impl EventHandler<HttpSessionContainer, HttpEventHandler> for HttpEventHandler {
                     }
                 }
             }
-            Err(_) => {
-                // Read error
-                attachment.interest.read = false;
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                // Would block, try again later
             }
-        }
-        
-        // Update interest
-        if session.wants_read() {
-            attachment.interest.read = true;
-        }
-        if session.wants_write() {
-            attachment.interest.write = true;
+            Err(_) => {
+                // Read error - remove session
+                self.sessions.remove(&fd);
+            }
         }
     }
 
-    fn on_write(&mut self, fd: RawFd, attachment: &mut Attachment<HttpSessionContainer, HttpEventHandler>) {
-        let session = &mut attachment.session.session;
+    fn on_writable(&mut self, fd: RawFd) {
+        let session = match self.sessions.get_mut(&fd) {
+            Some(s) => s,
+            None => return,
+        };
 
         if session.response_buffer.is_empty() {
-            attachment.interest.write = false;
             return;
         }
 
@@ -197,6 +234,7 @@ impl EventHandler<HttpSessionContainer, HttpEventHandler> for HttpEventHandler {
                         session.reset();
                     } else {
                         session.state = SessionState::Done;
+                        self.sessions.remove(&fd);
                     }
                 } else {
                     session.response_buffer.drain(..bytes_written);
@@ -206,55 +244,16 @@ impl EventHandler<HttpSessionContainer, HttpEventHandler> for HttpEventHandler {
                 // Try again later
             }
             Err(_) => {
-                attachment.interest.write = false;
+                // Write error - remove session
+                self.sessions.remove(&fd);
             }
-        }
-        
-        // Update interest
-        if session.wants_write() && !session.response_buffer.is_empty() {
-            attachment.interest.write = true;
-        } else {
-            attachment.interest.write = false;
-        }
-        
-        if session.wants_read() {
-            attachment.interest.read = true;
-        } else {
-            attachment.interest.read = false;
         }
     }
 
-    fn on_accept(&mut self, fd: RawFd, attachment: &mut Attachment<HttpSessionContainer, HttpEventHandler>) {
-        // Accept new connection
-        let listener = unsafe {
-            TcpListener::from_raw_fd(fd)
-        };
-        
-        match listener.accept() {
-            Ok((stream, _addr)) => {
-                stream.set_nonblocking(true).ok();
-                let new_fd = stream.as_raw_fd();
-                
-                log::info!("Accepted connection on FD {}", new_fd);
-                
-                // Note: In a full implementation, we would enqueue the new connection
-                // with the reactor here. For now, we just log it.
-                
-                // Prevent TcpListener from closing FD
-                let _ = stream.into_raw_fd();
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(e) => {
-                log::error!("Accept error: {}", e);
-            }
-        }
-        
-        // Prevent TcpListener from closing FD
-        let _ = listener.into_raw_fd();
-    }
-
-    fn on_error(&mut self, fd: RawFd, _attachment: &mut Attachment<HttpSessionContainer, HttpEventHandler>, error: io::Error) {
+    fn on_error(&mut self, fd: RawFd, error: io::Error) {
         log::error!("HTTP error on FD {}: {}", fd, error);
+        // Remove session on error
+        self.sessions.remove(&fd);
     }
 }
 

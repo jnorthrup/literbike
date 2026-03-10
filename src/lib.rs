@@ -60,6 +60,8 @@ pub mod model_serving_taxonomy;
 pub mod provider_facade_models;
 pub mod env_facade_parity;
 
+pub mod http;
+
 #[cfg(feature = "quic")]
 pub mod radios;
 
