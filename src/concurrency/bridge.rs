@@ -102,7 +102,7 @@ impl CoroutineContextExt for CoroutineContext {
 
 /// Helper to convert our ChannelSender to async-channel Sender
 pub fn to_async_channel<T: Send + 'static>(
-    our_sender: crate::concurrency::ChannelSender<T>,
+    _our_sender: crate::concurrency::ChannelSender<T>,
 ) -> async_channel::Sender<T> {
     // Note: This is a placeholder - in practice you'd want to
     // migrate all code to use async-channel directly

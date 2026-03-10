@@ -133,6 +133,7 @@ impl IpfsStorage for InMemoryStorage {
 // ============================================================================
 
 pub struct IpfsClient {
+    #[allow(dead_code)]
     local_peer_id: PeerId,
     routing_table: Mutex<RoutingTable>,
     storage: Arc<dyn IpfsStorage>,

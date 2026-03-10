@@ -248,6 +248,7 @@ mod tests {
 impl QuicServer {
     // RFC-TRACE: §5.2 (Packet Format) — Extract DCID from long header for connection routing
     // CCEK: Extract DCID from first bytes of QUIC packet (no decryption needed for this part)
+    #[allow(dead_code)]
     fn extract_dcid_from_long_header(bytes: &[u8]) -> Option<Vec<u8>> {
         if bytes.is_empty() || (bytes[0] & 0x80) == 0 {
             return None;

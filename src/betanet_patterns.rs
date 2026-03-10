@@ -351,6 +351,7 @@ pub struct PeerInfo {
 pub struct BetanetRoutingTable {
     local_node_id: NodeId,
     buckets: Vec<KBucket>,
+    #[allow(dead_code)]
     bucket_size: usize,
 }
 
