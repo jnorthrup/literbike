@@ -142,6 +142,22 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
+## [x] Track: Fix Infinite Recursion in Join Trait Impls
+
+`src/rbcursive/mod.rs` Join<String> and Join<&str> impls call themselves infinitely.
+Fix: replace `Vec::join(self, sep)` with `self.as_slice().join(sep)`.
+
+### Status
+- [ ] Fix src/rbcursive/mod.rs:112,119
+- [ ] `cargo check` — 0 unconditional_recursion warnings
+- [ ] `cargo test --lib` — 278/0
+
+**Delegation:** Worker A = kilo
+
+**Link:** [recursion-join-fix_20260310](./tracks/recursion-join-fix_20260310/)
+
+---
+
 ## [x] Track: Compiler Warning Cleanup
 
 54 warnings in literbike crate (32 unused import/dead_code). Run cargo fix + manual
