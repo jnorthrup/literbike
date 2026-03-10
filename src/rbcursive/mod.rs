@@ -108,15 +108,15 @@ pub trait Join<T> {
 
 impl Join<String> for Vec<String> {
     fn join(&self, separator: &str) -> String {
-        // Call inherent Vec::join method, not the trait method
-        Vec::join(self, separator)
+        // Call slice inherent join method, not the trait method
+        self.as_slice().join(separator)
     }
 }
 
 impl Join<&str> for Vec<&str> {
     fn join(&self, separator: &str) -> String {
-        // Call inherent Vec::join method, not the trait method
-        Vec::join(self, separator)
+        // Call slice inherent join method, not the trait method
+        self.as_slice().join(separator)
     }
 }
 
