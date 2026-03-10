@@ -36,7 +36,7 @@ pub fn posix_peek(stream: &TcpStream, buf: &mut [u8]) -> io::Result<usize> {
 /// Extract socket information without /proc access
 
 pub fn get_socket_info(stream: &TcpStream) -> io::Result<SocketInfo> {
-    let fd = stream.as_raw_fd();
+    let _fd = stream.as_raw_fd();
     
     // Get socket type to determine if it's TCP
     let socket_type: nix::sys::socket::SockType = getsockopt(stream, sockopt::SockType)

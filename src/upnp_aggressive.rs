@@ -195,7 +195,7 @@ impl AggressiveUPnP {
         ];
         
         for pattern in carrier_patterns {
-            if let Ok(stream) = TcpStream::connect_timeout(
+            if let Ok(_stream) = TcpStream::connect_timeout(
                 &pattern.parse().unwrap(),
                 Duration::from_millis(300)
             ) {
