@@ -142,7 +142,7 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
-## [ ] Track: Conductor CLI Smoke Integration
+## [x] Track: Conductor CLI Smoke Integration
 
 Get the `conductor-cli` workspace member compiling and smoke-tested against
 the existing `conductor/tracks/` structure, then committed.
