@@ -2,17 +2,17 @@
 
 ## Phase 1: Build
 
-- [ ] Compile `conductor-cli` with `cargo build -p conductor-cli`
-- [ ] Fix any compilation errors in `conductor-cli/src/main.rs` or `conductor-cli/Cargo.toml`
+- [x] Compile `conductor-cli` with `cargo build -p conductor-cli`
+- [x] Fix any compilation errors — none needed, built cleanly first try
 
 ## Phase 2: Smoke
 
-- [ ] Run `conductor-cli list` against `conductor/tracks/` and verify known tracks appear
-- [ ] Run `conductor-cli status` and verify COMPLETE tracks are reported correctly
+- [x] Run `conductor list` against `conductor/tracks/` — 9 tracks listed
+- [x] Run `conductor status` — 8/9 complete, 90/93 tasks, 88.9% track completion
 
 ## Phase 3: Commit
 
-- [ ] Commit `conductor-cli/` as a new workspace member with passing build
+- [x] Committed `conductor-cli/` as validated workspace member (b6dc64b)
 
 ## Progress Notes
 
