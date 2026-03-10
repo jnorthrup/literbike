@@ -142,6 +142,24 @@ client layer on top of the existing Kademlia primitives in `src/dht/`.
 
 ---
 
+## [x] Track: Product Rust Integration — Untracked Code Validation & Commit
+
+Fix one compile error in integration tests (QuicError variant mismatch), run
+all integration tests, then commit all untracked product Rust code and the
+macOS control plane app.
+
+### Status
+- [ ] Fix `tests/integration_quic_dht_cas.rs:372` — QuicError::ConnectionClosed variant
+- [ ] Pass `cargo test --test integration_quic_dht_cas`
+- [ ] Commit: src/cas_backends.rs, src/bin/carrier_bypass.rs, tests/integration_quic_dht_cas.rs,
+      tools/, macos/, all modified src/ files
+
+**Delegation:** Worker A = kilo (fix+test), Worker B = opencode (commit)
+
+**Link:** [product-rust-integration_20260309](./tracks/product-rust-integration_20260309/)
+
+---
+
 ## [x] Track: Conductor CLI Smoke Integration
 
 Get the `conductor-cli` workspace member compiling and smoke-tested against
