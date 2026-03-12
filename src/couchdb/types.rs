@@ -33,7 +33,7 @@ pub struct Document {
 }
 
 /// Attachment information
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AttachmentInfo {
     pub content_type: String,
     pub length: u64,
@@ -314,7 +314,7 @@ pub struct M2mMessage {
 }
 
 /// M2M message types
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum M2mMessageType {
     Replication,

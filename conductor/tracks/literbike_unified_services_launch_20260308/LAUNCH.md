@@ -93,7 +93,7 @@ LiterBike owns the following subsystems:
 
 ### 1. QUIC Transport (Production-Ready)
 - **54 passing tests** covering connection lifecycle, stream multiplexing, session caching
-- **C ABI exports** for Python FFI integration (freqtrade ring agent)
+- **C ABI exports** for Python FFI integration (external-bot ring agent)
 - **Connection pooling** with session resumption and 0-RTT support
 - **Stream prioritization** with StreamScheduler for agent communication
 

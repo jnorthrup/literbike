@@ -1,6 +1,5 @@
 use literbike::git_sync;
 use literbike::knox_proxy::{start_knox_proxy, KnoxProxyConfig};
-use literbike::posix_sockets::PosixTcpStream;
 #[cfg(feature = "tls-quic")]
 use literbike::quic::tls;
 #[cfg(feature = "tls-quic")]
@@ -9,21 +8,13 @@ use literbike::quic::QuicServer;
 use literbike::rbcursive::protocols;
 use literbike::rbcursive::protocols::Listener;
 use literbike::rbcursive::protocols::ProtocolType;
-use literbike::rbcursive::{Classify, RBCursive, Signal};
+use literbike::rbcursive::{Classify, RBCursive};
 use literbike::syscall_net::{
     classify_ipv4, classify_ipv6, find_iface_by_ipv4, get_default_gateway, get_default_gateway_v6,
     get_default_local_ipv4, get_default_local_ipv6, guess_default_v6_interface, list_interfaces,
     InterfaceAddr,
 };
-use literbike::tethering_bypass::{enable_carrier_bypass, TetheringBypass};
-
-// Conditional imports for quic-gated modules
-#[cfg(feature = "quic")]
-use literbike::raw_telnet;
-#[cfg(feature = "quic")]
-use literbike::host_trust;
-#[cfg(feature = "quic")]
-use literbike::radios;
+use literbike::tethering_bypass::enable_carrier_bypass;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -148,12 +139,16 @@ fn main() {
     }
 }
 
-fn run_ssh_automation(_args: &[String]) {
-    println!("ssh-automation command is not yet implemented.");
-}
-
-fn run_completion(_args: &[String]) {
-    println!("completion command is not yet implemented.");
+fn run_completion(args: &[String]) {
+    let shell = args.first().map(|s| s.as_str()).unwrap_or("bash");
+    match shell {
+        "bash" => print!("{}", include_str!("../../completion/litebike-completion.bash")),
+        other => {
+            eprintln!("litebike: completion: unsupported shell '{}'; only bash is supported", other);
+            eprintln!("Usage: litebike completion [bash]");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn run_ifconfig(args: &[String]) {
@@ -2246,29 +2241,32 @@ fn run_proxy_server(args: &[String]) {
         format!("0.0.0.0:{}", port) // Still bind to all for compatibility
     };
 
-    println!("📜 Initializing CCEK TLS Domain...");
-    let terminator = literbike::quic::tls::TlsTerminator::localhost()
-        .expect("Failed to initialize standalone TLS config");
+    #[cfg(feature = "tls-quic")]
+    {
+        println!("📜 Initializing CCEK TLS Domain...");
+        let terminator = literbike::quic::tls::TlsTerminator::localhost()
+            .expect("Failed to initialize standalone TLS config");
 
-    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(
-        terminator, 100,
-    ));
-    // Build the CoroutineContext bundle
-    let _ccek_context: literbike::concurrency::ccek::CoroutineContext =
-        literbike::concurrency::ccek::EmptyContext
-            + (tls_ccek.clone()
-                as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>);
+        let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(
+            terminator, 100,
+        ));
+        // Build the CoroutineContext bundle
+        let _ccek_context: literbike::concurrency::ccek::CoroutineContext =
+            literbike::concurrency::ccek::EmptyContext
+                + (tls_ccek.clone()
+                    as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>);
 
-    // Spawn the background channel loop for the CCEK TLS config manager
-    let tls_ccek_loop = tls_ccek.clone();
-    std::thread::spawn(move || {
-        if let Ok(rt) = tokio::runtime::Runtime::new() {
-            rt.block_on(async move {
-                let svc = (*tls_ccek_loop).clone();
-                svc.run_command_loop().await;
-            });
-        }
-    });
+        // Spawn the background channel loop for the CCEK TLS config manager
+        let tls_ccek_loop = tls_ccek.clone();
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Runtime::new() {
+                rt.block_on(async move {
+                    let svc = (*tls_ccek_loop).clone();
+                    svc.run_command_loop().await;
+                });
+            }
+        });
+    }
 
     if let Ok(tcp_listener) = std::net::TcpListener::bind(&bind_addr) {
         println!("\n✓ Listening on {}", bind_addr);
@@ -3484,19 +3482,13 @@ fn run_bootstrap(args: &[String]) {
     println!("✅ Bootstrap analysis complete");
 }
 
-fn run_proxy_node(args: &[String]) {
-    let server_mode = args.iter().any(|a| a == "--server");
-    let bind_addr = args
-        .iter()
-        .find_map(|a| a.strip_prefix("--bind="))
-        .unwrap_or("0.0.0.0:8080");
-    println!(
-        "proxy-node: starting proxy node mode (server={}, bind={})",
-        server_mode, bind_addr
-    );
+fn run_proxy_node(_args: &[String]) {
+    println!("proxy-node: starting proxy node mode");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        literbike::knox_proxy::quick_start_knox_proxy(server_mode, bind_addr).await;
+    rt.block_on(async {
+        if let Err(e) = literbike::knox_proxy::quick_start_knox_proxy().await {
+            eprintln!("proxy-node error: {}", e);
+        }
     });
 }
 
@@ -3506,31 +3498,27 @@ fn run_scan_ports(args: &[String]) {
         .map(|s| s.as_str())
         .unwrap_or("127.0.0.1");
     println!("scan-ports: scanning network ports on {}", target);
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        literbike::raw_telnet::quick_port_scan(target).await;
-    });
+    match literbike::raw_telnet::quick_port_scan(target) {
+        Ok(open_ports) => {
+            println!("Open ports: {:?}", open_ports);
+        }
+        Err(e) => eprintln!("scan-ports error: {}", e),
+    }
 }
 
 fn run_bonjour_discover(args: &[String]) {
-    let want_json = args.iter().any(|a| a == "--json");
+    let _want_json = args.iter().any(|a| a == "--json");
     println!("bonjour-discover: discovering Bonjour services");
-    // Gather radios first
+    // Gather radios
     let report = literbike::radios::gather_radios();
-    if want_json {
-        match serde_json::to_string_pretty(&report) {
-            Ok(s) => println!("{}", s),
-            Err(e) => eprintln!("bonjour-discover --json: {}", e),
+    literbike::radios::print_radios_human(&report);
+    // Best-effort scan UPnP
+    if let Ok(mut upnp) = literbike::upnp_aggressive::AggressiveUPnP::new() {
+        match upnp.discover_aggressive() {
+            Ok(devices) => println!("UPnP devices found: {}", devices.len()),
+            Err(e) => eprintln!("UPnP scan error: {}", e),
         }
-    } else {
-        literbike::radios::print_radios_human(&report);
     }
-    // Run UPnP aggressive scan
-    println!("\nRunning UPnP aggressive scan...");
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        literbike::upnp_aggressive::discover_upnp_devices().await;
-    });
 }
 
 fn run_carrier_bypass(_args: &[String]) {
@@ -3542,51 +3530,37 @@ fn run_carrier_bypass(_args: &[String]) {
 }
 
 fn run_raw_connect(args: &[String]) {
-    let target = args
-        .get(0)
-        .map(|s| s.as_str())
-        .unwrap_or("127.0.0.1:8080");
-    println!("raw-connect: establishing raw connection to {}", target);
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        literbike::raw_telnet::raw_connect(target).await;
-    });
-}
-
-fn run_trust_host(args: &[String]) {
-    if let Some(host) = args.get(0) {
-        println!("trust-host: checking if host '{}' is trusted", host);
-        match literbike::host_trust::is_host_trusted(host) {
-            Ok(trusted) => {
-                if trusted {
-                    println!("Host '{}' is trusted", host);
-                } else {
-                    println!("Host '{}' is NOT trusted", host);
-                }
-            }
-            Err(e) => eprintln!("trust-host: error checking trust: {}", e),
-        }
-    } else {
-        println!("trust-host: trusting local network");
-        match literbike::host_trust::trust_local_network() {
-            Ok(_) => println!("Local network has been trusted"),
-            Err(e) => eprintln!("trust-host: error trusting local network: {}", e),
-        }
+    if args.is_empty() {
+        eprintln!("Usage: raw-connect <target>");
+        return;
+    }
+    let target = &args[0];
+    if let Err(e) = literbike::raw_telnet::raw_connect(target) {
+        eprintln!("raw-connect error: {}", e);
     }
 }
 
+fn run_trust_host(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: trust-host <host>");
+        return;
+    }
+    let host = &args[0];
+    let trusted = literbike::host_trust::is_host_trusted(host);
+    println!("Host {} is {}", host, if trusted { "trusted" } else { "not trusted" });
+}
+
 fn run_proxy_client(args: &[String]) {
-    let server_addr = args
+    let _server_addr = args
         .get(0)
         .map(|s| s.as_str())
         .unwrap_or("127.0.0.1:8080");
-    println!(
-        "proxy-client: starting proxy client mode (server={})",
-        server_addr
-    );
+    println!("proxy-client: starting proxy client mode");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async move {
-        literbike::knox_proxy::quick_start_knox_proxy(false, server_addr).await;
+    rt.block_on(async {
+        if let Err(e) = literbike::knox_proxy::quick_start_knox_proxy().await {
+            eprintln!("proxy-client error: {}", e);
+        }
     });
 }
 
@@ -3902,29 +3876,31 @@ fn run_quic_vqa(args: &[String]) {
     println!("   Serving: index.html, index.css, bw_test_pattern.png");
 
     // Initialize TLS for QUIC
-    println!("📜 Initializing CCEK TLS Domain...");
-    let terminator = literbike::quic::tls::TlsTerminator::localhost()
-        .expect("Failed to initialize standalone TLS config");
-    let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(
-        terminator, 100,
-    ));
+    #[cfg(feature = "tls-quic")]
+    let ctx: literbike::concurrency::ccek::CoroutineContext = {
+        println!("📜 Initializing CCEK TLS Domain...");
+        let terminator = literbike::quic::tls::TlsTerminator::localhost()
+            .expect("Failed to initialize standalone TLS config");
+        let tls_ccek = std::sync::Arc::new(literbike::quic::tls_ccek::TlsCcekService::new(
+            terminator, 100,
+        ));
 
-    // Build the CoroutineContext with TLS
-    let ctx: literbike::concurrency::ccek::CoroutineContext =
+        // Spawn the background channel loop for the CCEK TLS config manager
+        let tls_ccek_loop = tls_ccek.clone();
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Runtime::new() {
+                rt.block_on(async move {
+                    let svc = (*tls_ccek_loop).clone();
+                    svc.run_command_loop().await;
+                });
+            }
+        });
+
         literbike::concurrency::ccek::EmptyContext
-            + (tls_ccek.clone()
-                as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>);
-
-    // Spawn the background channel loop for the CCEK TLS config manager
-    let tls_ccek_loop = tls_ccek.clone();
-    std::thread::spawn(move || {
-        if let Ok(rt) = tokio::runtime::Runtime::new() {
-            rt.block_on(async move {
-                let svc = (*tls_ccek_loop).clone();
-                svc.run_command_loop().await;
-            });
-        }
-    });
+            + (tls_ccek as std::sync::Arc<dyn literbike::concurrency::ccek::ContextElement>)
+    };
+    #[cfg(not(feature = "tls-quic"))]
+    let ctx = literbike::concurrency::ccek::CoroutineContext::new();
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
     rt.block_on(async {

@@ -2,7 +2,280 @@
 
 ---
 
-## [~] Track: LiterBike Unified Services Launch Alignment 🔄 IN PROGRESS
+## [ ] Track: Replace CouchDB Views BTreeMap<Value> Keys with an Ordered Representation
+
+After the direct `sequence_counter` access was removed, focused `couchdb`
+verification now fails later in `src/couchdb/views.rs` because
+`CompiledView.index` and reduce-group maps still use `BTreeMap<Value, ...>`,
+but `serde_json::Value` does not implement `Ord`.
+
+### Status
+- [ ] Replace `BTreeMap<Value, ...>` usage in `src/couchdb/views.rs` with a
+      truthful ordered-key representation
+- [ ] Keep the slice bounded to `src/couchdb/views.rs`
+- [ ] `cargo test --lib --features couchdb -- database`
+- [ ] Re-scope the next remaining `couchdb` blocker after the ordered-key fix
+
+**Link:** [couchdb-views-ordered-key-index_20260311](./tracks/couchdb-views-ordered-key-index_20260311/)
+
+---
+
+## [x] Track: Replace CouchDB Views Direct sequence_counter Access
+
+After the `AttachmentInfo` derive repair, focused `couchdb` verification now
+fails next in `src/couchdb/views.rs` because `compile_view()` reads the private
+`DatabaseInstance.sequence_counter` field directly.
+
+### Status
+- [x] Repair the private `sequence_counter` access in `src/couchdb/views.rs`
+- [x] Keep the slice bounded to `compile_view()` in that file
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next remaining `couchdb` blocker after the views sequence fix
+
+**Link:** [couchdb-views-sequence-access_20260311](./tracks/couchdb-views-sequence-access_20260311/)
+
+---
+
+## [x] Track: Derive PartialEq for CouchDB AttachmentInfo
+
+After the `database.rs` disk-size repair, focused `couchdb` verification now
+fails next because `Document` equality compares attachment maps, but
+`AttachmentInfo` in `src/couchdb/types.rs` does not implement `PartialEq`.
+
+### Status
+- [x] Add the missing `PartialEq` derive to `AttachmentInfo` in `src/couchdb/types.rs`
+- [x] Keep the slice bounded to the attachment-info type definition
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next remaining `couchdb` blocker after the attachment derive fix
+
+**Link:** [couchdb-attachment-info-partialeq_20260311](./tracks/couchdb-attachment-info-partialeq_20260311/)
+
+---
+
+## [x] Track: Replace CouchDB Tree size_on_disk Call with a Truthful Supported Metric
+
+After the adjacent M2M fixes, focused `couchdb` verification still fails in
+`src/couchdb/database.rs` because `get_database_info()` calls
+`Tree::size_on_disk()`, but the installed `sled` only exposes `size_on_disk()`
+on `Db`.
+
+### Status
+- [x] Repair the unsupported `Tree::size_on_disk()` call in `src/couchdb/database.rs`
+- [x] Keep the slice bounded to `get_database_info()`
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next remaining `couchdb` blocker after the database-info fix
+
+**Link:** [couchdb-database-size-on-disk_20260311](./tracks/couchdb-database-size-on-disk_20260311/)
+
+---
+
+## [x] Track: Fix CouchDB M2M Handler Registration Move-After-Insert
+
+After `M2mMessageType` gained `Eq`/`Hash`, the next adjacent M2M blocker is in
+`src/couchdb/m2m.rs`: `register_handler()` moves `message_type` into
+`handlers.insert(...)` and then immediately borrows it again for logging.
+
+### Status
+- [x] Repair the moved-value logging bug in `src/couchdb/m2m.rs`
+- [x] Keep the slice bounded to `register_handler()`
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next remaining `couchdb` blocker after the M2M handler fix
+
+**Link:** [couchdb-m2m-handler-register-borrow_20260311](./tracks/couchdb-m2m-handler-register-borrow_20260311/)
+
+---
+
+## [x] Track: Derive Hash/Eq for CouchDB M2M Message Types
+
+After the accepted `ipfs.rs` API update, focused `couchdb` verification now
+fails first in the M2M handler registry because `M2mMessageType` is used as a
+`HashMap` key without the required `Eq` and `Hash` derives.
+
+### Status
+- [x] Add the missing trait derives to `M2mMessageType` in `src/couchdb/types.rs`
+- [x] Keep the slice bounded to the message-type definition
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next `couchdb` blocker after the M2M trait fix
+
+**Link:** [couchdb-m2m-message-type-hash_20260311](./tracks/couchdb-m2m-message-type-hash_20260311/)
+
+---
+
+## [x] Track: Shape RBCursive Scanner Helper Loops for Indexed Traversal
+
+After the `AutovecScanner` and `GenericScanner` hot-loop reshaping slices
+landed, the next nearby scanner-local hotspot is `src/rbcursive/scanner.rs`:
+its `gather_bytes` and `popcount` helpers still rely on iterator adapters
+instead of simple indexed loops.
+
+### Status
+- [x] Reshape `gather_bytes` and `popcount` in `src/rbcursive/scanner.rs`
+- [x] Keep behavior aligned with the existing gather/popcount tests
+- [x] `cargo test scanner::tests --lib`
+- [x] `cargo test test_gather_operation --lib`
+
+**Link:** [rbcursive-scanner-helper-loops_20260311](./tracks/rbcursive-scanner-helper-loops_20260311/)
+
+---
+
+## [x] Track: Shape RBCursive Generic Scanner Loops for Compiler Vectorization
+
+After the `AutovecScanner` loop-shaping slice landed cleanly, the next nearby
+auto-vectorization hotspot is `src/rbcursive/simd/generic.rs`, which still
+leans on chunk-local `.iter().enumerate()` traversal in the generic scanner's
+hot scan paths.
+
+### Status
+- [x] Reshape the `GenericScanner` hot scan loops in `src/rbcursive/simd/generic.rs`
+- [x] Keep behavior aligned with the existing generic scanner tests
+- [x] `cargo test test_generic_scanner --lib`
+- [x] Re-scope the next autovec hotspot after the generic scanner loop shaping lands
+
+**Link:** [rbcursive-generic-autovec-loop-shaping_20260311](./tracks/rbcursive-generic-autovec-loop-shaping_20260311/)
+
+---
+
+## [x] Track: Shape RBCursive Autovec Scanner Loops for Compiler Vectorization
+
+`src/rbcursive/scanner.rs` already labels `AutovecScanner` as the
+compiler-vectorized path, but the hot loops still use iterator/enumerate shapes
+that obscure the contiguous indexed slice walk the compiler needs to prove.
+
+### Status
+- [x] Reshape the `AutovecScanner` hot scan loops in `src/rbcursive/scanner.rs`
+- [x] Keep behavior aligned with the existing scanner tests
+- [x] `cargo test test_autovec_scanner --lib`
+- [x] Re-scope the next autovec hotspot after the scanner loop shaping lands
+
+**Link:** [rbcursive-autovec-loop-shaping_20260311](./tracks/rbcursive-autovec-loop-shaping_20260311/)
+
+---
+
+## [x] Track: Update CouchDB IPFS Adapter to Current ipfs-api-backend-hyper API
+
+After the tensor-response serialization repair, focused `couchdb` verification
+now fails first in `src/couchdb/ipfs.rs` because the adapter still targets an
+older `ipfs-api-backend-hyper` request/stream surface.
+
+### Status
+- [x] Repair the `Add` request construction in `src/couchdb/ipfs.rs`
+- [x] Fix the current stream helper/import drift in the IPFS adapter
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next `couchdb` blocker after the IPFS adapter compiles
+
+**Link:** [couchdb-ipfs-api-update_20260310](./tracks/couchdb-ipfs-api-update_20260310/)
+
+---
+
+## [x] Track: Make TensorResult Serializable for CouchDB API Responses
+
+After the `git_sync.rs` drift repair, focused `couchdb` verification now fails
+first because the API tries to return `Json(TensorResult)` while `TensorResult`
+does not implement `serde::Serialize`.
+
+### Status
+- [x] Make `TensorResult` serializable on the active API path
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next `couchdb` blocker after the serialization fix
+
+**Link:** [couchdb-tensorresult-serialize_20260310](./tracks/couchdb-tensorresult-serialize_20260310/)
+
+---
+
+## [x] Track: Repair CouchDB git_sync API Drift
+
+After the manifest and reducer fixes, focused `couchdb` verification now fails
+first on `src/couchdb/git_sync.rs`, which still imports a nonexistent
+`CouchDatabase` type and uses a removed `CouchError::Internal(...)` constructor.
+
+### Status
+- [x] Repair the local `git_sync.rs` type/constructor drift
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next `couchdb` blocker after `git_sync.rs`
+
+**Link:** [couchdb-git-sync-compile_20260310](./tracks/couchdb-git-sync-compile_20260310/)
+
+---
+
+## [x] Track: Fix CouchDB Reduce Pattern Binding Compile Error
+
+After the `couchdb` dependency-wiring repair, one of the next source-level
+blockers is local and bounded: `src/couchdb/views.rs` still has a reducer match
+arm that does not bind `reduce_fn` in all alternatives.
+
+### Status
+- [x] Repair the `_sum` / custom-sum reducer branch in `src/couchdb/views.rs`
+- [x] Re-run `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next remaining `couchdb` blocker
+
+**Link:** [couchdb-views-reduce-compile_20260310](./tracks/couchdb-views-reduce-compile_20260310/)
+
+---
+
+## [x] Track: Repair CouchDB Feature Dependency Wiring
+
+Focused `couchdb` verification is blocked before it reaches narrower source
+fixes because the `couchdb` feature graph does not currently pull several
+dependencies that the `couchdb` modules import, and `utoipa-swagger-ui` is not
+enabled with its `axum` integration surface.
+
+### Status
+- [x] Update `Cargo.toml` so `--features couchdb` enables the needed dependency set
+- [x] Enable `utoipa-swagger-ui` with `axum`
+- [x] `cargo test --lib --features couchdb -- database`
+- [x] Re-scope the next source-level blockers after dependency wiring is fixed
+
+**Link:** [couchdb-feature-deps_20260310](./tracks/couchdb-feature-deps_20260310/)
+
+---
+
+## [x] Track: Replace CouchDB get_database Panic with Structured Error
+
+`DatabaseManager::get_database()` in `src/couchdb/database.rs` still contains
+the repo's only `unimplemented!()`, even though the method already returns
+`CouchResult` and can fail truthfully.
+
+### Status
+- [x] Replace the panic with a structured `CouchError`
+- [x] Add focused coverage for the non-panicking path
+- [ ] `cargo test --lib couchdb`
+
+**Link:** [couchdb-get-database-no-panic_20260310](./tracks/couchdb-get-database-no-panic_20260310/)
+
+---
+
+## [x] Track: Wire litebike completion Command
+
+`litebike` already ships a real bash completion artifact at
+`completion/litebike-completion.bash`, but the live `completion` command in
+`src/bin/litebike.rs` still prints a stub.
+
+### Status
+- [x] Replace the stub `run_completion` handler with a real completion output path
+- [x] Reuse the existing bash completion artifact as the source of truth
+- [x] `cargo build --bin litebike --features warp,git2`
+- [x] `cargo run --bin litebike --features warp,git2 -- completion`
+
+**Link:** [litebike-completion-command_20260310](./tracks/litebike-completion-command_20260310/)
+
+---
+
+## [x] Track: Remove Remaining litebike Binary Warnings
+
+`cargo build --bin litebike --features warp,git2` is green again, but the
+binary still emits 7 local warnings in `src/bin/litebike.rs`: five unused
+imports and one orphaned placeholder handler.
+
+### Status
+- [x] Remove the remaining unused imports in `src/bin/litebike.rs`
+- [x] Resolve the orphaned `run_ssh_automation` warning truthfully
+- [x] `cargo build --bin litebike --features warp,git2` with no litebike warnings
+
+**Link:** [litebike-warning-cleanup_20260310](./tracks/litebike-warning-cleanup_20260310/)
+
+---
+
+## [x] Track: LiterBike Unified Services Launch Alignment
 
 Enshrine `literbike` as the gated heavy heart/backplane imported into the
 `litebike` shell, without letting direct `literbike` launch paths read like a
@@ -14,9 +287,45 @@ competing front door.
 - [x] Cross-repo shell/heart course correction applied on 2026-03-10
 - [x] Direct `literbike` launch language reframed as secondary
       backplane/validation modes
-- [ ] Keep future launch/docs edits aligned with the `litebike` shell owner
+- [x] Keep future launch/docs edits aligned with the `litebike` shell owner
 
 **Link:** [literbike_unified_services_launch_20260308](./tracks/literbike_unified_services_launch_20260308/)
+
+---
+
+## [x] Track: Gate litebike QUIC TLS Paths behind tls-quic
+
+Follow-on `litebike` build blockers after the stub-handler slice: `run_proxy_server`
+and `run_quic_vqa` both reference `literbike::quic::tls` / `tls_ccek` without
+the `tls-quic` feature, and both locally build a `CoroutineContext` in a way
+that currently fails type checking under the active feature set.
+
+### Status
+- [x] Repair `run_proxy_server` feature gating and CCEK context construction
+- [x] Repair `run_quic_vqa` feature gating and CCEK context construction
+- [x] `cargo build --bin litebike --features warp,git2`
+- [x] Re-scope the next litebike-only blockers after this build repair
+
+**Link:** [litebike-tls-quic-guards_20260310](./tracks/litebike-tls-quic-guards_20260310/)
+
+---
+
+## [x] Track: Wire 5 Stub CLI Commands in litebike.rs
+
+The target command bodies in `src/bin/litebike.rs` are no longer plain TODOs,
+but the current implementations are API-wrong: `quick_start_knox_proxy` is
+called with unsupported arguments, `quick_port_scan` and `raw_connect` are
+incorrectly awaited, `discover_upnp_devices` does not exist, and
+`is_host_trusted` is treated like a `Result` instead of `bool`.
+
+### Status
+- [x] Fix the six stub-command handlers to match current backing API signatures in `src/bin/litebike.rs`
+- [x] Workspace loads again with `conductor-cli` present
+- [x] `cargo build --bin litebike --features warp,git2` after stub-handler fixes
+- [x] Re-scope remaining non-slice `litebike` build blockers once the stub-handler errors are removed
+- [x] `cargo test --lib` 278/0
+
+**Link:** [litebike-stub-commands_20260310](./tracks/litebike-stub-commands_20260310/)
 
 ---
 
@@ -69,7 +378,7 @@ core protocol paths must carry an RFC anchor and be indexed in comment-docs.
 
 Advance QUIC interoperability foundations by adding packet number reconstruction
 and header-protection hooks, starting a feature-gated handshake/crypto path, and
-adding a ctypes-friendly C ABI crate for the `freqtrade` integration seam.
+adding a ctypes-friendly C ABI crate for the `external-bot` integration seam.
 
 ### Status
 - [x] Lock interfaces and scope for engine hooks / crypto path / C ABI
@@ -100,7 +409,7 @@ the current stub-only reactor export.
 
 ## [x] Track: Port Kotlin QUIC (Full Packet Processing from Trikeshed) - Agent Harness Critical Path
 
-**COMPLETE:** This track was blocking Freqtrade alpha release. All critical path items implemented.
+**COMPLETE:** This track was blocking external‑bot alpha release. All critical path items implemented.
 
 Port packet-processing semantics from Trikeshed QUIC modules into `literbike`
 without regressing the new wire codec foundation, focusing on engine state,
@@ -114,7 +423,7 @@ ACK/CRYPTO/STREAM handling, connection lifecycle, and server integration.
 - ✅ **PRIORITY 1:** Complete connection state transitions and bytes-in-flight accounting
 - ✅ **PRIORITY 1:** Add flow control and congestion control hooks
 - ✅ **PRIORITY 2:** Implement stream lifecycle and multiplexing for agent communication
-- ✅ **PRIORITY 3:** Complete C ABI exports for Freqtrade integration
+- ✅ **PRIORITY 3:** Complete C ABI exports for agent integration
 - ✅ **PRIORITY 4:** Build comprehensive agent harness integration tests
 
 **Progress Notes:**

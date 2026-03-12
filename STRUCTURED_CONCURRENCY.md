@@ -2,7 +2,7 @@
 
 ## Overview
 
-Based on Kotlin Coroutines patterns from Betanet, this implementation provides:
+Based on Kotlin Coroutines patterns, this implementation provides:
 
 1. **CCEK (CoroutineContext Element Key)** - Composable execution context
 2. **Channels** - Type-safe message passing  

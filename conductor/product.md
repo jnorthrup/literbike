@@ -29,7 +29,7 @@ the only canonical ingress/operator front door.
 ## Primary consumers (current)
 
 - `litebike` as the shell that mounts `literbike` capabilities when present
-- `freqtrade` ring-agent sidecar transport wrapper
+- `external-bot` ring-agent sidecar transport wrapper
 - Local backplane validation and transport test utilities in this repository
 
 ## Product constraints

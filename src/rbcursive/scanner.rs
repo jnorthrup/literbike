@@ -83,15 +83,26 @@ impl SimdScanner for ScalarScanner {
     }
 
     fn gather_bytes(&self, data: &[u8], positions: &[usize]) -> Vec<u8> {
-        positions
-            .iter()
-            .filter_map(|&pos| data.get(pos))
-            .copied()
-            .collect()
+        let mut result = Vec::with_capacity(positions.len());
+        let mut i = 0;
+        while i < positions.len() {
+            let pos = positions[i];
+            if pos < data.len() {
+                result.push(data[pos]);
+            }
+            i += 1;
+        }
+        result
     }
 
     fn popcount(&self, bitmap: &[u32]) -> u32 {
-        bitmap.iter().map(|x| x.count_ones()).sum()
+        let mut count = 0u32;
+        let mut i = 0;
+        while i < bitmap.len() {
+            count = count.wrapping_add(bitmap[i].count_ones());
+            i += 1;
+        }
+        count
     }
 
     fn capabilities(&self) -> ScannerCapabilities {
@@ -117,26 +128,34 @@ impl AutovecScanner {
 impl SimdScanner for AutovecScanner {
     fn scan_bytes(&self, data: &[u8], targets: &[u8]) -> Vec<usize> {
         let mut positions = Vec::new();
+        let len = data.len();
 
         if targets.len() == 1 {
             let target = targets[0];
-            // Compiler should auto-vectorize this loop
-            for (i, &byte) in data.iter().enumerate() {
-                if byte == target {
+            // Explicit indexed contiguous loop for compiler auto-vectorization
+            let mut i = 0;
+            while i < len {
+                if data[i] == target {
                     positions.push(i);
                 }
+                i += 1;
             }
         } else {
             // For multiple targets, use a lookup table approach that's vectorizable
             let mut lookup = [false; 256];
-            for &target in targets {
-                lookup[target as usize] = true;
+            let mut t = 0;
+            while t < targets.len() {
+                lookup[targets[t] as usize] = true;
+                t += 1;
             }
 
-            for (i, &byte) in data.iter().enumerate() {
-                if lookup[byte as usize] {
+            // Explicit indexed contiguous loop for compiler auto-vectorization
+            let mut i = 0;
+            while i < len {
+                if lookup[data[i] as usize] {
                     positions.push(i);
                 }
+                i += 1;
             }
         }
 
@@ -146,15 +165,23 @@ impl SimdScanner for AutovecScanner {
     fn scan_structural(&self, data: &[u8]) -> Vec<usize> {
         // Use lookup table for better auto-vectorization
         let mut is_structural = [false; 256];
-        for &ch in b"{}[](),:;\" \t\r\n" {
-            is_structural[ch as usize] = true;
+        let structural_bytes: &[u8] = b"{}[](),:;\" \t\r\n";
+        let mut t = 0;
+        while t < structural_bytes.len() {
+            is_structural[structural_bytes[t] as usize] = true;
+            t += 1;
         }
 
         let mut positions = Vec::new();
-        for (i, &byte) in data.iter().enumerate() {
-            if is_structural[byte as usize] {
+        let len = data.len();
+
+        // Explicit indexed contiguous loop for compiler auto-vectorization
+        let mut i = 0;
+        while i < len {
+            if is_structural[data[i] as usize] {
                 positions.push(i);
             }
+            i += 1;
         }
 
         positions
@@ -169,17 +196,28 @@ impl SimdScanner for AutovecScanner {
     }
 
     fn gather_bytes(&self, data: &[u8], positions: &[usize]) -> Vec<u8> {
-        // Auto-vectorizable gather
-        positions
-            .iter()
-            .filter_map(|&pos| data.get(pos))
-            .copied()
-            .collect()
+        // Auto-vectorizable gather with explicit indexed loop
+        let mut result = Vec::with_capacity(positions.len());
+        let mut i = 0;
+        while i < positions.len() {
+            let pos = positions[i];
+            if pos < data.len() {
+                result.push(data[pos]);
+            }
+            i += 1;
+        }
+        result
     }
 
     fn popcount(&self, bitmap: &[u32]) -> u32 {
-        // Should auto-vectorize with SIMD popcount instructions
-        bitmap.iter().map(|x| x.count_ones()).sum()
+        // Auto-vectorizable popcount with explicit indexed loop
+        let mut count = 0u32;
+        let mut i = 0;
+        while i < bitmap.len() {
+            count = count.wrapping_add(bitmap[i].count_ones());
+            i += 1;
+        }
+        count
     }
 
     fn capabilities(&self) -> ScannerCapabilities {

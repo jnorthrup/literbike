@@ -35,7 +35,7 @@ and be indexed in comment-docs.
 ## [x] Track: QUIC Interop Foundation ✅ completed 2026-02-25
 
 **Objective:** Add packet number reconstruction, header-protection hooks, feature-gated
-handshake/crypto path, and C ABI crate for freqtrade integration.
+handshake/crypto path, and C ABI crate for external-bot integration.
 
 **Scope:**
 - `src/quic/quic_engine.rs`: Packet number reconstruction, header protection hooks

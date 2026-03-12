@@ -27,7 +27,7 @@
 
 ## Integration seam (external)
 
-- `/Users/jim/work/freqtrade/user_data/ops/literbike_quic_transport.py`
+- `/Users/jim/work/external-bot/user_data/ops/literbike_quic_transport.py`
 
 ## Build/test commands (common)
 

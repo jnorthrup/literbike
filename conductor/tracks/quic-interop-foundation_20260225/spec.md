@@ -15,8 +15,8 @@ The track covers three linked deliverables:
    `/Users/jim/work/literbike/src/quic/quic_engine.rs`
 2. A real handshake/crypto integration path that is feature-gated (off by
    default unless explicitly enabled)
-3. A separate ctypes-friendly C ABI `cdylib` crate for the `freqtrade` wrapper
-   in `/Users/jim/work/freqtrade/user_data/ops/literbike_quic_transport.py`
+3. A separate ctypes-friendly C ABI `cdylib` crate for the `external-bot` wrapper
+   in `/Users/jim/work/external-bot/user_data/ops/literbike_quic_transport.py`
 
 ## Problem
 
@@ -24,7 +24,7 @@ The track covers three linked deliverables:
   extension points, which are required for real QUIC packet processing.
 - Handshake/crypto behavior is placeholder-level and not structured for an
   incremental upgrade path.
-- `freqtrade` expects C ABI functions (`quic_connect`, `quic_request`,
+- `external-bot` expects C ABI functions (`quic_connect`, `quic_request`,
   `quic_close`) but `literbike` currently has only a PyO3-oriented crate
   (`literbike-ffi`) and no stable ctypes-facing exports.
 
@@ -35,7 +35,7 @@ The track covers three linked deliverables:
 - Introduce a feature-gated crypto/handshake integration seam (traits/modules +
   state hooks) that can grow toward real QUIC/TLS handling.
 - Provide a separate `cdylib` crate with stable C ABI exports aligned to the
-  `freqtrade` ctypes wrapper expectations.
+  `external-bot` ctypes wrapper expectations.
 
 ## Functional Requirements
 
@@ -66,7 +66,7 @@ The track covers three linked deliverables:
 - The feature-on path can be partial, but it must compile and exercise real code
   paths beyond placeholders.
 
-### 3. Separate C ABI QUIC Exports (`cdylib`) for `freqtrade`
+### 3. Separate C ABI QUIC Exports (`cdylib`) for `external-bot`
 
 - Add a new workspace member crate (separate from `/Users/jim/work/literbike/literbike-ffi`)
   for ctypes-compatible QUIC exports.
@@ -89,7 +89,7 @@ The track covers three linked deliverables:
 - Brownfield-safe, additive changes preferred.
 - Keep `io_uring` / Linux-native acceleration out of this track.
 - Avoid regressions in current `quic` feature builds/tests.
-- Keep API surface documented enough for `freqtrade` wrapper integration.
+- Keep API surface documented enough for `external-bot` wrapper integration.
 
 ## Acceptance Criteria
 
@@ -101,7 +101,7 @@ The track covers three linked deliverables:
 3. `/Users/jim/work/literbike/Cargo.toml` workspace includes a new C ABI crate,
    and the crate builds a `cdylib` exposing the required QUIC symbols.
 4. The C ABI surface is compatible with the expected call shape used in
-   `/Users/jim/work/freqtrade/user_data/ops/literbike_quic_transport.py`
+   `/Users/jim/work/external-bot/user_data/ops/literbike_quic_transport.py`
    (connect/request/close, plus clear error behavior).
 5. Focused tests cover:
    - packet number reconstruction behavior
@@ -115,7 +115,7 @@ The track covers three linked deliverables:
   packet protection correctness, header protection correctness)
 - Full HTTP/3/QPACK implementation
 - `io_uring`/quiche backend acceleration
-- Replacing the existing Python HTTP fallback behavior in `freqtrade`
+- Replacing the existing Python HTTP fallback behavior in `external-bot`
 
 ## Impacted Files and Modules (Expected)
 
@@ -125,5 +125,5 @@ The track covers three linked deliverables:
 - `/Users/jim/work/literbike/Cargo.toml`
 - `/Users/jim/work/literbike/literbike-ffi/*` (read-only compatibility reference)
 - `/Users/jim/work/literbike/<new-capi-crate>/...`
-- `/Users/jim/work/freqtrade/user_data/ops/literbike_quic_transport.py` (consumer compatibility reference; implementation may remain unchanged in this track)
+- `/Users/jim/work/external-bot/user_data/ops/literbike_quic_transport.py` (consumer compatibility reference; implementation may remain unchanged in this track)
 

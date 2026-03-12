@@ -61,30 +61,31 @@ impl SimdScanner for GenericScanner {
 }
 
 impl GenericScanner {
-    /// Optimized single byte search with auto-vectorization hints
+    /// Optimized single byte search with explicit indexed loops for vectorization
     fn scan_single_byte(&self, data: &[u8], target: u8) -> Vec<usize> {
-        let mut positions = Vec::new();
+        let mut positions = Vec::with_capacity(data.len() / 16);
+        let len = data.len();
 
-        // Process data in chunks to hint at vectorization opportunities
+        // Process data in chunks with explicit indexed loops
         const CHUNK_SIZE: usize = 64;
         let mut i = 0;
 
-        while i + CHUNK_SIZE <= data.len() {
+        while i + CHUNK_SIZE <= len {
+            // Explicit indexed contiguous loop - optimal for compiler auto-vectorization
             let chunk = &data[i..i + CHUNK_SIZE];
-
-            // Compiler should auto-vectorize this loop
-            for (j, &byte) in chunk.iter().enumerate() {
+            for j in 0..CHUNK_SIZE {
+                let byte = chunk[j];
                 if byte == target {
                     positions.push(i + j);
                 }
             }
-
             i += CHUNK_SIZE;
         }
 
-        // Handle remaining bytes
-        for (j, &byte) in data[i..].iter().enumerate() {
-            if byte == target {
+        // Handle remaining bytes with explicit index
+        let remainder = &data[i..];
+        for j in 0..remainder.len() {
+            if remainder[j] == target {
                 positions.push(i + j);
             }
         }
@@ -92,36 +93,37 @@ impl GenericScanner {
         positions
     }
 
-    /// Optimized multiple byte search using lookup table
+    /// Optimized multiple byte search using lookup table with explicit indexed loops
     fn scan_multiple_bytes(&self, data: &[u8], targets: &[u8]) -> Vec<usize> {
-        // Create lookup table for O(1) membership testing
+        // Simple lookup table for O(1) membership testing
         let mut lookup = [false; 256];
         for &target in targets {
             lookup[target as usize] = true;
         }
 
-        let mut positions = Vec::new();
+        let mut positions = Vec::with_capacity(data.len() / 16);
+        let len = data.len();
 
-        // Process in chunks with auto-vectorization hints
+        // Process in chunks with explicit indexed loops
         const CHUNK_SIZE: usize = 64;
         let mut i = 0;
 
-        while i + CHUNK_SIZE <= data.len() {
+        while i + CHUNK_SIZE <= len {
+            // Explicit indexed contiguous loop - optimal for compiler auto-vectorization
             let chunk = &data[i..i + CHUNK_SIZE];
-
-            // This should auto-vectorize well with lookup table
-            for (j, &byte) in chunk.iter().enumerate() {
+            for j in 0..CHUNK_SIZE {
+                let byte = chunk[j];
                 if lookup[byte as usize] {
                     positions.push(i + j);
                 }
             }
-
             i += CHUNK_SIZE;
         }
 
-        // Handle remaining bytes
-        for (j, &byte) in data[i..].iter().enumerate() {
-            if lookup[byte as usize] {
+        // Handle remaining bytes with explicit index
+        let remainder = &data[i..];
+        for j in 0..remainder.len() {
+            if lookup[remainder[j] as usize] {
                 positions.push(i + j);
             }
         }

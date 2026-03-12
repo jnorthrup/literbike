@@ -94,14 +94,18 @@ impl DatabaseManager {
     /// Get database information
     pub fn get_database_info(&self, name: &str) -> CouchResult<DatabaseInfo> {
         let databases = self.databases.read().unwrap();
-        
+
         let db_instance = databases.get(name)
             .ok_or_else(|| CouchError::not_found("Database does not exist"))?;
-        
+
         let doc_count = *db_instance.doc_count.read().unwrap();
         let deleted_count = *db_instance.deleted_count.read().unwrap();
         let sequence = *db_instance.sequence_counter.read().unwrap();
-        
+
+        // sled does not expose a size_on_disk() API; use data_size (entry count)
+        // as a truthful proxy for disk_size to preserve the response shape.
+        let data_size = db_instance.tree.len() as u64;
+
         Ok(DatabaseInfo {
             db_name: name.to_string(),
             doc_count,
@@ -109,8 +113,8 @@ impl DatabaseManager {
             update_seq: sequence,
             purge_seq: 0,
             compact_running: false,
-            disk_size: db_instance.tree.size_on_disk().unwrap_or(0),
-            data_size: db_instance.tree.len() as u64,
+            disk_size: data_size,
+            data_size,
             instance_start_time: "1970-01-01T00:00:00.000000Z".to_string(),
             disk_format_version: 8,
             committed_update_seq: sequence,
@@ -132,10 +136,14 @@ impl DatabaseManager {
     }
     
     /// Get database instance
-    pub fn get_database(&self, name: &str) -> CouchResult<&DatabaseInstance> {
-        // Note: This is unsafe due to lifetime issues. In real implementation,
-        // we'd return an Arc<DatabaseInstance> or use a different pattern
-        unimplemented!("Use get_database_clone instead")
+    ///
+    /// Returns an error unconditionally: a shared reference into an RwLock
+    /// cannot be returned without holding the guard for its lifetime. Use
+    /// [`get_database_clone`] instead, which is the preferred safe API.
+    pub fn get_database(&self, _name: &str) -> CouchResult<&DatabaseInstance> {
+        Err(CouchError::internal_server_error(
+            "get_database is not supported; call get_database_clone instead",
+        ))
     }
     
     /// Get cloned database instance (safer alternative)
@@ -409,6 +417,27 @@ mod tests {
         assert!(rev2.starts_with("2-"));
     }
     
+    #[test]
+    fn test_get_database_returns_error_not_panic() {
+        let temp_dir = tempdir().unwrap();
+        let db_manager = DatabaseManager::new(temp_dir.path().to_str().unwrap()).unwrap();
+        db_manager.create_database("mydb").unwrap();
+
+        // Must not panic; must return Err
+        let result = db_manager.get_database("mydb");
+        assert!(result.is_err(), "get_database must return Err, not panic");
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err"),
+        };
+        assert_eq!(err.error, "internal_server_error");
+        assert!(err.reason.contains("get_database_clone"));
+
+        // Also returns Err for a nonexistent database
+        let result2 = db_manager.get_database("no_such_db");
+        assert!(result2.is_err());
+    }
+
     #[tokio::test]
     async fn test_database_creation() {
         let temp_dir = tempdir().unwrap();

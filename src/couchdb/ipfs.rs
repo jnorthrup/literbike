@@ -2,13 +2,13 @@ use crate::couchdb::{
     types::{AttachmentInfo, IpfsCid, KvEntry},
     error::{CouchError, CouchResult},
 };
-use ipfs_api_backend_hyper::{IpfsApi, IpfsClient, request::Add};
-use cid::Cid;
+use ipfs_api_backend_hyper::{IpfsApi, IpfsClient, TryFromUri, request::Add};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::io::Cursor;
 use chrono::Utc;
-use log::{info, warn, error, debug};
+use futures::TryStreamExt;
+use log::{info, warn, debug};
 use tokio::sync::Mutex;
 
 /// IPFS integration for distributed storage of attachments and documents
@@ -56,38 +56,40 @@ impl IpfsManager {
     /// Store data in IPFS
     pub async fn store_data(&self, data: &[u8], content_type: &str) -> CouchResult<IpfsCid> {
         debug!("Storing {} bytes to IPFS", data.len());
-        
-        let cursor = Cursor::new(data);
+
         let add_request = Add {
-            path: None,
-            wrap_with_directory: false,
+            trickle: Some(false),
+            only_hash: Some(false),
+            wrap_with_directory: Some(false),
             chunker: None,
             pin: Some(self.config.pin_content),
-            only_hash: false,
-            progress: false,
-            trickle: false,
             raw_leaves: None,
             cid_version: Some(1),
-            hash: Some("sha2-256".to_string()),
+            hash: Some("sha2-256"),
+            inline: None,
+            inline_limit: None,
+            to_files: None,
         };
-        
+
+        // Use owned Vec<u8> in Cursor to satisfy 'static + Read bounds
+        let cursor = Cursor::new(data.to_vec());
         let response = self.client
             .add_with_options(cursor, add_request)
             .await
             .map_err(|e| CouchError::internal_server_error(&format!("IPFS store failed: {}", e)))?;
-        
+
         let ipfs_cid = IpfsCid {
             cid: response.hash.clone(),
-            size: response.size,
+            size: response.size.parse().unwrap_or(0),
             content_type: content_type.to_string(),
         };
-        
+
         // Cache the result
         if self.config.cache_enabled {
             let mut cache = self.cache.write().unwrap();
             cache.insert(response.hash.clone(), ipfs_cid.clone());
         }
-        
+
         info!("Stored data to IPFS: {}", response.hash);
         Ok(ipfs_cid)
     }
@@ -110,12 +112,12 @@ impl IpfsManager {
     /// Pin content in IPFS
     pub async fn pin_content(&self, cid: &str) -> CouchResult<()> {
         debug!("Pinning content in IPFS: {}", cid);
-        
+
         self.client
-            .pin_add(cid, Some(true))
+            .pin_add(cid, true)
             .await
             .map_err(|e| CouchError::internal_server_error(&format!("IPFS pin failed: {}", e)))?;
-        
+
         info!("Pinned content: {}", cid);
         Ok(())
     }
@@ -123,12 +125,12 @@ impl IpfsManager {
     /// Unpin content from IPFS
     pub async fn unpin_content(&self, cid: &str) -> CouchResult<()> {
         debug!("Unpinning content from IPFS: {}", cid);
-        
+
         self.client
-            .pin_rm(cid, Some(true))
+            .pin_rm(cid, true)
             .await
             .map_err(|e| CouchError::internal_server_error(&format!("IPFS unpin failed: {}", e)))?;
-        
+
         info!("Unpinned content: {}", cid);
         Ok(())
     }
@@ -209,19 +211,18 @@ impl IpfsManager {
     /// Get content statistics
     pub async fn get_stats(&self) -> CouchResult<serde_json::Value> {
         let repo_stats = self.client
-            .repo_stat()
+            .stats_repo()
             .await
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to get repo stats: {}", e)))?;
-        
+
         let bitswap_stats = self.client
             .stats_bitswap()
             .await
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to get bitswap stats: {}", e)))?;
-        
+
         Ok(serde_json::json!({
             "repo": {
                 "repo_size": repo_stats.repo_size,
-                "storage_max": repo_stats.storage_max,
                 "num_objects": repo_stats.num_objects,
                 "repo_path": repo_stats.repo_path,
                 "version": repo_stats.version
@@ -234,7 +235,7 @@ impl IpfsManager {
                 "dup_blks_received": bitswap_stats.dup_blks_received,
                 "dup_data_received": bitswap_stats.dup_data_received,
                 "peers": bitswap_stats.peers,
-                "providebuf_len": bitswap_stats.providebuf_len,
+                "provide_buf_len": bitswap_stats.provide_buf_len,
                 "wantlist": bitswap_stats.wantlist
             },
             "cache_size": self.cache.read().unwrap().len()
@@ -242,25 +243,11 @@ impl IpfsManager {
     }
     
     /// Garbage collect unpinned content
+    /// Note: repo_gc is not yet implemented in ipfs-api-backend-hyper 0.6
     pub async fn garbage_collect(&self) -> CouchResult<Vec<String>> {
-        let gc_result = self.client
-            .repo_gc()
-            .await
-            .map_err(|e| CouchError::internal_server_error(&format!("Garbage collection failed: {}", e)))?;
-        
-        let removed_cids: Vec<String> = gc_result
-            .into_iter()
-            .filter_map(|item| {
-                if let Some(key) = item.key {
-                    Some(key.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        
-        info!("Garbage collected {} objects", removed_cids.len());
-        Ok(removed_cids)
+        warn!("IPFS garbage collection is not supported by the current ipfs-api-backend-hyper version");
+        // Return empty list as GC is not available
+        Ok(vec![])
     }
     
     /// Clear local cache

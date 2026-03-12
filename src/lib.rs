@@ -30,8 +30,8 @@ pub mod syscall_net;
 // Structured concurrency (Kotlin coroutines pattern)
 pub mod concurrency;
 
-// Betanet patterns (ported from Kotlin MPP)
-pub mod betanet_patterns;
+// legacy patterns module removed during betanet cleanup
+// pub mod betanet_patterns;  // intentionally disabled
 
 #[cfg(feature = "git2")]
 pub mod git_sync;

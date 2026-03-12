@@ -47,7 +47,7 @@
   - Effort: 15h
 
 ### Reactor Implementation
-**Goal:** Complete event-driven architecture from Betanet spec
+**Goal:** Complete event-driven architecture from reference spec
 
 - [ ] **REACTOR-001:** Implement event loop
   - Current: `SimpleReactor` stub (6 lines)
@@ -69,7 +69,7 @@
 ## P1: High Priority
 
 ### Kafka Replacement Completion
-**Goal:** Production-ready event log for Freqtrade
+**Goal:** Production-ready event log
 
 - [ ] **KAFKA-001:** Install DuckDB native library
   - Blocked: Native lib not installed on macOS
@@ -87,22 +87,22 @@
 
 ### Code Cleanup
 
-- [ ] **CLEAN-001:** Rename `betanet_patterns.rs` → `p2p_patterns.rs`
+- [ ] **CLEAN-001:** Rename `patterns.rs` → `p2p_patterns.rs`
   - Reason: Scrub project-specific references
   - Effort: 1h
 
 - [ ] **CLEAN-002:** Rename types
-  - `BetanetCID` → `ContentId`
-  - `BetanetBlock` → `ContentBlock`
-  - `BetanetDHTService` → `DHTService`
+  - `LegacyCID` → `ContentId`
+  - `LegacyBlock` → `ContentBlock`
+  - `LegacyDHTService` → `DHTService`
   - Effort: 2h
 
-- [ ] **CLEAN-003:** Delete `BETANET_EXTRACTION_REPORT.md`
+- [ ] **CLEAN-003:** Delete legacy extraction report file
   - Or move to `docs/archive/`
   - Effort: 0.5h
 
 - [ ] **CLEAN-004:** Update `.claude/agents/` configs
-  - Remove betanet-specific references
+  - Remove project-specific references
   - Effort: 1h
 
 ### Testing Infrastructure
@@ -143,7 +143,7 @@
 ### DHT Implementation
 
 - [ ] **DHT-001:** Complete Kademlia routing
-  - Current: `BetanetRoutingTable` exists
+  - Current: `RoutingTable` exists
   - Needed: FIND_NODE, GET_PROVIDERS, PUT_VALUE
   - Effort: 25h
 
@@ -192,7 +192,7 @@
   - Effort: 60h
 
 - [ ] **WAM-002:** Port strategies to WAM
-  - Freqtrade strategies as WAM predicates
+  - trading strategies as WAM predicates
   - Effort: 80h
 
 ### Documentation
@@ -216,14 +216,14 @@
 ### 2026-02-24
 
 - [x] **CONC-001:** Implement CCEK context composition
-  - From Betanet Kotlin patterns
+  - From Kotlin patterns
   - 27 passing tests
 
 - [x] **CONC-002:** Add channel/flow/scope modules
   - async-channel, tokio-stream integration
   - Bridge layer for Tokio interop
 
-- [x] **CONC-003:** Port Betanet patterns
+- [x] **CONC-003:** Port generic patterns
   - NetworkEvent, CID, DHT types
   - VectorClock, CRDT traits
   - 5 passing tests
@@ -273,7 +273,7 @@
 ### Goals
 1. Install DuckDB, run smoke tests
 2. Start QUIC TLS implementation
-3. Begin code cleanup (betanet scrub)
+3. Begin code cleanup (project-specific scrub)
 
 ### Tasks
 - [ ] KAFKA-001: Install DuckDB (2h)
@@ -291,7 +291,7 @@
 ### External
 - DuckDB native library (brew/pip)
 - IPFS daemon (for IPFS tests)
-- Freqtrade instance (for integration tests)
+- trading bot instance (for integration tests)
 
 ### Internal
 - QUIC TLS depends on ring/rustls
@@ -306,7 +306,7 @@
 |------|--------|------------|
 | QUIC complexity underestimated | High | Use quinn crate as reference |
 | DuckDB native linking issues | Medium | Static linking or Docker |
-| Betanet cleanup breaks imports | Low | Comprehensive tests first |
+| Cleanup breaks imports | Low | Comprehensive tests first |
 | Reactor io_uring Linux-only | Medium | Fallback to epoll/kqueue |
 
 ---
