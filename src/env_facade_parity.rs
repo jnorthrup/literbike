@@ -661,7 +661,7 @@ fn classify_by_prefix(prefix: &str) -> Option<(ApiKind, Option<ProviderFamily>, 
         )),
 
         // Common exchange/API trading surfaces
-        "BINANCE" | "BYBIT" | "KRAKEN" | "OKX" | "HUOBI" | "HTX" | "COINBASE" | "KUCOIN"
+        "BINANCE" | "BYBIT" | "KRAKEN" | "OKX" | "HUOBI" | "COINBASE" | "KUCOIN"
         | "BITGET" | "MEXC" | "GATEIO" | "GATE" | "HYPERLIQUID" => {
             Some((ApiKind::Exchange, None, 90, "known exchange prefix"))
         }

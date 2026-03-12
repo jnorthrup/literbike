@@ -13,18 +13,19 @@
 
 ## Phase 1: Wire implementations
 
-- [x] `run_proxy_node` in src/bin/litebike.rs — quick_start_knox_proxy wired in working tree
-- [ ] `run_scan_ports` — fix compile bug: function takes `_args` but body reads `args[0]`
-- [x] `run_bonjour_discover` — gather_radios() report wired in working tree
-- [ ] `run_raw_connect` — fix compile bug: function takes `_args` but body reads `args[0]`
-- [ ] `run_trust_host` — fix compile bug: function takes `_args` but body reads `args[0]`
-- [x] `run_proxy_client` — quick_start_knox_proxy wired in working tree
+- [x] `run_proxy_node` — remove unsupported `(server_mode, bind_addr)` args; call `quick_start_knox_proxy()` and surface io error
+- [x] `run_scan_ports` — remove Tokio runtime/`.await`; call sync `quick_port_scan(target)` and print returned ports
+- [x] `run_bonjour_discover` — replace nonexistent `discover_upnp_devices()` with `AggressiveUPnP::new()?.discover_aggressive()`
+- [x] `run_raw_connect` — remove Tokio runtime/`.await`; call sync `raw_connect(target)`
+- [x] `run_trust_host` — treat `is_host_trusted(host)` as `bool`, not `Result`
+- [x] `run_proxy_client` — remove unsupported `(false, server_addr)` args; call `quick_start_knox_proxy()` and surface io error
 
 ## Phase 2: Verify
 
-- [ ] Restore or remove missing workspace member `conductor-cli` so Cargo can load the workspace
-- [ ] `cargo build --bin litebike` — blocked until workspace loads, then must compile clean
-- [ ] `cargo test --lib` — blocked until workspace loads, then 278/0 still passing
+- [x] Workspace loads again with `conductor-cli` present
+- [x] `cargo build --bin litebike --features warp,git2` — rerun after stub-command fixes
+- [x] Evaluate remaining non-slice litebike build blockers after the stub-command errors are removed
+- [x] `cargo test --lib` — rerun once litebike slice is truthful again
 - [ ] No new warnings in literbike binary
 
 ## Progress Notes
@@ -36,3 +37,34 @@
   still reference `args` while their signatures take `_args`, so the file is not compile-clean.
   Verification is additionally blocked because the workspace still references missing member
   `conductor-cli/Cargo.toml`.
+- 2026-03-10: Repo reality diverged again. Current `src/bin/litebike.rs` no longer contains
+  TODO-only stubs; it contains incorrect API calls instead: `quick_start_knox_proxy` is called
+  with unsupported arguments, `quick_port_scan` and `raw_connect` are incorrectly awaited,
+  `discover_upnp_devices` does not exist, and `is_host_trusted` is matched as `Result` instead
+  of `bool`. Verified with `cargo build --bin litebike --features warp,git2`.
+- 2026-03-10: Focused build also shows remaining blockers outside this track after the stub
+  slice: `literbike::quic::tls`/`tls_ccek` are referenced without `tls-quic`, and two
+  `CoroutineContext` assignments at `src/bin/litebike.rs:2257` and `:3913` are type-mismatched.
+- 2026-03-10: Delegated worker runtime = kilo. Multiple bounded launches reached file-reading
+  and reasoning states but emitted no product diff or rendezvous payload, so this slice remains
+  open and failed closed pending a productive kilo execution.
+- 2026-03-10: Runtime reroute: Worker A moved from kilo to opencode for this exact corpus
+  after repeated kilo launches failed closed without a diff or required rendezvous payload.
+- 2026-03-10: `opencode` also failed closed on the same corpus. It edited
+  `src/bin/litebike.rs`, but drifted into unrelated handlers (`run_upnp_gateway`,
+  `run_proxy_quick`, wrapper code) and introduced a syntax error
+  (`unexpected closing delimiter` at `src/bin/litebike.rs:1776`) before the
+  six-target stub slice could be verified. Next reroute must both repair the
+  opencode damage and land only the intended handler fixes.
+- 2026-03-10: `qwen` failed closed on the follow-up repair slice. It rewrote
+  the same bounded corpus but still touched unrelated code paths, replacing
+  large `run_upnp_gateway` and `run_proxy_quick` bodies and leaving another
+  syntax error (`unexpected closing delimiter` at `src/bin/litebike.rs:3193`).
+  The file remains dirty and unverified; next reroute must repair from the
+  current working tree and constrain edits to authentic slice needs.
+- 2026-03-10: `claude` landed the first authentic bounded diff for this track.
+  Master verification confirms the final `git diff -- src/bin/litebike.rs` is
+  limited to the six target handlers, the stub-command compile errors are gone,
+  `cargo build --bin litebike --features warp,git2` now fails only on the
+  separate `tls-quic`/`CoroutineContext` blockers in `run_proxy_server` and
+  `run_quic_vqa`, and `cargo test --lib` passes (`278 passed; 0 failed; 1 ignored`).

@@ -1,7 +1,7 @@
 # Literbike Conductor Implementation Plan
 
 ## Agentic Implementation Goals
-1. **Complete kotlin-quic-packet-processing-port track** (CRITICAL for Freqtrade alpha)
+1. **Complete kotlin-quic-packet-processing-port track** (CRITICAL for agent alpha)
 2. **Enhance C ABI exports** for comprehensive agent communication
 3. **Implement connection lifecycle management** for agent harness
 4. **Build agent harness integration tests** for robustness validation
@@ -53,7 +53,7 @@
 
 ### Phase 3: C ABI Enhancement for Agent Communication
 **Priority:** CRITICAL
-**Objective:** Complete C ABI exports for Freqtrade integration
+**Objective:** Complete C ABI exports for agent integration
 
 **Tasks:**
 1. **Connection Management C Functions**
@@ -91,7 +91,7 @@
    - [ ] Test stream flow control
    - [ ] Test stream cancellation
 
-3. **Integration Tests with Freqtrade**
+3. **Integration Tests with external agent**
    - [ ] Test with existing `literbike_quic_transport.py` wrapper
    - [ ] Test QUIC transport stability under trading workload
    - [ ] Test retry logic and connection recovery
@@ -120,10 +120,10 @@
 3. ✅ **Connection Pooling:** Efficient reuse of connections
 4. ✅ **Error Recovery:** Automatic recovery within 5 seconds
 5. ✅ **Performance:** Sub-millisecond connection establishment
-6. ✅ **Integration:** Seamless integration with Freqtrade ring agent
+6. ✅ **Integration:** Seamless integration with external ring agent
 
 ## Dependencies
-- **Freqtrade QUIC transport wrapper** - Requires enhanced C ABI
+- **QUIC transport wrapper** - Requires enhanced C ABI
 - **Moneyfan HRM models** - Requires stable transport layer
 - **Litebike CC-Store DSEL** - Requires transport for model serving
 

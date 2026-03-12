@@ -8,7 +8,7 @@
 - [x] Identify where truncated packet number is currently parsed/used and define reconstruction inputs
 - [x] Define header-protection hook interface shape (trait/functions/module boundaries)
 - [x] Define feature flag name and module layout for handshake/crypto integration
-- [x] Confirm C ABI function signatures against `/Users/jim/work/freqtrade/user_data/ops/literbike_quic_transport.py`
+- [x] Confirm C ABI function signatures against `/Users/jim/work/external-bot/user_data/ops/literbike_quic_transport.py`
 - [x] Choose new crate name and output library name strategy (`libliterbike_quic.*` compatibility)
 
 ## Phase 2: Packet Number Reconstruction + Header Protection Hooks
@@ -28,7 +28,7 @@
 - [x] Keep feature-off behavior compiling and preserve current foundational tests
 - [x] Add compile/smoke tests for feature-on and feature-off builds
 
-## Phase 4: C ABI QUIC `cdylib` Crate for `freqtrade`
+## Phase 4: C ABI QUIC `cdylib` Crate for `external-bot`
 
 - [x] Add a new workspace member crate (separate from `/Users/jim/work/literbike/literbike-ffi`)
 - [x] Configure crate as `cdylib` with ctypes-friendly exported symbols

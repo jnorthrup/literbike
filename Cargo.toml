@@ -10,7 +10,7 @@ default = ["quic"]
 quic = ["dep:bincode", "dep:bytes", "dep:tracing", "dep:log", "dep:glob", "dep:base64"]
 quic-crypto = ["quic"]
 full = ["quic", "couchdb", "gates"]
-couchdb = ["dep:sled", "dep:utoipa", "dep:utoipa-swagger-ui", "dep:axum", "dep:tower", "dep:tower-http", "dep:base64", "dep:ndarray"]
+couchdb = ["dep:sled", "dep:utoipa", "dep:utoipa-swagger-ui", "dep:axum", "dep:tower", "dep:tower-http", "dep:base64", "dep:ndarray", "dep:ndarray-linalg", "dep:ipfs-api-backend-hyper", "dep:cid", "dep:notify", "dep:git2"]
 gates = ["dep:async-trait"]
 ipfs = ["dep:ipfs-api-backend-hyper", "dep:cid"]
 tensor = ["dep:ndarray", "dep:ndarray-linalg"]
@@ -74,7 +74,7 @@ tracing = { version = "0.1", optional = true }
 # CouchDB feature dependencies
 sled = { version = "0.34", optional = true }
 utoipa = { version = "4.0", optional = true }
-utoipa-swagger-ui = { version = "4.0", optional = true }
+utoipa-swagger-ui = { version = "4.0", optional = true, features = ["axum"] }
 axum = { version = "0.7", optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }

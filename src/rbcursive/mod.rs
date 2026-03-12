@@ -3,7 +3,7 @@
 
 // Litebike governance note:
 // The `rbcursive` module is maintained under the Litebike project.
-// Non-bounty or Betanet-specific design notes have been moved to `docs/betanet-densifier.md`.
+// Non-bounty or spec-specific design notes have been moved to `docs/design-notes.md`.
 // For micro-protocol authors, see `src/rbcursive/micro_protocol_template.rs` and `src/rbcursive/README.md`.
 
 pub mod combinators;

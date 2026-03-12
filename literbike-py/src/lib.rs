@@ -7,7 +7,7 @@ use tokio::runtime::Runtime;
 
 /// Literbike QUIC Transport Client for Python
 ///
-/// Provides low-latency QUIC transport for Freqtrade ring_agent
+/// Provides low-latency QUIC transport for external agents
 #[pyclass]
 struct QuicClient {
     runtime: Arc<Runtime>,

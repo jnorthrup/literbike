@@ -179,7 +179,7 @@ RFC Validation:     89 anchors (threshold: 30) ✅
 ## Next Steps (Post-Conductor)
 
 ### Immediate
-1. **Freqtrade Integration** - Test Python FFI with ring agent
+1. **Agent Integration** - Test Python FFI with ring agent
 2. **Production Deployment** - Deploy to test environment
 3. **Load Testing** - Measure performance under load
 4. **Monitoring** - Add observability hooks
@@ -211,7 +211,7 @@ The LiterBike codebase is production-ready with:
 - ✅ RFC-anchored protocol documentation
 - ✅ End-to-end integration tests
 
-**Recommendation:** Proceed immediately with production deployment and Freqtrade alpha integration.
+**Recommendation:** Proceed immediately with production deployment and agent alpha integration.
 
 ---
 

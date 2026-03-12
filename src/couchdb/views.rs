@@ -160,8 +160,8 @@ impl JavaScriptEngine {
                 }
             }
             
-            // Sum reduce
-            "_sum" | reduce_fn if reduce_fn.contains("sum") => {
+            // Sum reduce: builtin "_sum" or any custom function containing "sum"
+            reduce_fn if reduce_fn == "_sum" || reduce_fn.contains("sum") => {
                 let sum: f64 = values.iter()
                     .filter_map(|v| v.as_f64())
                     .sum();
@@ -254,16 +254,18 @@ impl ViewServer {
     /// Compile a view and build its index
     fn compile_view(&self, db: &DatabaseInstance, design_doc: &DesignDocument, view_name: &str, view_def: &ViewDefinition) -> CouchResult<CompiledView> {
         debug!("Compiling view: {}/{}", design_doc.id, view_name);
-        
+
         let mut index = BTreeMap::new();
-        let current_seq = *db.sequence_counter.read().unwrap();
-        
+
         // Get all documents and apply map function
         let all_docs = db.get_all_documents(&ViewQuery {
             include_docs: Some(true),
             conflicts: Some(false),
             ..Default::default()
         })?;
+
+        // Extract sequence from the view result (public API) instead of direct field access
+        let current_seq = all_docs.update_seq.unwrap_or(0);
         
         let js_engine = self.javascript_engine.read().unwrap();
         if let Some(ref engine) = *js_engine {
@@ -658,8 +660,15 @@ mod tests {
         
         let result = engine.execute_reduce("_sum", &keys, &values, false).unwrap();
         assert_eq!(result.value, json!(3.0));
+
+        // Custom sum function (contains "sum" but is not "_sum")
+        let result = engine.execute_reduce(
+            "function(keys, values, rereduce) { return sum(values); }",
+            &keys, &values, false,
+        ).unwrap();
+        assert_eq!(result.value, json!(3.0));
     }
-    
+
     #[test]
     fn test_view_server_creation() {
         let config = ViewServerConfig::default();

@@ -18,7 +18,7 @@ pub struct KnoxResistantTunnel {
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct PortHoppingConfig {
-    /// Primary ports for HTX traffic
+    /// Primary ports for tunneled traffic
     pub primary_ports: Vec<u16>,
 
     /// Fallback ports for traffic redirection

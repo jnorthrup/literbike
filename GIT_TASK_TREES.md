@@ -75,7 +75,7 @@ kafka/p1-test-mesh             # Deploy test mesh
 ### Code Cleanup
 
 ```
-cleanup/p1-rename-patterns     # betanet_patterns → p2p_patterns
+cleanup/p1-rename-patterns     # patterns.rs → p2p_patterns.rs (scrub project refs)
 cleanup/p1-rename-types        # BetanetCID → ContentId, etc.
 cleanup/p1-archive-docs        # Move extraction report
 cleanup/p1-update-agents       # Update .claude/agents/ configs
@@ -143,7 +143,7 @@ perf/p3-io-uring               # Linux io_uring backend
 
 ```
 wam/p3-predicate-engine        # WAM implementation
-wam/p3-strategy-port           # Port Freqtrade strategies
+wam/p3-strategy-port           # Port trading strategies
 ```
 
 **Base:** `master` (independent)

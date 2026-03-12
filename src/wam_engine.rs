@@ -91,11 +91,11 @@ pub struct Label(pub u32);
 /// Protocol Type Classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProtocolType {
-    HTX = 1,
     QUIC = 2,
     HTTP = 3,
     TLS = 4,
     Nym = 5,
+    // HTX support removed during cleanup
 }
 
 /// WAM Cell - Heap/Stack Storage Unit
@@ -568,7 +568,7 @@ impl WAMEngine {
     /// Protocol dispatch for HTX, QUIC, etc.
     fn protocol_dispatch(&mut self, protocol: ProtocolType, operation: u8) -> WAMResult {
         match protocol {
-            ProtocolType::HTX => self.handle_htx_operation(operation),
+            // ProtocolType::HTX removed
             ProtocolType::QUIC => self.handle_quic_operation(operation),
             ProtocolType::HTTP => self.handle_http_operation(operation),
             ProtocolType::TLS => self.handle_tls_operation(operation),
@@ -576,26 +576,9 @@ impl WAMEngine {
         }
     }
     
-    /// HTX protocol operations for bounty requirements
-    fn handle_htx_operation(&mut self, operation: u8) -> WAMResult {
-        match operation {
-            1 => { // dial operation
-                // Extract arguments from registers
-                let addr_reg = self.get_register(Register(0));
-                let port_reg = self.get_register(Register(1));
-                
-                // Call dial implementation
-                self.htx_dial(addr_reg, port_reg)
-            }
-            2 => { // accept operation
-                self.htx_accept()
-            }
-            3 => { // stream operation
-                let stream_id_reg = self.get_register(Register(0));
-                self.htx_stream(stream_id_reg)
-            }
-            _ => WAMResult::Exception(format!("Unknown HTX operation: {}", operation))
-        }
+    /// HTX protocol support has been removed
+    fn handle_htx_operation(&mut self, _operation: u8) -> WAMResult {
+        WAMResult::Exception("HTX protocol is no longer supported".into())
     }
     
     /// I/O operation dispatch to io_uring
@@ -875,20 +858,23 @@ impl WAMEngine {
         WAMResult::Success
     }
     
-    fn htx_dial(&mut self, addr_reg: WAMCell, port_reg: WAMCell) -> WAMResult {
-        self.program_counter += 1;
-        WAMResult::Success
-    }
+    // HTX dial function removed during cleanup
+    // fn htx_dial(&mut self, addr_reg: WAMCell, port_reg: WAMCell) -> WAMResult {
+    //     self.program_counter += 1;
+    //     WAMResult::Success
+    // }
     
-    fn htx_accept(&mut self) -> WAMResult {
-        self.program_counter += 1;
-        WAMResult::Success
-    }
+    // HTX accept function removed during cleanup
+    // fn htx_accept(&mut self) -> WAMResult {
+    //     self.program_counter += 1;
+    //     WAMResult::Success
+    // }
     
-    fn htx_stream(&mut self, stream_id_reg: WAMCell) -> WAMResult {
-        self.program_counter += 1;
-        WAMResult::Success
-    }
+    // HTX stream function removed during cleanup
+    // fn htx_stream(&mut self, stream_id_reg: WAMCell) -> WAMResult {
+    //     self.program_counter += 1;
+    //     WAMResult::Success
+    // }
     
     fn suspend_for_io(&mut self, op_type: IoOpType, fd: i32, len: u32) -> WAMResult {
         self.program_counter += 1;

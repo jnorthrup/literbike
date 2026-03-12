@@ -1,6 +1,6 @@
 //! Structured Concurrency for Literbike
 //! 
-//! Based on Kotlin Coroutines patterns from Betanet:
+//! Based on Kotlin Coroutines patterns:
 //! - CoroutineContext.Element composition (CCEK pattern)
 //! - Channel-based communication
 //! - Flow-based reactive streams  
@@ -56,7 +56,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ccek_context_composition() {
-        // Replicate Kotlin pattern from BetanetIntegrationDemo.kt
+        // Replicate Kotlin coroutine pattern example
         let ctx = EmptyContext
             + Arc::new(ProtocolDetector::new()) as Arc<dyn ContextElement>
             + Arc::new(DHTService::new("node-1"));

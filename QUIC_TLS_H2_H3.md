@@ -123,7 +123,7 @@ cargo run --bin quic_curl_h2 --features curl-h2
 │           TLS Termination (src/quic/tls/)               │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │  TlsTerminator - rustls ServerConfig             │   │
-│  │  ALPN: h3, h2, hq-interop, htxquic               │   │
+│  │  ALPN: h3, h2, hq-interop                         │   │
 │  │  Certificates: self-signed or PEM files          │   │
 │  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘

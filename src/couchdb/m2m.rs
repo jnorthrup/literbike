@@ -112,9 +112,9 @@ impl M2mManager {
         H: MessageHandler + Send + Sync + 'static,
     {
         let message_type = handler.message_type();
+        info!("Registered handler for message type: {:?}", message_type);
         let mut handlers = self.message_handlers.write().unwrap();
         handlers.insert(message_type, Box::new(handler));
-        info!("Registered handler for message type: {:?}", message_type);
         Ok(())
     }
     

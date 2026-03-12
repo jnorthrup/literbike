@@ -8,6 +8,7 @@ use ndarray_linalg::{Solve, Inverse, Eig, SVD, QR};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use serde_json::{Value, json};
+use serde::ser::{Serialize, Serializer, SerializeStruct};
 use log::{info, warn, error, debug};
 use uuid::Uuid;
 use chrono::Utc;
@@ -68,6 +69,31 @@ pub struct TensorResult {
     pub scalar_result: Option<f64>,
     pub metadata: HashMap<String, Value>,
     pub execution_time_ms: u64,
+}
+
+impl Serialize for TensorData {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let flat_data: Vec<f64> = self.data.iter().cloned().collect();
+        let mut state = serializer.serialize_struct("TensorData", 5)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("shape", &self.shape)?;
+        state.serialize_field("data", &flat_data)?;
+        state.serialize_field("created_at", &self.created_at)?;
+        state.serialize_field("metadata", &self.metadata)?;
+        state.end()
+    }
+}
+
+impl Serialize for TensorResult {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("TensorResult", 5)?;
+        state.serialize_field("operation_id", &self.operation_id)?;
+        state.serialize_field("result_tensor", &self.result_tensor)?;
+        state.serialize_field("scalar_result", &self.scalar_result)?;
+        state.serialize_field("metadata", &self.metadata)?;
+        state.serialize_field("execution_time_ms", &self.execution_time_ms)?;
+        state.end()
+    }
 }
 
 impl TensorEngine {
@@ -501,7 +527,7 @@ impl TensorEngine {
             shape: tensor.shape.clone(),
             data: q.into_dyn(),
             created_at: Utc::now(),
-            metadata: json!({"decomposition": "Q_matrix"}).as_object().unwrap().clone(),
+            metadata: json!({"decomposition": "Q_matrix"}).as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         };
         
         Ok((Some(tensor_result), None))

@@ -1,7 +1,7 @@
 //! Kafka Replacement Smoke Test
 //! 
-//! This demonstrates how Literbike's QUIC + CCEK + DuckDB stack
-//! can replace Kafka for the Freqtrade bot engine use case.
+//! Demonstrates how Literbike's QUIC + CCEK + DuckDB stack
+//! can replace Kafka for a generic bot engine use case.
 //!
 //! Architecture:
 //! ```text
@@ -20,7 +20,8 @@
 //! 5. **Backpressure** → async-channel bounded buffers
 
 use crate::concurrency::*;
-use crate::betanet_patterns::*;
+// betanet patterns removed during cleanup
+// use crate::betanet_patterns::*;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
