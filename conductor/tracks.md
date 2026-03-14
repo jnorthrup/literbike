@@ -625,3 +625,23 @@ paths, and DuckDB persistence/audit behavior together in deterministic scenarios
 **Link:** [quic-dht-duckdb-integration-tests_20260225](./tracks/quic-dht-duckdb-integration-tests_20260225/)
 
 ---
+
+---
+
+## [ ] Track: KMPngSCTP Integration
+
+Port and integrate the KMPngSCTP (Next-gen SCTP in Kotlin Multiplatform) protocol
+into literbike as a first-class transport option alongside QUIC.
+
+### Status
+- [ ] Study `KMPngSCTP/docs/protocol.md` for TLV chunk format
+- [ ] Port TLV chunk definitions from `ngsctp/src/commonMain/kotlin/dev/jnorthrup/ngsctp/chunks/`
+- [ ] Implement chunk parser in `src/sctp/chunks.rs`
+- [ ] Port `NgSctpAssociation.kt` patterns to `src/sctp/association.rs`
+- [ ] Wire SCTP into transport layer as alternative to QUIC
+- [ ] Add `sctp-client` and `sctp-stats` CLI commands
+- [ ] Integration tests for association lifecycle
+
+**Link:** [sctp-kmpngsctp-integration_20260314](./tracks/sctp-kmpngsctp-integration_20260314/)
+
+---

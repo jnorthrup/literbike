@@ -24,7 +24,7 @@ hkdf = ["dep:hkdf"]
 [dependencies]
 # Core (always needed)
 tokio = { version = "1.41", features = ["full"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "multipart"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
@@ -118,6 +118,10 @@ rustls = { version = "0.23", optional = true, features = ["ring"] }
 rcgen = { version = "0.13", optional = true }
 rustls-pemfile = { version = "2.0", optional = true }
 
+# ModelMux (always needed for litebike integration)
+dirs = "5.0"
+blake3 = "1.5"
+
 [workspace]
 members = [
     "literbike-py",
@@ -127,28 +131,3 @@ members = [
 	"tools/config_tester",
     "conductor-cli",
 ]
-
-# Binary targets with required features
-[[bin]]
-name = "couchdb_emulator"
-required-features = ["couchdb"]
-
-[[bin]]
-name = "litebike"
-required-features = ["warp", "git2"]
-
-[[bin]]
-name = "quic_tls_server"
-required-features = ["tls-quic"]
-
-[[bin]]
-name = "quic_curl_h2"
-required-features = ["curl-h2"]
-
-[[bin]]
-name = "quic_curl"
-required-features = ["quic"]
-
-[[bin]]
-name = "carrier_bypass"
-required-features = ["warp", "quic", "curl-h2"]

@@ -25,6 +25,13 @@ pub mod api_translation;
 pub mod rbcursive;
 pub use rbcursive::precompile::{PRECOMPILED_PATTERNS, PrecompiledPatterns};
 pub mod model_mux;
+
+// Keymux - unified model facade
+pub mod keymux;
+
+// ModelMux - model caching and selection
+pub mod modelmux;
+
 pub mod syscall_net;
 
 // Structured concurrency (Kotlin coroutines pattern)
