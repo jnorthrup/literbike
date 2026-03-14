@@ -1,0 +1,10 @@
+{
+  "track_id": "sctp-kmpngsctp-integration_20260314",
+  "created": "2026-03-14",
+  "priority": "medium",
+  "status": "pending",
+  "tags": ["sctp", "transport", "kmp", "port"],
+  "estimated_effort": "large",
+  "dependencies": [],
+  "blocked_by": []
+}
