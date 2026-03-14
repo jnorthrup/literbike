@@ -16,6 +16,8 @@ ipfs = ["dep:ipfs-api-backend-hyper", "dep:cid"]
 tensor = ["dep:ndarray", "dep:ndarray-linalg"]
 curl-h2 = ["dep:curl", "dep:h2", "dep:http", "dep:tokio-io", "dep:clap"]
 tls-quic = ["dep:clap", "quic", "dep:openssl", "dep:hkdf", "dep:rustls", "dep:rcgen", "dep:rustls-pemfile"]
+sctp = []
+git2 = ["dep:git2"]
 ring = ["dep:ring"]
 hkdf = ["dep:hkdf"]
 

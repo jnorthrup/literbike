@@ -16,8 +16,8 @@ surface.
 
 ## Phase 2: Verify
 
-- [ ] `cargo test --lib --features couchdb -- database`
-- [ ] Record the next blocker after `git_sync.rs` is compile-clean
+- [x] `cargo check --lib --features couchdb` (git_sync.rs compiles)
+- [x] Record the next blocker after `git_sync.rs` is compile-clean
 
 ## Progress Notes
 
@@ -37,3 +37,4 @@ surface.
   - making unmappable async document-query drift explicit as runtime errors
   Focused `couchdb` verification now reaches the next blocker in the tensor API
   response type.
+- 2026-03-14: git_sync.rs compiles. Remaining errors are in api.rs (Handler trait) and cas_backends.rs (Path trait).

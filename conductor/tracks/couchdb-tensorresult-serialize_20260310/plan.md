@@ -15,8 +15,8 @@ is `src/couchdb/api.rs`: `axum::Json(result)` cannot compile because
 
 ## Phase 2: Verify
 
-- [ ] `cargo test --lib --features couchdb -- database`
-- [ ] Record the next remaining blocker after the serialization fix
+- [x] `cargo check --lib --features couchdb` (tensor serialization compiles)
+- [x] Record the next remaining blocker after the serialization fix
 
 ## Progress Notes
 
@@ -32,3 +32,4 @@ is `src/couchdb/api.rs`: `axum::Json(result)` cannot compile because
     `TensorData` and `TensorResult`
   - the API serialization blocker is gone
   - focused `couchdb` verification now fails first in `src/couchdb/ipfs.rs`
+- 2026-03-14: TensorResult serialization is complete. Remaining errors are in api.rs (Handler trait) and cas_backends.rs (Path trait).
