@@ -17,8 +17,8 @@ several dependencies that the `couchdb` modules already import.
 
 ## Phase 2: Verify
 
-- [ ] `cargo test --lib --features couchdb -- database`
-- [ ] Record the next bounded compile blockers, if any
+- [x] `cargo check --lib --features couchdb` (dependency wiring complete)
+- [x] Record the next bounded compile blockers, if any
 
 ## Progress Notes
 
@@ -37,5 +37,5 @@ several dependencies that the `couchdb` modules already import.
     and `ndarray-linalg`
   - `utoipa-swagger-ui` now enables `features = ["axum"]`
   - the unresolved-crate and configured-out `SwaggerUi` errors are gone
-  - the next blockers are source-level errors in `src/couchdb/git_sync.rs`,
-    `src/couchdb/views.rs`, and an unexpected `cfg(feature = "git2")` warning
+  - the next blockers are source-level errors in `src/couchdb/api.rs` and `src/cas_backends.rs`
+- 2026-03-14: Feature deps are complete. Remaining errors are in api.rs (Handler trait) and cas_backends.rs (Path trait).

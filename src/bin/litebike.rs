@@ -15,6 +15,10 @@ use literbike::syscall_net::{
     InterfaceAddr,
 };
 use literbike::tethering_bypass::enable_carrier_bypass;
+
+#[cfg(feature = "sctp")]
+use literbike::sctp::SctpServer;
+
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -73,6 +77,8 @@ const WAM_DISPATCH_TABLE: &[(&str, CommandAction)] = &[
     ("trust-host", run_trust_host),
     ("bootstrap", run_bootstrap),
     ("quic-vqa", run_quic_vqa),
+    // SCTP protocol (KMPngSCTP integration)
+    ("sctp-server", run_sctp_server),
 ];
 
 /// WAM-style unification engine for command dispatch
@@ -3957,4 +3963,44 @@ fn run_quic_vqa(args: &[String]) {
             }
         }).await;
     });
+}
+
+#[cfg(feature = "sctp")]
+fn run_sctp_server(args: &[String]) {
+    let port = args
+        .get(0)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(3842);
+    let bind_addr = format!("0.0.0.0:{}", port);
+
+    println!("🚀 Starting SCTP Server (KMPngSCTP)");
+    println!("   Binding to: {}", bind_addr);
+    println!("   Protocol: SCTP (RFC 4960)");
+    println!("   Features: Multi-homing, PR-SCTP, Ordered/Unordered delivery");
+
+    tokio::runtime::Runtime::new()
+        .expect("Failed to create tokio runtime")
+        .block_on(async {
+            match SctpServer::bind(format!("0.0.0.0:{}", port).parse().unwrap()) {
+                Ok(server) => {
+                    println!("   SCTP Server listening on {}", server.local_addr());
+                    println!("   Press Ctrl+C to stop");
+                    
+                    // Keep alive
+                    tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+                    println!("\n🛑 Shutting down SCTP server...");
+                    server.shutdown().await;
+                }
+                Err(e) => {
+                    eprintln!("Failed to bind SCTP server to {}: {}", bind_addr, e);
+                }
+            }
+        });
+}
+
+#[cfg(not(feature = "sctp"))]
+fn run_sctp_server(args: &[String]) {
+    eprintln!("sctp-server: SCTP feature not enabled");
+    eprintln!("Build with: cargo build --features sctp");
+    let _ = args;
 }

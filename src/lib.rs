@@ -90,6 +90,10 @@ pub mod traffic_mirror;
 #[cfg(all(feature = "quic", feature = "tensor"))]
 pub mod wam_engine;
 
+// SCTP protocol support (KMPngSCTP integration)
+#[cfg(feature = "sctp")]
+pub mod sctp;
+
 #[cfg(test)]
 mod tests {
     use super::*;
