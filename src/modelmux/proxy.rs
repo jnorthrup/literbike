@@ -64,7 +64,7 @@ pub struct ModelProxy {
     rule_engine: Arc<RwLock<RuleEngine>>,
     control: Arc<RwLock<GatewayRuntimeControl>>,
     http_client: reqwest::Client,
-    metacache: Arc<RwLock<crate::models::metamodel::MetamodelCache>>,
+    metacache: Arc<RwLock<crate::modelmux::metamodel::MetamodelCache>>,
     card_store: Arc<ModelCardStore>,
 }
 
@@ -77,7 +77,7 @@ impl ModelProxy {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let meta_dir = home.join(".modelmux").join("metacache");
         let metacache = Arc::new(RwLock::new(
-            crate::models::metamodel::MetamodelCache::new(meta_dir)
+            crate::modelmux::metamodel::MetamodelCache::new(meta_dir)
         ));
         
         // Initialize DSEL rule engine with quota management
@@ -606,6 +606,24 @@ impl ModelProxy {
     /// Handle chat completions (OpenAI-compatible /v1/chat/completions endpoint)
     /// Routes via DSEL provider discovery — not the static registry.
     pub async fn chat_completions(&self, mut request: Value) -> Result<Value, ProxyError> {
+        // Tool loop circuit breaker: detect "alligator roll" token-burn loops
+        if let Some(messages_arr) = request.get("messages").and_then(|m| m.as_array()) {
+            if let Some(looping_tool) = detect_tool_loop(messages_arr) {
+                let error_body = serde_json::json!({
+                    "error": {
+                        "type": "tool_loop_detected",
+                        "message": format!(
+                            "Tool loop detected: '{}' is being called repeatedly. \
+                             The model appears to be stuck. Please start a new conversation.",
+                            looping_tool
+                        ),
+                        "looping_tool": looping_tool,
+                    }
+                });
+                return Err(ProxyError::Other(serde_json::to_string(&error_body).unwrap()));
+            }
+        }
+
         let primary_model = self.prepare_request_model(&mut request).await?;
 
         match self.send_chat_completion_request(request.clone()).await {
@@ -1279,7 +1297,7 @@ impl ModelProxy {
             return Ok((response, "openrouter".to_string()));
         }
 
-        let route_opt = crate::dsel::route(model);
+        let route_opt = crate::keymux::dsel::route(model);
         let (provider_name, base_url, key_env) = if let Some(r) = route_opt {
             r
         } else {
@@ -1344,7 +1362,7 @@ impl ModelProxy {
 
         if let Some(usage) = resp_json.get("usage") {
             let total = usage.get("total_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-            let _ = crate::dsel::track_tokens(&provider_name, total);
+            let _ = crate::keymux::dsel::track_tokens(&provider_name, total);
         }
 
         Ok((resp_json, provider_name))
@@ -1642,6 +1660,68 @@ impl HttpResponse {
     }
 }
 
+/// Returns Some(tool_name) if a tool call loop is detected in the messages tail, None otherwise.
+///
+/// Detects two patterns within the last 10 messages:
+///   - Same tool repeated >= 3 consecutive times
+///   - Alternating A→B→A→B pattern (length >= 4)
+fn detect_tool_loop(messages: &[serde_json::Value]) -> Option<String> {
+    let tail: Vec<&serde_json::Value> = messages.iter().rev().take(10).collect();
+
+    let mut tool_call_sequence: Vec<String> = Vec::new();
+
+    for msg in tail.iter().rev() {
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
+        if role != "assistant" {
+            continue;
+        }
+
+        if let Some(tool_calls) = msg.get("tool_calls").and_then(|tc| tc.as_array()) {
+            for tc in tool_calls {
+                if let Some(name) = tc
+                    .get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                {
+                    tool_call_sequence.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    if tool_call_sequence.len() < 3 {
+        return None;
+    }
+
+    // Check for same tool repeated >= 3 times consecutively
+    let last = tool_call_sequence.last().unwrap();
+    let repeat_count = tool_call_sequence
+        .iter()
+        .rev()
+        .take_while(|t| *t == last)
+        .count();
+    if repeat_count >= 3 {
+        return Some(last.clone());
+    }
+
+    // Check for A→B→A→B alternating pattern (length >= 4)
+    if tool_call_sequence.len() >= 4 {
+        let n = tool_call_sequence.len();
+        if tool_call_sequence[n - 1] == tool_call_sequence[n - 3]
+            && tool_call_sequence[n - 2] == tool_call_sequence[n - 4]
+            && tool_call_sequence[n - 1] != tool_call_sequence[n - 2]
+        {
+            return Some(format!(
+                "{}↔{}",
+                tool_call_sequence[n - 2],
+                tool_call_sequence[n - 1]
+            ));
+        }
+    }
+
+    None
+}
+
 /// Proxy errors
 #[derive(Debug)]
 pub enum ProxyError {
@@ -1669,3 +1749,48 @@ impl std::fmt::Display for ProxyError {
 }
 
 impl std::error::Error for ProxyError {}
+
+#[cfg(test)]
+mod tool_loop_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_tool_msg(tool_name: &str) -> serde_json::Value {
+        json!({
+            "role": "assistant",
+            "tool_calls": [{"function": {"name": tool_name}, "id": "x", "type": "function"}]
+        })
+    }
+
+    #[test]
+    fn test_detects_repeated_tool() {
+        let msgs = vec![
+            make_tool_msg("ls"),
+            make_tool_msg("ls"),
+            make_tool_msg("ls"),
+        ];
+        assert_eq!(detect_tool_loop(&msgs), Some("ls".to_string()));
+    }
+
+    #[test]
+    fn test_detects_alternating_tools() {
+        let msgs = vec![
+            make_tool_msg("read"),
+            make_tool_msg("write"),
+            make_tool_msg("read"),
+            make_tool_msg("write"),
+        ];
+        assert!(detect_tool_loop(&msgs).is_some());
+    }
+
+    #[test]
+    fn test_no_loop_normal_conversation() {
+        let msgs = vec![
+            json!({"role": "user", "content": "hello"}),
+            make_tool_msg("search"),
+            json!({"role": "tool", "content": "results"}),
+            make_tool_msg("read"),
+        ];
+        assert_eq!(detect_tool_loop(&msgs), None);
+    }
+}
