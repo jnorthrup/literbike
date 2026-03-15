@@ -12,6 +12,7 @@ quic-crypto = ["quic"]
 full = ["quic", "couchdb", "gates"]
 couchdb = ["dep:sled", "dep:utoipa", "dep:utoipa-swagger-ui", "dep:axum", "dep:tower", "dep:tower-http", "dep:base64", "dep:ndarray", "dep:ndarray-linalg", "dep:ipfs-api-backend-hyper", "dep:cid", "dep:notify", "dep:git2"]
 gates = ["dep:async-trait"]
+request-factory = ["couchdb", "dep:axum", "dep:tower", "dep:tower-http"]
 ipfs = ["dep:ipfs-api-backend-hyper", "dep:cid"]
 tensor = ["dep:ndarray", "dep:ndarray-linalg"]
 curl-h2 = ["dep:curl", "dep:h2", "dep:http", "dep:tokio-io", "dep:clap"]
@@ -31,6 +32,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 env_logger = "0.10"
 once_cell = "1.19"
+byteorder = "1.5"
 
 # Async/concurrency
 futures = "0.3"
@@ -121,6 +123,9 @@ rustls-pemfile = { version = "2.0", optional = true }
 # ModelMux (always needed for litebike integration)
 dirs = "5.0"
 blake3 = "1.5"
+
+# Userspace kernel emulation substrate
+userspace = { path = "../userspace", features = ["kernel", "syscall-net"] }
 
 [workspace]
 members = [

@@ -7,6 +7,9 @@ pub mod couchdb;
 #[cfg(feature = "gates")]
 pub mod gates;
 
+#[cfg(feature = "request-factory")]
+pub mod request_factory;
+
 #[cfg(feature = "ipfs")]
 pub mod ipfs_integration;
 
@@ -36,6 +39,9 @@ pub mod syscall_net;
 
 // Structured concurrency (Kotlin coroutines pattern)
 pub mod concurrency;
+
+// I/O Substrate - userspace kernel emulation
+pub mod io_substrate;
 
 // legacy patterns module removed during betanet cleanup
 // pub mod betanet_patterns;  // intentionally disabled
