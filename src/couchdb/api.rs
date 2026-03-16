@@ -119,12 +119,12 @@ pub struct ApiDoc;
 
 /// Create the main API router
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let base = Router::new()
         // Server endpoints
         .route("/", get(get_server_info))
         .route("/_all_dbs", get(list_databases))
         .route("/_stats", get(get_server_stats))
-        
+
         // Database endpoints
         .route("/:db", put(create_database))
         .route("/:db", delete(delete_database))
@@ -133,48 +133,56 @@ pub fn create_router(state: AppState) -> Router {
         .route("/:db/_bulk_docs", post(bulk_docs))
         .route("/:db/_changes", get(get_changes))
         .route("/:db/_compact", post(compact_database))
-        
+
         // Document endpoints
         .route("/:db/:doc_id", get(get_document))
         .route("/:db/:doc_id", put(put_document))
         .route("/:db/:doc_id", delete(delete_document))
         .route("/:db/:doc_id", head(head_document))
-        
+
         // View endpoints
         .route("/:db/_design/:ddoc/_view/:view", get(query_view))
         .route("/:db/_design/:ddoc/_view/:view", post(query_view_post))
-        
+
         // Attachment endpoints
         .route("/:db/:doc_id/:attachment", put(put_attachment))
         .route("/:db/:doc_id/:attachment", get(get_attachment))
         .route("/:db/:doc_id/:attachment", delete(delete_attachment))
-        
+
         // IPFS endpoints
         .route("/_ipfs/store", post(ipfs_store))
         .route("/_ipfs/get/:cid", get(ipfs_get))
         .route("/_ipfs/stats", get(ipfs_stats))
         .route("/_ipfs/gc", post(ipfs_gc))
-        
+
         // M2M endpoints
         .route("/_m2m/send", post(m2m_send_message))
         .route("/_m2m/broadcast", post(m2m_broadcast_message))
         .route("/_m2m/peers", get(m2m_list_peers))
         .route("/_m2m/stats", get(m2m_get_stats))
-        
+
         // Tensor endpoints
         .route("/_tensor/execute", post(tensor_execute_operation))
         .route("/_tensor/stats", get(tensor_get_stats))
-        
+
         // Key-Value store endpoints
         .route("/_kv/:key", put(kv_put))
         .route("/_kv/:key", get(kv_get))
         .route("/_kv/:key", delete(kv_delete))
         .route("/_kv", get(kv_list_keys))
         .route("/_kv/_stats", get(kv_get_stats))
-        
-        // Add Swagger UI
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        
+
+        // Swagger UI
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+
+    #[cfg(feature = "request-factory")]
+    let base = base
+        .route("/_rf", post(crate::request_factory::handler::rf_handler))
+        .route("/_rf/metrics", get(crate::request_factory::handler::rf_metrics_handler))
+        .route("/_rf/metrics/reset", post(crate::request_factory::handler::rf_reset_metrics_handler))
+        .route("/_rf/changes", get(crate::request_factory::changes::rf_changes_handler));
+
+    base
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
