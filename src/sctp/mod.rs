@@ -5,11 +5,30 @@
 //!
 //! ## Features
 //!
+//! - TLV-based chunk format (unknown chunks are skipped - Wireshark compatible)
 //! - SCTP server for accepting incoming associations
 //! - SCTP client for initiating connections
 //! - Multi-homing support
 //! - Partial reliability (PR-SCTP)
 //! - Ordered and unordered message delivery
+//! - Up to 65535 streams per association
+//!
+//! ## Protocol
+//!
+//! Based on KMPngSCTP spec:
+//! - 4-way handshake (INIT -> INIT_ACK -> COOKIE_ECHO -> COOKIE_ACK)
+//! - Association as structured scope (auto-cleanup on drop)
+//! - Streams as channels (send/receive)
+//! - ML congestion control slot
+//!
+//! ## References
+//!
+//! - RFC 4960: SCTP
+//! - RFC 3758: Partial Reliability
+//! - RFC4820: Stream Schedulers
+//! - RFC 8260: Stream Control Transmission Protocol
+
+pub mod chunks;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

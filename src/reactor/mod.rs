@@ -9,6 +9,8 @@ pub mod reactor;
 pub mod selector;
 pub mod simple_reactor;
 pub mod timer;
+pub mod userspace_selector;
 
 pub use reactor::{Reactor, ReactorTickResult};
 pub use simple_reactor::SimpleReactor;
+pub use userspace_selector::UserspaceSelector;

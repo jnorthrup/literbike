@@ -71,7 +71,10 @@ impl ManualSelector {
 impl SelectorBackend for ManualSelector {
     fn register(&mut self, fd: RawFd, interests: InterestSet) -> io::Result<()> {
         if self.closed {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "selector is closed"));
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "selector is closed",
+            ));
         }
         if self.registrations.contains_key(&fd) {
             return Err(io::Error::new(
@@ -85,7 +88,10 @@ impl SelectorBackend for ManualSelector {
 
     fn reregister(&mut self, fd: RawFd, interests: InterestSet) -> io::Result<()> {
         if self.closed {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "selector is closed"));
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "selector is closed",
+            ));
         }
         let slot = self.registrations.get_mut(&fd).ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, format!("fd {fd} not registered"))

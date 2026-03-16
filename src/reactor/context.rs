@@ -30,7 +30,7 @@ impl ReactorService {
             config: ReactorConfig::default(),
         }
     }
-    
+
     pub fn with_config(config: ReactorConfig) -> Self {
         Self {
             id: format!("reactor-{}", std::process::id()),
@@ -49,7 +49,7 @@ impl ContextElement for ReactorService {
     fn key(&self) -> &'static str {
         "ReactorService"
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -69,12 +69,12 @@ mod tests {
     use super::*;
     use crate::concurrency::EmptyContext;
     use std::sync::Arc;
-    
+
     #[test]
     fn test_reactor_service_key() {
         assert_eq!(ReactorService::new().key(), "ReactorService");
     }
-    
+
     #[test]
     fn test_context_composition() {
         let service = Arc::new(ReactorService::new());

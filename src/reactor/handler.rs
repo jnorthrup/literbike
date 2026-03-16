@@ -23,7 +23,7 @@ impl EventHandler for NullHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_null_handler() {
         let mut handler = NullHandler;
