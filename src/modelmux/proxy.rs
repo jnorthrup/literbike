@@ -126,16 +126,7 @@ impl ModelProxy {
         // Load models from cache
         self.load_cached_models().await;
 
-        // load metamodels from HuggingFace if token provided
-        if let Ok(hf) = std::env::var("HUGGINGFACE_API_KEY") {
-            if let Ok(metas) = crate::models::metamodel::fetch_huggingface_sheet(&hf).await {
-                let mut mc = self.metacache.write().await;
-                for m in metas {
-                    let _ = mc.insert(m);
-                }
-                mc.replicate_all();
-            }
-        }
+        // HF metamodel hydration deferred (requires per-model id + token)
 
         // Pick up default/fallback model from env (may have been loaded from .env)
         if self.config.default_model.is_none() {
@@ -207,13 +198,13 @@ impl ModelProxy {
     /// context_window values are capped by MODELMUX_MAX_CONTEXT_WINDOW if set.
     pub async fn get_models(&self) -> Value {
         // Use shared helper so other modules leverage same value
-        let max_ctx = crate::models::utils::max_context_window();
+        let max_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000);
 
         // Check cache first — only return if we have non-expired entries
         {
             let cache = self.cache.read().await;
             let cached = cache.get_all_models();
-            let live: Vec<&crate::models::cache::CachedModel> = cached.iter()
+            let live: Vec<&CachedModel> = cached.iter()
                 .filter(|m| !m.is_expired())
                 .collect();
             if !live.is_empty() {
@@ -280,11 +271,11 @@ impl ModelProxy {
                 // Perplexity has no /models endpoint; skip fetch, seed known models
                 let mut cache = self.cache.write().await;
                 for model_name in &["sonar", "sonar-pro", "sonar-deep-research", "sonar-reasoning", "sonar-reasoning-pro"] {
-                    cache.cache(crate::models::cache::CachedModel {
+                    cache.cache(CachedModel {
                         id: format!("perplexity/{}", model_name),
                         provider: "perplexity".to_string(),
                         name: model_name.to_string(),
-                        context_window: crate::models::utils::max_context_window(),
+                        context_window: std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000),
                         max_tokens: 32768,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
@@ -319,7 +310,7 @@ impl ModelProxy {
                             .and_then(|d| d.as_array())
                             .unwrap_or(&empty);
                         let mut cache = self.cache.write().await;
-                        let max_ctx = crate::models::utils::max_context_window();
+                        let max_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000);
                         for m in data {
                             // OpenAI: "id", Gemini: "name" (format: "models/gemini-2.0-flash")
                             let raw_id = m.get("id")
@@ -359,7 +350,7 @@ impl ModelProxy {
                                 .map(|c| c * 1_000_000.0)
                                 .unwrap_or(0.0);
 
-                            cache.cache(crate::models::cache::CachedModel {
+                            cache.cache(CachedModel {
                                 id: model_id,
                                 provider: p.name.clone(),
                                 name: raw_id.to_string(),
@@ -385,11 +376,11 @@ impl ModelProxy {
                     }
                     // Timeout/error — seed a default so the provider still appears
                     let mut cache = self.cache.write().await;
-                    cache.cache(crate::models::cache::CachedModel {
+                    cache.cache(CachedModel {
                         id: format!("{}/default", p.name),
                         provider: p.name.clone(),
                         name: format!("{} (via {})", p.name, p.key_env),
-                        context_window: crate::models::utils::max_context_window(),
+                        context_window: std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000),
                         max_tokens: 32768,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
@@ -1326,16 +1317,33 @@ impl ModelProxy {
         let api_key = std::env::var(&key_env)
             .map_err(|_| ProxyError::Unauthorized(format!("Missing API key: {}", key_env)))?;
 
-        request["stream"] = json!(false);
         request["model"] = json!(upstream_model);
 
-        let url = format!("{}/chat/completions", base_url);
-        let response = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&request)
+        // Anthropic uses /v1/messages with x-api-key, not /chat/completions with Bearer
+        let (url, body, mut req_builder) = if provider_name == "anthropic" {
+            let url = format!("{}/messages", base_url);
+            let body = self.transform_for_anthropic(upstream_model, &request);
+            let rb = self.http_client
+                .post(&url)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("Content-Type", "application/json");
+            (url, body, rb)
+        } else {
+            request["stream"] = json!(false);
+            let url = format!("{}/chat/completions", base_url);
+            let body = request.clone();
+            let auth = if api_key.is_empty() {
+                self.http_client.post(&url)
+            } else {
+                self.http_client.post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+            };
+            (url, body, auth.header("Content-Type", "application/json"))
+        };
+
+        let response = req_builder
+            .json(&body)
             .timeout(std::time::Duration::from_secs(120))
             .send()
             .await;
@@ -1358,6 +1366,13 @@ impl ModelProxy {
             Err(e) => {
                 return Err(ProxyError::UpstreamError(format!("Primary request failed: {}", e)));
             }
+        };
+
+        // Normalize Anthropic response to OpenAI format
+        let resp_json = if provider_name == "anthropic" {
+            self.transform_from_anthropic(&resp_json)
+        } else {
+            resp_json
         };
 
         if let Some(usage) = resp_json.get("usage") {
@@ -1526,7 +1541,7 @@ impl ModelProxy {
                 let (ctx, max_out, param_size) = if let Some(cached) = cache.find(model_id) {
                     (cached.context_window as i64, cached.max_tokens as i64, Self::estimate_param_size(&cached.name))
                 } else {
-                    let default_ctx = crate::models::utils::max_context_window() as i64;
+                    let default_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000) as i64;
                     (default_ctx, 32768i64, "unknown".to_string())
                 };
                 drop(cache);

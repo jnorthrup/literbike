@@ -98,21 +98,33 @@ impl ModelRegistry {
         registry
     }
 
-    /// Register builtin providers
+    /// Register builtin providers — sourced from keymux::dsel as single source of truth.
     fn register_builtin_providers(&mut self) {
-        // Ollama (local)
-        self.providers.insert(
-            "ollama".to_string(),
-            ProviderEntry::new("ollama", "http://localhost:11434", "").without_auth(),
-        );
+        use crate::keymux::dsel::get_provider;
 
-        // LMStudio (local)
-        self.providers.insert(
-            "lmstudio".to_string(),
-            ProviderEntry::new("lmstudio", "http://localhost:1234/v1", "")
-                .without_auth()
-                .with_compatibility(true),
-        );
+        // Local providers (no key needed)
+        for name in &["ollama", "lmstudio"] {
+            if let Some(def) = get_provider(name) {
+                let mut entry = ProviderEntry::new(&def.name, &def.base_url, &def.key_env)
+                    .without_auth()
+                    .with_compatibility(true);
+                self.providers.insert(def.name, entry);
+            }
+        }
+
+        // Cloud providers — Anthropic uses x-api-key, all others use Bearer
+        for name in &["anthropic","openai","google","groq","openrouter","mistral","xai","cerebras"] {
+            if let Some(def) = get_provider(name) {
+                let entry = if def.name == "anthropic" {
+                    ProviderEntry::new(&def.name, &def.base_url, &def.key_env)
+                        .with_auth("x-api-key", None)
+                        .with_compatibility(false)
+                } else {
+                    ProviderEntry::new(&def.name, &def.base_url, &def.key_env)
+                };
+                self.providers.insert(def.name, entry);
+            }
+        }
     }
 
     /// Register a provider
