@@ -4,12 +4,12 @@ use crate::couchdb::{
 };
 use ipfs_api_backend_hyper::{IpfsApi, IpfsClient, TryFromUri, request::Add};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::io::Cursor;
 use chrono::Utc;
 use futures::TryStreamExt;
 use log::{info, warn, debug};
-use tokio::sync::Mutex;
+use tokio::sync::{RwLock, Mutex};
 
 /// IPFS integration for distributed storage of attachments and documents
 pub struct IpfsManager {
@@ -73,9 +73,13 @@ impl IpfsManager {
 
         // Use owned Vec<u8> in Cursor to satisfy 'static + Read bounds
         let cursor = Cursor::new(data.to_vec());
-        let response = self.client
-            .add_with_options(cursor, add_request)
-            .await
+        let client = self.client.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.add_with_options(cursor, add_request).await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("IPFS store failed: {}", e)))?;
 
         let ipfs_cid = IpfsCid {
@@ -86,7 +90,7 @@ impl IpfsManager {
 
         // Cache the result
         if self.config.cache_enabled {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().await;
             cache.insert(response.hash.clone(), ipfs_cid.clone());
         }
 
@@ -97,14 +101,20 @@ impl IpfsManager {
     /// Retrieve data from IPFS
     pub async fn get_data(&self, cid: &str) -> CouchResult<Vec<u8>> {
         debug!("Retrieving data from IPFS: {}", cid);
-        
-        let response = self.client
-            .cat(cid)
-            .map_ok(|chunk| chunk.to_vec())
-            .try_concat()
-            .await
+
+        let cid_owned = cid.to_string();
+        let client = self.client.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.cat(&cid_owned)
+                    .map_ok(|chunk| chunk.to_vec())
+                    .try_concat()
+                    .await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::not_found(&format!("IPFS get failed: {}", e)))?;
-        
+
         debug!("Retrieved {} bytes from IPFS: {}", response.len(), cid);
         Ok(response)
     }
@@ -113,9 +123,14 @@ impl IpfsManager {
     pub async fn pin_content(&self, cid: &str) -> CouchResult<()> {
         debug!("Pinning content in IPFS: {}", cid);
 
-        self.client
-            .pin_add(cid, true)
-            .await
+        let cid_owned = cid.to_string();
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.pin_add(&cid_owned, true).await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("IPFS pin failed: {}", e)))?;
 
         info!("Pinned content: {}", cid);
@@ -126,9 +141,14 @@ impl IpfsManager {
     pub async fn unpin_content(&self, cid: &str) -> CouchResult<()> {
         debug!("Unpinning content from IPFS: {}", cid);
 
-        self.client
-            .pin_rm(cid, true)
-            .await
+        let cid_owned = cid.to_string();
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.pin_rm(&cid_owned, true).await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("IPFS unpin failed: {}", e)))?;
 
         info!("Unpinned content: {}", cid);
@@ -141,7 +161,7 @@ impl IpfsManager {
         
         // Update cache with attachment metadata
         if self.config.cache_enabled {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().await;
             cache.insert(ipfs_cid.cid.clone(), ipfs_cid.clone());
         }
         
@@ -150,40 +170,52 @@ impl IpfsManager {
     
     /// Retrieve attachment from IPFS
     pub async fn get_attachment(&self, cid: &str) -> CouchResult<(Vec<u8>, IpfsCid)> {
-        // Check cache first
-        if self.config.cache_enabled {
-            let cache = self.cache.read().unwrap();
-            if let Some(cached_cid) = cache.get(cid) {
-                let data = self.get_data(cid).await?;
-                return Ok((data, cached_cid.clone()));
-            }
+        // Check cache first - release the lock before awaiting
+        let cached_cid = if self.config.cache_enabled {
+            let cache = self.cache.read().await;
+            cache.get(cid).cloned()
+        } else {
+            None
+        };
+
+        if let Some(ipfs_cid) = cached_cid {
+            let data = self.get_data(cid).await?;
+            return Ok((data, ipfs_cid));
         }
-        
+
         // Retrieve from IPFS
         let data = self.get_data(cid).await?;
-        
+
         // Create basic CID info (content type unknown)
         let ipfs_cid = IpfsCid {
             cid: cid.to_string(),
             size: data.len() as u64,
             content_type: "application/octet-stream".to_string(),
         };
-        
+
         Ok((data, ipfs_cid))
     }
     
     /// Get IPFS node information
     pub async fn get_node_info(&self) -> CouchResult<serde_json::Value> {
-        let version = self.client
-            .version()
-            .await
+        let client = self.client.clone();
+        let version = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.version().await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to get IPFS version: {}", e)))?;
-        
-        let id = self.client
-            .id(None)
-            .await
+
+        let client = self.client.clone();
+        let id = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.id(None).await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to get IPFS ID: {}", e)))?;
-        
+
         Ok(serde_json::json!({
             "version": version.version,
             "commit": version.commit,
@@ -200,24 +232,36 @@ impl IpfsManager {
     
     /// List pinned content
     pub async fn list_pinned(&self) -> CouchResult<Vec<String>> {
-        let pins = self.client
-            .pin_ls(None, None)
-            .await
+        let client = self.client.clone();
+        let pins = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.pin_ls(None, None).await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to list pins: {}", e)))?;
-        
+
         Ok(pins.keys.into_iter().map(|(cid, _)| cid).collect())
     }
     
     /// Get content statistics
     pub async fn get_stats(&self) -> CouchResult<serde_json::Value> {
-        let repo_stats = self.client
-            .stats_repo()
-            .await
+        let client = self.client.clone();
+        let repo_stats = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.stats_repo().await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to get repo stats: {}", e)))?;
 
-        let bitswap_stats = self.client
-            .stats_bitswap()
-            .await
+        let client = self.client.clone();
+        let bitswap_stats = tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                client.stats_bitswap().await
+            })
+        }).await
+            .map_err(|e| CouchError::internal_server_error(&format!("IPFS spawn failed: {}", e)))?
             .map_err(|e| CouchError::internal_server_error(&format!("Failed to get bitswap stats: {}", e)))?;
 
         Ok(serde_json::json!({
@@ -238,7 +282,7 @@ impl IpfsManager {
                 "provide_buf_len": bitswap_stats.provide_buf_len,
                 "wantlist": bitswap_stats.wantlist
             },
-            "cache_size": self.cache.read().unwrap().len()
+            "cache_size": self.cache.read().await.len()
         }))
     }
     
@@ -251,15 +295,15 @@ impl IpfsManager {
     }
     
     /// Clear local cache
-    pub fn clear_cache(&self) {
-        let mut cache = self.cache.write().unwrap();
+    pub async fn clear_cache(&self) {
+        let mut cache = self.cache.write().await;
         cache.clear();
         debug!("Cleared IPFS cache");
     }
     
     /// Get cache statistics
-    pub fn get_cache_stats(&self) -> HashMap<String, serde_json::Value> {
-        let cache = self.cache.read().unwrap();
+    pub async fn get_cache_stats(&self) -> HashMap<String, serde_json::Value> {
+        let cache = self.cache.read().await;
         let mut stats = HashMap::new();
         
         stats.insert("size".to_string(), serde_json::Value::Number(cache.len().into()));
