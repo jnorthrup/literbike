@@ -16,6 +16,9 @@ pub mod ipfs_integration;
 #[cfg(feature = "curl-h2")]
 pub mod curl_h2;
 
+#[cfg(any(feature = "json", feature = "json-min"))]
+pub mod json;
+
 // Core modules always available
 pub mod adapters;
 pub mod cas_gateway;
@@ -24,6 +27,7 @@ pub mod cas_backends;
 pub mod channel;
 pub mod dht;
 pub mod reactor;
+pub use reactor::{Reactor, ReactorTickResult, SimpleReactor, UserspaceSelector};
 pub mod api_translation;
 pub mod rbcursive;
 pub use rbcursive::precompile::{PRECOMPILED_PATTERNS, PrecompiledPatterns};
@@ -48,6 +52,9 @@ pub mod io_substrate;
 
 #[cfg(feature = "git2")]
 pub mod git_sync;
+
+#[cfg(feature = "pijul-session")]
+pub mod session;
 
 #[cfg(feature = "warp")]
 pub mod tethering_bypass;
