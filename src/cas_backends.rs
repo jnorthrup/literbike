@@ -368,7 +368,7 @@ pub struct KvProjectionAdapter {
 
 #[cfg(feature = "couchdb")]
 impl KvProjectionAdapter {
-    pub fn new(path: impl Into<std::path::PathBuf>, namespace: impl Into<String>) -> Result<Self> {
+    pub fn new(path: impl AsRef<std::path::Path>, namespace: impl Into<String>) -> Result<Self> {
         let db = sled::open(path)?;
         Ok(Self {
             db,
@@ -460,7 +460,7 @@ pub fn create_s3_adapter_with_auth(
 /// Create a KV projection adapter (requires couchdb feature for sled)
 #[cfg(feature = "couchdb")]
 pub fn create_kv_adapter(
-    path: impl Into<std::path::PathBuf>,
+    path: impl AsRef<std::path::Path>,
     namespace: impl Into<String>,
 ) -> Result<Arc<dyn ProjectionAdapter>> {
     Ok(Arc::new(KvProjectionAdapter::new(path, namespace)?))
