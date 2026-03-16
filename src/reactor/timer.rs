@@ -46,22 +46,26 @@ impl TimerWheel {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn schedule(&mut self, delay: Duration, callback: TimeoutCallback) -> TimerId {
         let id = TimerId(self.next_id);
         self.next_id += 1;
-        
+
         let expires_at = Instant::now() + delay;
-        let timeout = Timeout { id, expires_at, callback: Some(callback) };
-        
+        let timeout = Timeout {
+            id,
+            expires_at,
+            callback: Some(callback),
+        };
+
         self.timeouts.insert(id, timeout);
         self.insert_sorted(expires_at, id);
-        
+
         self.stats.timers_created += 1;
         self.stats.active_count = self.timeouts.len();
         id
     }
-    
+
     pub fn cancel(&mut self, timer_id: TimerId) -> bool {
         if self.timeouts.remove(&timer_id).is_some() {
             self.expiration_queue.retain(|&(_, id)| id != timer_id);
@@ -72,21 +76,23 @@ impl TimerWheel {
             false
         }
     }
-    
+
     pub fn next_timeout(&self) -> Option<Duration> {
-        self.expiration_queue.front().map(|&(expires_at, _)| {
-            expires_at.saturating_duration_since(Instant::now())
-        })
+        self.expiration_queue
+            .front()
+            .map(|&(expires_at, _)| expires_at.saturating_duration_since(Instant::now()))
     }
-    
+
     pub fn take_expired(&mut self) -> Vec<TimeoutCallback> {
         let now = Instant::now();
         let mut callbacks = Vec::new();
-        
+
         while let Some(&(expires_at, timer_id)) = self.expiration_queue.front() {
-            if expires_at > now { break; }
+            if expires_at > now {
+                break;
+            }
             self.expiration_queue.pop_front();
-            
+
             if let Some(mut timeout) = self.timeouts.remove(&timer_id) {
                 if let Some(callback) = timeout.callback.take() {
                     callbacks.push(callback);
@@ -94,21 +100,22 @@ impl TimerWheel {
                 }
             }
         }
-        
+
         self.stats.active_count = self.timeouts.len();
         callbacks
     }
-    
+
     pub fn active_count(&self) -> usize {
         self.timeouts.len()
     }
-    
+
     pub fn stats(&self) -> &TimerStats {
         &self.stats
     }
-    
+
     fn insert_sorted(&mut self, expires_at: Instant, timer_id: TimerId) {
-        let pos = self.expiration_queue
+        let pos = self
+            .expiration_queue
             .iter()
             .position(|&(time, _)| time > expires_at)
             .unwrap_or(self.expiration_queue.len());
@@ -131,7 +138,7 @@ impl Default for TimerWheel {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    
+
     #[test]
     fn test_timer_scheduling() {
         let mut wheel = TimerWheel::new();
@@ -139,7 +146,7 @@ mod tests {
         assert!(id.0 >= 0);
         assert_eq!(wheel.active_count(), 1);
     }
-    
+
     #[test]
     fn test_timer_cancellation() {
         let mut wheel = TimerWheel::new();
@@ -147,20 +154,25 @@ mod tests {
         assert!(wheel.cancel(id));
         assert!(!wheel.cancel(id));
     }
-    
+
     #[test]
     fn test_timer_expiration() {
         let mut wheel = TimerWheel::new();
         let expired = Arc::new(Mutex::new(false));
         let clone = expired.clone();
-        
-        wheel.schedule(Duration::from_millis(0), Box::new(move || {
-            *clone.lock().unwrap() = true;
-        }));
-        
+
+        wheel.schedule(
+            Duration::from_millis(0),
+            Box::new(move || {
+                *clone.lock().unwrap() = true;
+            }),
+        );
+
         let callbacks = wheel.take_expired();
-        for cb in callbacks { cb(); }
-        
+        for cb in callbacks {
+            cb();
+        }
+
         assert!(*expired.lock().unwrap());
     }
 }
