@@ -2,19 +2,30 @@
 name = "literbike-ffi"
 version = "0.1.0"
 edition = "2021"
-description = "Standalone Python FFI for Literbike QUIC transport"
+description = "Standalone C FFI for Literbike JSON parser and QUIC transport"
 license = "AGPL-3.0"
 
 [lib]
 name = "literbike_ffi"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "staticlib"]
+
+[features]
+default = ["json"]
+json = ["literbike/json"]
+python = ["pyo3"]
 
 [dependencies]
-pyo3 = { version = "0.20", features = ["extension-module"] }
-tokio = { version = "1.41", features = ["full"] }
+pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
+tokio = { version = "1.41", features = ["full"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-hostname = "0.3"
-socket2 = { version = "0.5", features = ["all"] }
-nix = { version = "0.27", features = ["socket"] }
+hostname = { version = "0.3", optional = true }
+socket2 = { version = "0.5", features = ["all"], optional = true }
+nix = { version = "0.27", features = ["socket"], optional = true }
+
+[dependencies.literbike]
+path = ".."
+version = "0.1.0"
+default-features = false
+features = ["json"]

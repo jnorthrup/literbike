@@ -5,6 +5,10 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
+// Include C ABI bindings for JSON parser
+#[cfg(feature = "json")]
+pub mod json;
+
 /// Literbike QUIC Transport Client for Python
 ///
 /// Provides low-latency QUIC transport for external agents
