@@ -10,6 +10,7 @@ pub mod metamodel;
 pub mod control;
 pub mod toolbar;
 pub mod utils;
+pub mod streaming;
 
 pub use cache::{CachedModel, ModelCache};
 pub use registry::{ModelRegistry, ModelEntry, ProviderEntry};

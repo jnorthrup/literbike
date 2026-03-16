@@ -89,6 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tensor_engine,
         ipfs_manager,
         kv_store,
+        rf_tracker: Arc::new(literbike::request_factory::tracker::OperationsTracker::new()),
+        rf_default_db: "rf_entities".to_string(),
     };
 
     // Create router with middleware

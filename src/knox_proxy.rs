@@ -26,17 +26,39 @@ pub struct KnoxProxyConfig {
 
 impl Default for KnoxProxyConfig {
     fn default() -> Self {
+        let is_samsung = Self::detect_samsung();
+        
         Self {
             bind_addr: "0.0.0.0:8080".to_string(),
             socks_port: 1080,
             enable_knox_bypass: true,
-            enable_tethering_bypass: true,
+            enable_tethering_bypass: is_samsung,
             ttl_spoofing: 64,
             max_connections: 100,
             buffer_size: 4096,
             tcp_fingerprint_enabled: true,
             packet_fragmentation_enabled: true,
             tls_fingerprint_enabled: true,
+        }
+    }
+}
+
+impl KnoxProxyConfig {
+    fn detect_samsung() -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            std::path::Path::new("/sys/devices/soc0/family")
+                .exists() || 
+            std::path::Path::new("/proc/device-tree/model")
+                .exists() &&
+            std::fs::read_to_string("/proc/device-tree/model")
+                .map(|m| m.to_lowercase().contains("samsung"))
+                .unwrap_or(false)
+        }
+        
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
         }
     }
 }
@@ -349,6 +371,8 @@ impl KnoxProxy {
             println!("   ✓ DNS override (8.8.8.8, 1.1.1.1)");
             println!("   ✓ User-Agent rotation");
             println!("   ✓ Traffic pattern mimicry");
+        } else {
+            println!("   ℹ Tethering bypass disabled (not running on Samsung)");
         }
         println!("");
         println!("🔗 Usage:");
