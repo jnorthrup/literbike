@@ -59,8 +59,6 @@ pub mod session;
 #[cfg(feature = "warp")]
 pub mod tethering_bypass;
 
-#[cfg(feature = "warp")]
-pub mod knox_proxy;
 
 #[cfg(feature = "quic")]
 pub mod posix_sockets;
