@@ -182,6 +182,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_rf/metrics/reset", post(crate::request_factory::handler::rf_reset_metrics_handler))
         .route("/_rf/changes", get(crate::request_factory::changes::rf_changes_handler));
 
+    #[cfg(feature = "pijul-session")]
+    let base = base.merge(
+        crate::session::routes::session_router()
+            .with_state(crate::session::routes::SessionManager::new())
+    );
+
     base
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
