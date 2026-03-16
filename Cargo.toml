@@ -7,7 +7,7 @@ repository = "https://github.com/literbike/literbike"
 
 [features]
 default = ["quic"]
-quic = ["dep:bincode", "dep:bytes", "dep:tracing", "dep:log", "dep:glob", "dep:base64"]
+quic = ["dep:bincode", "dep:tracing", "dep:log", "dep:glob", "dep:base64"]
 quic-crypto = ["quic"]
 full = ["quic", "couchdb", "gates"]
 couchdb = ["dep:sled", "dep:utoipa", "dep:utoipa-swagger-ui", "dep:axum", "dep:tower", "dep:tower-http", "dep:base64", "dep:ndarray", "dep:ndarray-linalg", "dep:ipfs-api-backend-hyper", "dep:cid", "dep:notify", "dep:git2"]
@@ -19,13 +19,16 @@ curl-h2 = ["dep:curl", "dep:h2", "dep:http", "dep:tokio-io", "dep:clap"]
 tls-quic = ["dep:clap", "quic", "dep:openssl", "dep:hkdf", "dep:rustls", "dep:rcgen", "dep:rustls-pemfile"]
 sctp = []
 git2 = ["dep:git2"]
+pijul-session = ["dep:libpijul"]
 ring = ["dep:ring"]
 hkdf = ["dep:hkdf"]
+json = ["dep:ahash", "dep:simd-json", "dep:pest", "dep:pest_derive"]
+json-min = ["dep:ahash"]
 
 [dependencies]
 # Core (always needed)
 tokio = { version = "1.41", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
@@ -69,7 +72,7 @@ tempfile = "3.0"
 
 # QUIC feature dependencies
 bincode = { version = "1.3", optional = true }
-bytes = { version = "1.0", optional = true }
+bytes = "1.0"
 rand = "0.8"
 parking_lot = "0.12"
 socket2 = { version = "0.5", features = ["all"] }
@@ -79,9 +82,9 @@ tracing = { version = "0.1", optional = true }
 sled = { version = "0.34", optional = true }
 utoipa = { version = "4.0", optional = true }
 utoipa-swagger-ui = { version = "4.0", optional = true, features = ["axum"] }
-axum = { version = "0.7", optional = true }
+axum = { version = "0.6", optional = true }
 tower = { version = "0.4", optional = true }
-tower-http = { version = "0.5", features = ["cors", "trace"], optional = true }
+tower-http = { version = "0.4", features = ["cors", "trace"], optional = true }
 base64 = { version = "0.22", optional = true }
 
 # Gates feature dependencies
@@ -120,12 +123,21 @@ rustls = { version = "0.23", optional = true, features = ["ring"] }
 rcgen = { version = "0.13", optional = true }
 rustls-pemfile = { version = "2.0", optional = true }
 
+# JSON parsing (for Bun confluence)
+ahash = { version = "0.8", optional = true }
+simd-json = { version = "0.13", optional = true }
+pest = { version = "2.7", optional = true }
+pest_derive = { version = "2.7", optional = true }
+
 # ModelMux (always needed for litebike integration)
 dirs = "5.0"
 blake3 = "1.5"
 
 # Userspace kernel emulation substrate
 userspace = { path = "../userspace", features = ["kernel", "syscall-net"] }
+
+# Pijul session support
+libpijul = { path = "../pijul/libpijul", optional = true }
 
 [workspace]
 members = [
