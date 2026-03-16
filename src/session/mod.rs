@@ -1,3 +1,5 @@
+pub mod routes;
+
 use std::sync::{Arc, Mutex};
 
 use libpijul::change::ChangeHeader;
@@ -20,6 +22,15 @@ pub struct SessionStore {
 pub struct SessionChannel {
     pub session_id: String,
     store: Arc<Mutex<SessionStore>>,
+}
+
+impl Clone for SessionChannel {
+    fn clone(&self) -> Self {
+        Self {
+            session_id: self.session_id.clone(),
+            store: Arc::clone(&self.store),
+        }
+    }
 }
 
 /// Open or create a pijul channel for a session (in-memory).
