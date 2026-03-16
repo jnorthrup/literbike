@@ -240,7 +240,8 @@ impl NioChannel for UserspaceNioAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::io::FromRawFd;
+    use std::io::Write;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
     use std::os::unix::net::UnixStream;
     use std::thread;
     use std::time::Duration;
