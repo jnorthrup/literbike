@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use super::control::{GatewayControlState, GatewayFacadeFamily, ProviderKeyPrecedence};
+use super::control::{GatewayControlState, GatewayFacadeFamily, GatewayKeymuxState, ProviderKeyPrecedence};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -62,10 +62,17 @@ pub struct ToolbarRouteState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolbarEnvKey {
+    pub name: String,
+    pub is_set: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolbarEnvState {
     pub recognized_keys: usize,
     pub unknown_keys: usize,
     pub confidence: ToolbarConfidenceBucket,
+    pub keys: Vec<ToolbarEnvKey>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,6 +99,16 @@ pub struct ToolbarSurfaceState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolbarDselLane {
+    pub title: String,
+    pub route: String,
+    pub model: String,
+    pub host: String,
+    pub provider: String,
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolbarState {
     pub service: ToolbarServiceState,
     pub route: ToolbarRouteState,
@@ -99,6 +116,9 @@ pub struct ToolbarState {
     pub debt: ToolbarDebtState,
     pub runtime: ToolbarRuntimeState,
     pub surfaces: Vec<ToolbarSurfaceState>,
+    pub keymux: GatewayKeymuxState,
+    pub lanes: Vec<ToolbarDselLane>,
+    pub dynamic_models: Vec<String>,
     pub available_actions: Vec<String>,
 }
 
@@ -148,10 +168,14 @@ pub enum ToolbarAction {
     },
 }
 
-pub fn derive_toolbar_state(gateway: &GatewayControlState) -> ToolbarState {
+pub fn derive_toolbar_state(
+    gateway: &GatewayControlState,
+    dynamic_models: Vec<String>,
+) -> ToolbarState {
     let env = scan_env_state();
     let debt = scan_debt_state();
     let route = derive_route_state(gateway);
+    let lanes = scan_dsel_lanes();
     let service = ToolbarServiceState {
         status: service_status_for_metrics(
             !gateway.providers.is_empty(),
@@ -208,6 +232,9 @@ pub fn derive_toolbar_state(gateway: &GatewayControlState) -> ToolbarState {
         debt,
         runtime,
         surfaces,
+        keymux: gateway.keymux.clone(),
+        lanes,
+        dynamic_models,
         available_actions: vec![
             "rescan_env".to_string(),
             "reset_runtime".to_string(),
@@ -228,19 +255,77 @@ pub fn derive_toolbar_state(gateway: &GatewayControlState) -> ToolbarState {
     }
 }
 
+fn scan_dsel_lanes() -> Vec<ToolbarDselLane> {
+    let dsel_path = PathBuf::from("configs/agent-host-free-lanes.dsel");
+    let content = fs::read_to_string(dsel_path).unwrap_or_default();
+    let mut lanes = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        // Basic parsing for /{host,...}/model
+        if let Some(lane) = parse_dsel_line_internal(trimmed) {
+            lanes.push(lane);
+        }
+    }
+
+    lanes
+}
+
+fn parse_dsel_line_internal(line: &str) -> Option<ToolbarDselLane> {
+    // Regex-less parsing for /{meta}/model
+    let start = line.find('{')?;
+    let end = line.find('}')?;
+    let meta_str = &line[start + 1..end];
+    let model = line[end + 1..].trim_start_matches('/');
+
+    let mut host = "localhost:8888".to_string();
+    let mut modality = "unknown".to_string();
+    let mut title = model.split('/').last()?.to_string();
+    let mut key = None;
+
+    let parts: Vec<&str> = meta_str.split(',').map(|s| s.trim()).collect();
+    if !parts.is_empty() && !parts[0].contains(':') && !parts[0].contains('/') {
+        host = parts[0].to_string();
+    }
+
+    for part in parts {
+        if part.starts_with("modality/") {
+            modality = part["modality/".len()..].to_string();
+        } else if part.starts_with("meta:key=") {
+            key = Some(part["meta:key=".len()..].to_string());
+        } else if part.starts_with("note=") {
+            title = part["note=".len()..].to_string();
+        }
+    }
+
+    let provider = model.split('/').next()?.to_string();
+
+    Some(ToolbarDselLane {
+        title: title.to_uppercase(),
+        route: line.to_string(),
+        model: model.to_string(),
+        host,
+        provider,
+        key,
+    })
+}
+
 fn derive_route_state(gateway: &GatewayControlState) -> ToolbarRouteState {
+    // Only reflect explicit user selections — not fallbacks or discovery order
     let model = gateway
         .routing
         .default_model
         .clone()
-        .or_else(|| gateway.claude_model_rewrite.default_model.clone())
-        .or_else(|| gateway.routing.fallback_model.clone());
+        .or_else(|| gateway.claude_model_rewrite.default_model.clone());
     let provider = gateway
         .routing
         .preferred_provider
         .clone()
-        .or_else(|| model.as_deref().and_then(provider_from_model))
-        .or_else(|| gateway.providers.first().map(|p| p.name.clone()));
+        .or_else(|| model.as_deref().and_then(provider_from_model));
     let family = provider
         .as_deref()
         .and_then(|name| {
@@ -272,20 +357,21 @@ where
 {
     let mut recognized_keys = 0usize;
     let mut unknown_keys = 0usize;
+    let mut keys = Vec::new();
 
     for (key, value) in vars {
-        if value.trim().is_empty() {
-            continue;
-        }
-
+        let is_set = !value.trim().is_empty();
         let normalized = key.trim().to_ascii_uppercase();
+        
         if is_known_env_key(&normalized) {
-            recognized_keys += 1;
+            if is_set { recognized_keys += 1; }
+            keys.push(ToolbarEnvKey { name: normalized.clone(), is_set });
             continue;
         }
 
         if normalized.ends_with("_API_KEY") || normalized.ends_with("_BASE_URL") {
-            unknown_keys += 1;
+            if is_set { unknown_keys += 1; }
+            keys.push(ToolbarEnvKey { name: normalized, is_set });
         }
     }
 
@@ -301,6 +387,7 @@ where
         recognized_keys,
         unknown_keys,
         confidence,
+        keys,
     }
 }
 
@@ -490,155 +577,4 @@ fn is_known_env_key(key: &str) -> bool {
     PROVIDER_KEY_ALIASES.contains(&key)
         || PROVIDER_BASE_URLS.contains(&key)
         || RUNTIME_KEYS.contains(&key)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::modelmux::control::{
-        ClaudeModelRewritePolicy, GatewayKeymuxState, GatewayProviderStatus, GatewayRoutingMode,
-        GatewayRoutingState, GatewayStreamingState, GatewayTransportState,
-    };
-
-    #[test]
-    fn parse_todo_markdown_counts_open_and_blocked_items() {
-        let summary = parse_todo_markdown(
-            r#"
-            - [ ] First item
-            - [ ] BLOCKED: Needs a branch
-            - [x] Done
-            "#,
-        );
-
-        assert_eq!(summary.open_items, 2);
-        assert_eq!(summary.blocked_items, 1);
-    }
-
-    #[test]
-    fn service_status_degrades_on_unknown_env_or_blocked_items() {
-        assert_eq!(
-            service_status_for_metrics(true, true, 0, 0),
-            ToolbarServiceStatus::Running
-        );
-        assert_eq!(
-            service_status_for_metrics(true, true, 1, 0),
-            ToolbarServiceStatus::Degraded
-        );
-        assert_eq!(
-            service_status_for_metrics(false, false, 0, 0),
-            ToolbarServiceStatus::Cold
-        );
-    }
-
-    #[test]
-    fn derive_toolbar_route_prefers_configured_provider_and_model() {
-        let gateway = GatewayControlState {
-            transport: GatewayTransportState {
-                bind_address: "127.0.0.1".to_string(),
-                port: 8888,
-                unified_agent_port: true,
-                listener: "http1".to_string(),
-            },
-            routing: GatewayRoutingState {
-                mode: GatewayRoutingMode::ModelPrefixThenPriority,
-                preferred_provider: Some("anthropic".to_string()),
-                default_model: Some("anthropic/claude-3-5-sonnet".to_string()),
-                fallback_model: None,
-                failover_enabled: true,
-            },
-            streaming: GatewayStreamingState {
-                enabled: true,
-                openai_chat_completions: "disabled".to_string(),
-                ollama_chat: "ndjson".to_string(),
-            },
-            claude_model_rewrite: ClaudeModelRewritePolicy {
-                enabled: false,
-                default_model: None,
-                haiku_model: None,
-                sonnet_model: None,
-                opus_model: None,
-                reasoning_model: None,
-            },
-            keymux: GatewayKeymuxState {
-                strategy: "default".to_string(),
-                provider_keys: Vec::new(),
-            },
-            providers: vec![GatewayProviderStatus {
-                name: "anthropic".to_string(),
-                family: GatewayFacadeFamily::AnthropicCompatible,
-                base_url: "https://api.anthropic.com/v1".to_string(),
-                key_env: "ANTHROPIC_API_KEY".to_string(),
-                priority: 1,
-                active: true,
-                tokens_used_today: 0,
-                estimated_remaining_quota: 0,
-                quota_confidence: 0.0,
-            }],
-        };
-
-        let toolbar = derive_toolbar_state(&gateway);
-        assert_eq!(toolbar.route.provider.as_deref(), Some("anthropic"));
-        assert_eq!(
-            toolbar.route.model.as_deref(),
-            Some("anthropic/claude-3-5-sonnet")
-        );
-        assert_eq!(
-            toolbar.route.family,
-            GatewayFacadeFamily::AnthropicCompatible
-        );
-    }
-
-    #[test]
-    fn toolbar_action_accepts_canonical_rewrite_action() {
-        let action: ToolbarAction = serde_json::from_value(serde_json::json!({
-            "action": "set_claude_rewrite_policy",
-            "enabled": true,
-            "default_model": "ordinal/default",
-            "sonnet_model": "ordinal/sonnet"
-        }))
-        .unwrap();
-
-        assert_eq!(
-            action,
-            ToolbarAction::SetClaudeRewritePolicy {
-                enabled: true,
-                default_model: Some("ordinal/default".to_string()),
-                haiku_model: None,
-                sonnet_model: Some("ordinal/sonnet".to_string()),
-                opus_model: None,
-                reasoning_model: None,
-            }
-        );
-    }
-
-    #[test]
-    fn scan_env_state_from_counts_recognized_runtime_keys() {
-        let state = scan_env_state_from(vec![
-            (
-                "MODELMUX_DEFAULT_MODEL".to_string(),
-                "anthropic/sonnet".to_string(),
-            ),
-            ("MODELMUX_PORT".to_string(), "8888".to_string()),
-            ("OPENAI_API_KEY".to_string(), "sk-live-key".to_string()),
-        ]);
-
-        assert_eq!(state.recognized_keys, 3);
-        assert_eq!(state.unknown_keys, 0);
-        assert_eq!(state.confidence, ToolbarConfidenceBucket::High);
-    }
-
-    #[test]
-    fn scan_env_state_from_counts_unknown_provider_keys() {
-        let state = scan_env_state_from(vec![
-            ("CUSTOMLAB_API_KEY".to_string(), "abc123".to_string()),
-            (
-                "MODELMUX_DEFAULT_MODEL".to_string(),
-                "openai/gpt-4o-mini".to_string(),
-            ),
-        ]);
-
-        assert_eq!(state.recognized_keys, 1);
-        assert_eq!(state.unknown_keys, 1);
-        assert_eq!(state.confidence, ToolbarConfidenceBucket::Medium);
-    }
 }

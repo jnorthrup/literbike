@@ -48,6 +48,17 @@ Pushed to: jnorthrup/literbike claude/modelmux-keymux-wiring
 
 ---
 
+## [x] Track: Menu API/Models Listing 20260317 ✅ COMPLETE
+
+Update Literbike macOS icon menu hierarchy to `xxxx/models/... -> LIST OF MODELS/ API`.
+
+### Status
+- [x] Create track directory and plan (DONE)
+- [x] Update `main.swift` with new hierarchy (DONE)
+- [x] Verify Swift logic (DONE)
+
+---
+
 ## [ ] Track: MTHFR/nutrigenomics model fine-tune pipeline
 
 No-RLHF model fine-tuned on methylation cycle, MTHFR pathways, cofactor interactions, nutrigenomics literature. Personal necessity, commercially viable.
