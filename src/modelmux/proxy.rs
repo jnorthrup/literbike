@@ -1715,7 +1715,10 @@ impl ModelProxy {
     ) -> HttpResponse {
         info!(">>> {} {}", method, path);
 
-        match (method, path) {
+        // Strip query string for route matching (e.g. /v1/messages?beta=true → /v1/messages)
+        let route_path = path.split('?').next().unwrap_or(path);
+
+        match (method, route_path) {
             ("GET", "/") => HttpResponse::ok("\"Ollama is running\"".to_string()),
             ("GET", "/api/version") => HttpResponse::ok(r#"{"version":"0.6.4"}"#.to_string()),
             ("GET", "/api/tags") => {
@@ -1804,6 +1807,117 @@ impl ModelProxy {
                 match self.apply_toolbar_action(action).await {
                     Ok(state) => HttpResponse::ok(serde_json::to_string(&state).unwrap()),
                     Err(e) => HttpResponse::from_error(e),
+                }
+            }
+            ("POST", "/v1/messages") | ("POST", "/messages") => {
+                // Anthropic Messages API inbound — translate to OpenAI, proxy, translate back
+                let anthropic_req: Value = match serde_json::from_slice(body) {
+                    Ok(v) => v,
+                    Err(e) => return HttpResponse::bad_request(format!("Invalid JSON: {}", e)),
+                };
+                info!(">>> POST /v1/messages model={}", anthropic_req.get("model").and_then(|m| m.as_str()).unwrap_or("?"));
+
+                // Convert Anthropic messages format → OpenAI chat/completions format
+                let mut openai_messages: Vec<Value> = Vec::new();
+                if let Some(system) = anthropic_req.get("system") {
+                    if let Some(s) = system.as_str() {
+                        openai_messages.push(json!({"role": "system", "content": s}));
+                    } else if let Some(arr) = system.as_array() {
+                        // system can be array of {type:"text", text:"..."}
+                        let text: String = arr.iter()
+                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>().join("\n");
+                        if !text.is_empty() {
+                            openai_messages.push(json!({"role": "system", "content": text}));
+                        }
+                    }
+                }
+                if let Some(msgs) = anthropic_req.get("messages").and_then(|m| m.as_array()) {
+                    for msg in msgs {
+                        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+                        // content can be string or array of content blocks
+                        let content = if let Some(s) = msg.get("content").and_then(|c| c.as_str()) {
+                            json!(s)
+                        } else if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
+                            let text: String = blocks.iter()
+                                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>().join("");
+                            json!(text)
+                        } else {
+                            json!("")
+                        };
+                        openai_messages.push(json!({"role": role, "content": content}));
+                    }
+                }
+
+                let model = anthropic_req.get("model").and_then(|m| m.as_str()).unwrap_or("claude-sonnet-4-5").to_string();
+                let max_tokens = anthropic_req.get("max_tokens").and_then(|v| v.as_u64()).unwrap_or(4096);
+                let mut openai_req = json!({
+                    "model": model,
+                    "messages": openai_messages,
+                    "max_tokens": max_tokens,
+                });
+                if let Some(temp) = anthropic_req.get("temperature") {
+                    openai_req["temperature"] = temp.clone();
+                }
+                if let Some(top_p) = anthropic_req.get("top_p") {
+                    openai_req["top_p"] = top_p.clone();
+                }
+                if let Some(tools) = anthropic_req.get("tools") {
+                    openai_req["tools"] = tools.clone();
+                }
+                if let Some(thinking) = anthropic_req.get("thinking") {
+                    openai_req["thinking"] = thinking.clone();
+                }
+                let wants_stream = anthropic_req.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+                openai_req["stream"] = json!(false);
+
+                match self.chat_completions(openai_req).await {
+                    Ok(openai_resp) => {
+                        // Convert OpenAI response → Anthropic messages response
+                        let choice = openai_resp.get("choices")
+                            .and_then(|c| c.as_array())
+                            .and_then(|c| c.first());
+                        let text = choice
+                            .and_then(|c| c.get("message"))
+                            .and_then(|m| m.get("content"))
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("");
+                        let finish = choice
+                            .and_then(|c| c.get("finish_reason"))
+                            .and_then(|f| f.as_str())
+                            .unwrap_or("end_turn");
+                        let stop_reason = match finish {
+                            "stop" => "end_turn",
+                            "length" => "max_tokens",
+                            "tool_calls" => "tool_use",
+                            other => other,
+                        };
+                        let usage = openai_resp.get("usage");
+                        let input_tokens = usage.and_then(|u| u.get("prompt_tokens")).and_then(|v| v.as_u64()).unwrap_or(0);
+                        let output_tokens = usage.and_then(|u| u.get("completion_tokens")).and_then(|v| v.as_u64()).unwrap_or(0);
+                        let resp_model = openai_resp.get("model").and_then(|m| m.as_str()).unwrap_or(&model);
+
+                        let anthropic_resp = json!({
+                            "id": format!("msg_{}", openai_resp.get("id").and_then(|i| i.as_str()).unwrap_or("0")),
+                            "type": "message",
+                            "role": "assistant",
+                            "model": resp_model,
+                            "content": [{"type": "text", "text": text}],
+                            "stop_reason": stop_reason,
+                            "stop_sequence": null,
+                            "usage": {
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
+                            }
+                        });
+                        info!("<<< POST /v1/messages → 200 ({}+{} tokens)", input_tokens, output_tokens);
+                        HttpResponse::ok(serde_json::to_string(&anthropic_resp).unwrap())
+                    }
+                    Err(e) => {
+                        warn!("<<< POST /v1/messages → error: {}", e);
+                        HttpResponse::from_error(e)
+                    }
                 }
             }
             ("POST", "/v1/chat/completions") | ("POST", "/chat/completions") => {
