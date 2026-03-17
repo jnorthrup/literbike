@@ -4,4 +4,3 @@
 
 /{localhost:8888,chat,modality/free,meta:key=KILOAI_API_KEY,meta:quota=burst-free,note=glm5-free}/z-ai/glm-5
 /{localhost:8888,chat,modality/free,meta:key=KIMI_API_KEY,meta:quota=deep-context,note=kimi-k25-free}/moonshotai/kimi-k2.5
-/{localhost:8888,chat,modality/hosted,meta:key=NVIDIA_API_KEY,meta:quota=nvidia-hosted,note=nvidia-glm5}/nvidia/z-ai/glm5

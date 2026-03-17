@@ -4,7 +4,7 @@
     id="left-fork"
     d="M 12 72 C 45 68 60 80 66 105 L 66 208"
     fill="none"
-    stroke="#1a1a1a"
+    stroke="black"
     stroke-width="9"
     stroke-linecap="round"
   />
@@ -12,12 +12,12 @@
   <use href="#left-fork" transform="translate(200,0) scale(-1,1)"/>
 
   <!-- headlight -->
-  <circle cx="100" cy="99" r="27" fill="white" stroke="#1a1a1a" stroke-width="3.5"/>
+  <circle cx="100" cy="99" r="27" fill="black" stroke="black" stroke-width="3.5"/>
 
   <!-- crossbar -->
-  <line x1="66" y1="130" x2="134" y2="130" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="66" y1="130" x2="134" y2="130" stroke="black" stroke-width="3.5" stroke-linecap="round"/>
 
   <!-- tire (parallel arcs) -->
-  <path d="M 66 208 A 34 44 0 0 1 134 208" fill="none" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round"/>
-  <path d="M 66 208 A 34 28 0 0 1 134 208" fill="none" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M 66 208 A 34 44 0 0 1 134 208" fill="none" stroke="black" stroke-width="9" stroke-linecap="round"/>
+  <path d="M 66 208 A 34 28 0 0 1 134 208" fill="none" stroke="black" stroke-width="3.5" stroke-linecap="round"/>
 </svg>

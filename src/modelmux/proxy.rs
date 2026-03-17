@@ -213,66 +213,25 @@ impl ModelProxy {
         // Use shared helper so other modules leverage same value
         let max_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000);
 
-        // Check cache first — only return if we have non-expired entries
-        {
+        // Discover all providers, then fetch models for any provider missing from cache
+        let providers = crate::keymux::dsel::discover_providers();
+
+        // Determine which providers need fetching (no cached models or all expired)
+        let providers_to_fetch: Vec<_> = {
             let cache = self.cache.read().await;
             let cached = cache.get_all_models();
-            let live: Vec<&CachedModel> = cached.iter()
-                .filter(|m| !m.is_expired())
-                .collect();
-            if !live.is_empty() {
-                // Populate model cards from cached data
-                let live_owned: Vec<CachedModel> = live.iter().map(|m| (*m).clone()).collect();
-                self.card_store.populate_from_cached(&live_owned);
+            providers.iter().filter(|p| {
+                !cached.iter().any(|m| m.provider == p.name && !m.is_expired())
+            }).collect::<Vec<_>>().into_iter().cloned().collect()
+        };
 
-                let mut models: Vec<Value> = live.iter().map(|m| json!({
-                    "id": &m.id,
-                    "object": "model",
-                    "created": m.cached_at,
-                    "owned_by": &m.provider,
-                    "permission": [],
-                    "root": &m.id,
-                    "parent": null,
-                })).collect();
-                // Always inject passthru model when flag+key are set
-                let passthru = std::env::var("MODELMUX_ENABLE_OLLAMA_OPENROUTER")
-                    .map(|v| { let v = v.to_ascii_lowercase(); v == "1" || v == "true" || v == "yes" || v == "on" })
-                    .unwrap_or(false);
-                if passthru && std::env::var("OPENROUTER_API_KEY").is_ok() {
-                    if !models.iter().any(|m| m.get("id").and_then(|i| i.as_str()) == Some("ollama/openrouter-free")) {
-                        models.push(json!({
-                            "id": "ollama/openrouter-free",
-                            "object": "model",
-                            "created": chrono::Utc::now().timestamp(),
-                            "owned_by": "ollama",
-                            "permission": [],
-                            "root": "ollama/openrouter-free",
-                            "parent": null,
-                        }));
-                    }
-                }
-                return json!({ "object": "list", "data": models });
-            }
+        if providers_to_fetch.is_empty() {
+            debug!("All providers have cached models, skipping draw-through");
         }
-
-        // Cache miss — draw through from upstream providers using API keys
-        let providers = crate::keymux::dsel::discover_providers();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
-        for p in &providers {
-            // Ollama-first default: do not include OpenRouter models unless explicitly requested.
-            if p.name == "openrouter" {
-                let include_openrouter = std::env::var("MODELMUX_INCLUDE_OPENROUTER_MODELS")
-                    .map(|v| {
-                        let v = v.to_ascii_lowercase();
-                        v == "1" || v == "true" || v == "yes" || v == "on"
-                    })
-                    .unwrap_or(false);
-                if !include_openrouter {
-                    continue;
-                }
-            }
+        for p in &providers_to_fetch {
             let api_key = match std::env::var(&p.key_env) {
                 Ok(k) if crate::keymux::dsel::is_real_key_pub(&k) => k,
                 _ => continue,
@@ -1329,7 +1288,16 @@ impl ModelProxy {
 
     pub async fn toolbar_state(&self) -> ToolbarState {
         let gateway = self.control_state().await;
-        derive_toolbar_state(&gateway)
+        let models_json = self.get_models().await;
+        let mut models = Vec::new();
+        if let Some(data) = models_json.get("data").and_then(|d| d.as_array()) {
+            for m in data {
+                if let Some(id) = m.get("id").and_then(|i| i.as_str()) {
+                    models.push(id.to_string());
+                }
+            }
+        }
+        derive_toolbar_state(&gateway, models)
     }
 
     pub async fn apply_toolbar_action(
