@@ -142,11 +142,25 @@ private final class StaticAssetServer {
     }
 }
 
-private final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWindowDelegate {
+private struct DselLane {
+    let title: String
+    let route: String
+    let model: String
+    let host: String
+}
+
+private final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWindowDelegate, WKScriptMessageHandler {
     private var statusItem: NSStatusItem?
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: StaticAssetServer?
+    private var lanes: [DselLane] = []
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "updateTitle", let title = message.body as? String {
+            statusItem?.button?.title = " " + title
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -158,21 +172,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDe
                 )
             }
 
+            // Read DSEL directly from bundle
+            let dselUrl = resourceRoot.appendingPathComponent("configs/agent-host-free-lanes.dsel")
+            if let content = try? String(contentsOf: dselUrl, encoding: .utf8) {
+                self.lanes = content.split(separator: "\n").compactMap { line -> DselLane? in
+                    let trimmed = String(line).trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty || trimmed.hasPrefix("#") { return nil }
+                    
+                    guard let end = trimmed.firstIndex(of: "}"),
+                          let slash = trimmed[end...].firstIndex(of: "/") else { return nil }
+                          
+                    let model = String(trimmed[trimmed.index(after: slash)...])
+                    let meta = trimmed[trimmed.index(after: trimmed.firstIndex(of: "{")!)..<end]
+                    let host = meta.split(separator: ",").first.map(String.init) ?? "localhost:8888"
+                    
+                    return DselLane(title: trimmed, route: trimmed, model: model, host: host)
+                }
+            }
+
             let server = StaticAssetServer(resourceRoot: resourceRoot)
             try server.start()
             self.server = server
         } catch {
             NSAlert(error: error).runModal()
+            NSApp.terminate(nil)
         }
 
         setupStatusItem()
         setupWindow()
-        showWindow(nil)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            showWindow(nil)
+            window?.makeKeyAndOrderFront(nil)
         }
         return true
     }
@@ -186,82 +218,71 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDe
     }
 
     @objc
-    private func showWindow(_ sender: Any?) {
-        guard let window else { return }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @objc
-    private func reloadControlPlane(_ sender: Any?) {
-        webView?.reload()
-    }
-
-    @objc
-    private func copyControlPlaneURL(_ sender: Any?) {
-        guard let url = server?.baseURL else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-    }
-
-    @objc
     private func quit(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    @objc
+    private func launchLaneAction(_ sender: NSMenuItem) {
+        guard let lane = sender.representedObject as? DselLane else { return }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let js = "launchLane('\(lane.route)', '\(lane.host)', '\(lane.model)')"
+        webView?.evaluateJavaScript(js, completionHandler: nil)
     }
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
             button.image = loadTemplateStatusIcon()
-            button.imagePosition = .imageOnly
+            button.imagePosition = .imageLeft
             button.toolTip = "Literbike Control Plane"
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open Control Plane", action: #selector(showWindow(_:)), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Reload", action: #selector(reloadControlPlane(_:)), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Copy Local URL", action: #selector(copyControlPlaneURL(_:)), keyEquivalent: ""))
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit(_:)), keyEquivalent: ""))
-        for item in menu.items {
-            item.target = self
+        
+        // MAP DSEL TO MENU
+        for lane in lanes {
+            let menuItem = NSMenuItem(title: lane.title, action: #selector(launchLaneAction(_:)), keyEquivalent: "")
+            menuItem.representedObject = lane
+            menuItem.target = self
+            menu.addItem(menuItem)
         }
+        
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit(_:)), keyEquivalent: "q"))
 
         item.menu = menu
         statusItem = item
     }
 
     private func setupWindow() {
-        let webView = WKWebView(frame: .zero)
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "updateTitle")
+        
+        let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
+        // webView.setValue(false, forKey: "drawsBackground")
         self.webView = webView
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 860),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 32),
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.center()
-        window.title = "Literbike Control Plane"
+        window.title = "Literbike Signal Ticker"
         window.contentView = webView
         window.delegate = self
         window.isReleasedWhenClosed = false
+        window.level = .floating // Stay on top
         self.window = window
 
         if let url = server?.baseURL {
             webView.load(URLRequest(url: url))
-        } else {
-            webView.loadHTMLString(
-                """
-                <html><body style="font-family: -apple-system; padding: 24px;">
-                <h1>Control plane failed to start</h1>
-                <p>The local asset server did not bind. Check the menu-bar app logs and retry.</p>
-                </body></html>
-                """,
-                baseURL: nil
-            )
         }
+        window.makeKeyAndOrderFront(nil)
     }
 
     private func loadTemplateStatusIcon() -> NSImage? {
