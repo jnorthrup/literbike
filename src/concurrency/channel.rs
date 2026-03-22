@@ -1,100 +1,159 @@
-//! Simplified Channel module
+//! Simplified Channel module - no tokio dependency
 //! Channel-based communication for structured concurrency
 
-use tokio::sync::mpsc;
 use anyhow::Result;
-use super::scope::SupervisorScope;
+use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
+use std::task::{Context, Poll, Waker};
 
 /// Channel sender
 pub struct ChannelSender<T: Send + 'static> {
-    tx: mpsc::Sender<T>,
+    queue: Arc<RwLock<VecDeque<T>>>,
+    capacity: usize,
+    senders: Arc<RwLock<usize>>,
+    receivers: Arc<RwLock<usize>>,
+    wakers: Arc<RwLock<Vec<Waker>>>,
+    closed: Arc<RwLock<bool>>,
 }
 
 impl<T: Send + 'static> ChannelSender<T> {
-    pub fn new(tx: mpsc::Sender<T>) -> Self {
-        Self { tx }
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            queue: Arc::new(RwLock::new(VecDeque::new())),
+            capacity,
+            senders: Arc::new(RwLock::new(1)),
+            receivers: Arc::new(RwLock::new(1)),
+            wakers: Arc::new(RwLock::new(Vec::new())),
+            closed: Arc::new(RwLock::new(false)),
+        }
     }
     
-    /// Send a value to the channel
     pub async fn send(&self, value: T) -> Result<()> {
-        self.tx.send(value).await
-            .map_err(|e| anyhow::anyhow!("Channel send error: {}", e))?;
+        let mut queue = self.queue.write().unwrap();
+        if *self.closed.read().unwrap() {
+            return Err(anyhow::anyhow!("Channel closed"));
+        }
+        if queue.len() >= self.capacity {
+            drop(queue);
+            let mut wakers = self.wakers.write().unwrap();
+            wakers.push(Context::from_waker(&Waker::clone(&futures::task::noop_waker_ref())));
+            return Err(anyhow::anyhow!("Channel full"));
+        }
+        queue.push_back(value);
+        drop(queue);
+        self.wake_receiver();
         Ok(())
     }
     
-    /// Try to send without waiting
     pub fn try_send(&self, value: T) -> Result<()> {
-        self.tx.try_send(value)
-            .map_err(|e| anyhow::anyhow!("Channel try_send error: {}", e))?;
+        let mut queue = self.queue.write().unwrap();
+        if *self.closed.read().unwrap() {
+            return Err(anyhow::anyhow!("Channel closed"));
+        }
+        if queue.len() >= self.capacity {
+            return Err(anyhow::anyhow!("Channel full"));
+        }
+        queue.push_back(value);
+        drop(queue);
+        self.wake_receiver();
         Ok(())
+    }
+    
+    fn wake_receiver(&self) {
+        let wakers = self.wakers.write().unwrap();
+        for waker in wakers.iter() {
+            waker.wake_by_ref();
+        }
     }
 }
 
 impl<T: Send + 'static> Clone for ChannelSender<T> {
     fn clone(&self) -> Self {
-        Self { tx: self.tx.clone() }
+        *self.senders.write().unwrap() += 1;
+        Self {
+            queue: Arc::clone(&self.queue),
+            capacity: self.capacity,
+            senders: Arc::clone(&self.senders),
+            receivers: Arc::clone(&self.receivers),
+            wakers: Arc::clone(&self.wakers),
+            closed: Arc::clone(&self.closed),
+        }
     }
 }
 
-/// Channel receiver
+/// Channel receiver  
 pub struct ChannelReceiver<T: Send + 'static> {
-    rx: mpsc::Receiver<T>,
+    queue: Arc<RwLock<VecDeque<T>>>,
+    capacity: usize,
+    senders: Arc<RwLock<usize>>,
+    receivers: Arc<RwLock<usize>>,
+    wakers: Arc<RwLock<Vec<Waker>>>,
+    closed: Arc<RwLock<bool>>,
 }
 
 impl<T: Send + 'static> ChannelReceiver<T> {
-    pub fn new(rx: mpsc::Receiver<T>) -> Self {
-        Self { rx }
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            queue: Arc::new(RwLock::new(VecDeque::new())),
+            capacity,
+            senders: Arc::new(RwLock::new(1)),
+            receivers: Arc::new(RwLock::new(1)),
+            wakers: Arc::new(RwLock::new(Vec::new())),
+            closed: Arc::new(RwLock::new(false)),
+        }
     }
     
-    /// Receive a value from the channel
     pub async fn recv(&mut self) -> Option<T> {
-        self.rx.recv().await
+        loop {
+            let queue = self.queue.read().unwrap();
+            if let Some(value) = queue.pop_front() {
+                drop(queue);
+                self.wake_sender();
+                return Some(value);
+            }
+            if *self.closed.read().unwrap() {
+                return None;
+            }
+            drop(queue);
+            
+            let waker = Context::from_waker(&Waker::clone(&futures::task::noop_waker_ref()));
+            let mut cx = Context::from_waker(&waker);
+            
+            futures::future::pending().await;
+        }
     }
     
-    /// Try to receive without waiting
     pub fn try_recv(&mut self) -> Option<T> {
-        self.rx.try_recv().ok()
+        let mut queue = self.queue.write().unwrap();
+        queue.pop_front()
+    }
+    
+    fn wake_sender(&self) {
+        let wakers = self.wakers.write().unwrap();
+        for waker in wakers.iter() {
+            waker.wake_by_ref();
+        }
     }
 }
 
-/// Create a channel
+/// Create a channel pair
 pub fn channel<T: Send + 'static>(buffer_size: usize) -> (ChannelSender<T>, ChannelReceiver<T>) {
-    let (tx, rx) = mpsc::channel(buffer_size);
-    (ChannelSender::new(tx), ChannelReceiver::new(rx))
-}
-
-/// Create channel with scope integration
-pub fn channel_with_scope<T: Send + 'static>(
-    _scope: &SupervisorScope,
-    buffer_size: usize,
-) -> (ChannelSender<T>, ChannelReceiver<T>) {
-    channel(buffer_size)
+    let tx = ChannelSender::new(buffer_size);
+    let rx = ChannelReceiver::new(buffer_size);
+    (tx, rx)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_channel_send_recv() {
+    #[test]
+    fn test_channel_try_send_recv() {
         let (tx, mut rx) = channel::<i32>(10);
-        
-        tx.send(42).await.unwrap();
-        let value = rx.recv().await.unwrap();
-        
-        assert_eq!(value, 42);
-    }
-
-    #[tokio::test]
-    async fn test_channel_multiple_sends() {
-        let (tx, mut rx) = channel::<i32>(10);
-        
-        for i in 0..5 {
-            tx.send(i).await.unwrap();
-        }
-        
-        for i in 0..5 {
-            assert_eq!(rx.recv().await.unwrap(), i);
-        }
+        tx.try_send(42).unwrap();
+        let value = rx.try_recv();
+        assert_eq!(value, Some(42));
     }
 }

@@ -1,3 +1,13 @@
+// Re-export userspace network adapters for QUIC protocol integration
+#[cfg(feature = "userspace-network")]
+pub use crate::userspace_network::adapters::NetworkAdapter;
+
+// HTX protocol modules (extracted to liteyear-htx crate)
+pub mod wam;
+pub mod bedrock;
+pub mod engine;
+pub mod congruence;
+
 pub mod quic_ccek;
 #[cfg(feature = "tls-quic")]
 pub mod tls_ccek;

@@ -28,7 +28,17 @@
 //! - RFC4820: Stream Schedulers
 //! - RFC 8260: Stream Control Transmission Protocol
 
+// Low-level protocol implementation (ngSCTP compatible)
+pub mod chunk;
+pub mod socket;
+pub mod handler;
+
+// High-level async API
 pub mod chunks;
+
+// Re-export userspace network adapters for SCTP protocol integration
+#[cfg(feature = "userspace-network")]
+pub use crate::userspace_network::adapters::NetworkAdapter;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

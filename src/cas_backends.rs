@@ -295,7 +295,7 @@ impl ProjectionAdapter for S3BlobsProjectionAdapter {
         let key = self.object_key(hash);
         let url = self.object_url(&key);
         
-        let request = self.client.put(&url)
+        let mut request = self.client.put(&url)
             .body(bytes.to_vec());
         
         // Add authentication if credentials are provided
@@ -323,7 +323,7 @@ impl ProjectionAdapter for S3BlobsProjectionAdapter {
     fn fetch(&self, locator: &str) -> Result<Option<Vec<u8>>> {
         let url = self.object_url(locator);
         
-        let request = self.client.get(&url);
+        let mut request = self.client.get(&url);
         
         // Add authentication if credentials are provided
         if self.access_key.is_some() && self.secret_key.is_some() {

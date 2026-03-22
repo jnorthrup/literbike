@@ -3,16 +3,16 @@
 //! Zero-copy, minimal-allocation HTTP server using POSIX select reactor
 //! Pattern borrowed from relaxfactory RxfBenchMarkHttpServer and ShardNode2
 
-use crate::reactor::handler::EventHandler;
+use super::header_parser::{headers, mime, HttpStatus};
 use super::session::{HttpSession, SessionState};
-use super::header_parser::{HttpStatus, headers, mime};
+use crate::reactor::handler::EventHandler;
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// HTTP request handler trait
 pub trait HttpHandler: Send + Sync {
@@ -21,7 +21,9 @@ pub trait HttpHandler: Send + Sync {
 }
 
 /// Simple closure-based handler
-pub struct FnHandler<F>(pub F) where F: Fn(&mut HttpSession) + Send + Sync;
+pub struct FnHandler<F>(pub F)
+where
+    F: Fn(&mut HttpSession) + Send + Sync;
 
 impl<F> HttpHandler for FnHandler<F>
 where
@@ -41,14 +43,14 @@ pub struct HttpSessionContainer {
 pub struct HttpEventHandler {
     /// Request router: path -> handler
     routes: Arc<RwLock<HashMap<String, Arc<dyn HttpHandler>>>>,
-    
+
     /// Default handler (if no route matches)
     default_handler: Option<Arc<dyn HttpHandler>>,
-    
+
     /// Server info
     #[allow(dead_code)]
     server_name: String,
-    
+
     /// Active sessions keyed by file descriptor
     sessions: HashMap<RawFd, HttpSession>,
 }
@@ -66,7 +68,9 @@ impl HttpEventHandler {
 
     /// Register route handler
     pub fn register_route<H: HttpHandler + 'static>(&self, path: &str, handler: H) {
-        self.routes.write().insert(path.to_string(), Arc::new(handler));
+        self.routes
+            .write()
+            .insert(path.to_string(), Arc::new(handler));
     }
 
     /// Register closure handler
@@ -96,24 +100,20 @@ impl HttpEventHandler {
         if let Some(path) = session.path() {
             // Strip query string for routing
             let path = path.split('?').next().unwrap_or(path);
-            
+
             let routes = self.routes.read();
             if let Some(handler) = routes.get(path) {
                 handler.handle(session);
                 return;
             }
         }
-        
+
         // Default handler
         if let Some(ref handler) = self.default_handler {
             handler.handle(session);
         } else {
             // Default 404
-            session.prepare_response(
-                HttpStatus::Status404,
-                mime::TEXT_PLAIN,
-                b"404 Not Found",
-            );
+            session.prepare_response(HttpStatus::Status404, mime::TEXT_PLAIN, b"404 Not Found");
         }
     }
 
@@ -141,15 +141,17 @@ impl EventHandler for HttpEventHandler {
                 Some(s) => s,
                 None => return,
             };
-            session.path().map(|p| p.split('?').next().unwrap_or(p).to_string())
+            session
+                .path()
+                .map(|p| p.split('?').next().unwrap_or(p).to_string())
         };
-        
+
         // Get handler if route exists
         let handler = path.and_then(|p| {
             let routes = self.routes.read();
             routes.get(&p).cloned()
         });
-        
+
         // Now get mutable session and process
         let session = match self.sessions.get_mut(&fd) {
             Some(s) => s,
@@ -164,7 +166,7 @@ impl EventHandler for HttpEventHandler {
             let _ = stream.into_raw_fd();
             result
         };
-        
+
         match n {
             Ok(0) => {
                 // EOF - close connection
@@ -172,7 +174,7 @@ impl EventHandler for HttpEventHandler {
             }
             Ok(bytes_read) => {
                 session.parser.append(&buf[..bytes_read]);
-                
+
                 // Try to parse headers
                 match session.try_parse_headers() {
                     Ok(true) => {
@@ -226,7 +228,7 @@ impl EventHandler for HttpEventHandler {
             let _ = stream.into_raw_fd();
             result
         };
-        
+
         match result {
             Ok(bytes_written) => {
                 if bytes_written >= session.response_buffer.len() {
@@ -263,19 +265,19 @@ impl EventHandler for HttpEventHandler {
 pub struct HttpServer {
     /// Server name
     name: String,
-    
+
     /// Bind address
     addr: String,
-    
+
     /// Port
     port: u16,
-    
+
     /// Event handler
     handler: Arc<HttpEventHandler>,
-    
+
     /// TCP Listener
     listener: Option<TcpListener>,
-    
+
     /// Running state
     running: bool,
 }
@@ -326,9 +328,9 @@ impl HttpServer {
         let bind_addr = format!("{}:{}", self.addr, self.port);
         let listener = TcpListener::bind(&bind_addr)?;
         listener.set_nonblocking(true)?;
-        
+
         log::info!("HTTP Server '{}' listening on {}", self.name, bind_addr);
-        
+
         self.listener = Some(listener);
         Ok(())
     }
@@ -360,7 +362,12 @@ impl HttpServer {
 }
 
 /// Helper: send simple HTTP response
-pub fn send_response(session: &mut HttpSession, status: HttpStatus, content_type: &str, body: &[u8]) {
+pub fn send_response(
+    session: &mut HttpSession,
+    status: HttpStatus,
+    content_type: &str,
+    body: &[u8],
+) {
     session.prepare_response(status, content_type, body);
 }
 
@@ -396,11 +403,11 @@ mod tests {
     #[test]
     fn test_route_registration() {
         let server = HttpServer::new("test", "127.0.0.1", 8080);
-        
+
         server.route_fn("/test", |session| {
             send_response(session, HttpStatus::Status200, mime::TEXT_PLAIN, b"OK");
         });
-        
+
         // Route should be registered
         let routes = server.handler.routes.read();
         assert!(routes.contains_key("/test"));
@@ -409,14 +416,19 @@ mod tests {
     #[test]
     fn test_send_helpers() {
         let mut session = HttpSession::new();
-        
-        send_response(&mut session, HttpStatus::Status200, mime::TEXT_PLAIN, b"Hello");
+
+        send_response(
+            &mut session,
+            HttpStatus::Status200,
+            mime::TEXT_PLAIN,
+            b"Hello",
+        );
         assert!(session.wants_write());
-        
+
         session.reset();
         send_json(&mut session, HttpStatus::Status200, r#"{"key":"value"}"#);
         assert!(session.wants_write());
-        
+
         session.reset();
         send_redirect(&mut session, "/new-location");
         assert_eq!(session.parser.status(), Some(HttpStatus::Status302));
