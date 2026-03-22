@@ -1,47 +1,27 @@
-//! CCEK SDK - Compile-Time Channelized Protocol Bindings
+//! CCEK SDK - CoroutineContext Element Key pattern
 //!
-//! Architecture:
-//! - Keys: Linkage points between components (one per channel)
-//! - Elements: Hold session state for each SDK
-//! - Traits: Many-to-one bindings into Context
+//! Elements ARE Coroutines. Context hosts Coroutine[Contexts].
+//! This guides the compiler through explicit performant locality.
 //!
-//! ```text
-//! Protocol Tributaries (many Keys)
-//!        │
-//!        ▼
-//! ┌─────────────────────────────────────┐
-//! │     CcekContext (single context)     │
-//! │                                     │
-//! │  [HtxElement] ──► HTX session       │
-//! │  [QuicElement] ──► QUIC session     │
-//! │  [NioElement] ───► NIO session     │
-//! │                                     │
-//! └─────────────────────────────────────┘
-//!        │
-//!        ▼ (all flow into)
-//! ┌─────────────────────────────────────┐
-//! │         ENDGAME Reactor              │
-//! └─────────────────────────────────────┘
+//! Pattern:
+//! - Element = Coroutine (implements Future)
+//! - Key = static const factory for Coroutine
+//! - Context = host of Coroutine[Contexts]
+//!
+//! Usage:
+//! ```rust
+//! let ctx = EmptyContext
+//!     + HtxKey::create()
+//!     + QuicKey::create()
+//!     + NioKey::create(1024);
 //! ```
 
-pub mod context;
 pub mod channels;
-pub mod keys;
+pub mod context;
 pub mod elements;
+pub mod keys;
 pub mod traits;
 
-pub use context::{CcekContext, CcekKey, CcekElement};
 pub use channels::{Channel, ChannelRx, ChannelTx};
-
-// SDK trait bindings (many-to-one into context)
-#[cfg(feature = "htx")]
-pub use traits::htx_verifier;
-
-#[cfg(feature = "quic")]
-pub use traits::quic_engine;
-
-#[cfg(feature = "userspace-nio")]
-pub use traits::nio_reactor;
-
-#[cfg(feature = "http")]
-pub use traits::http_handler;
+pub use context::{CcekContext, CcekElement, CcekKey, EmptyContext};
+pub use keys::*;

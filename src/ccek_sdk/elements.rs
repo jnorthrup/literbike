@@ -1,36 +1,28 @@
-//! CCEK Elements - Session state per SDK
+//! CCEK Elements - Coroutines with explicit locality
 //!
-//! Each element holds the session state for its respective SDK.
-//! Elements are stored in the CcekContext and accessed via Keys.
+//! Elements ARE Coroutines. Each Element is an async fn returning Self.
+//! Keys are static const factories for these Coroutines.
+//!
+//! Pattern:
+//! ```rust
+//! async fn htx_element() -> HtxElement { HtxElement::new() }
+//! const HtxKey = HtxFactory { create: htx_element };
+//! ```
 
-use super::CcekElement;
-use std::sync::{Arc, RwLock};
+use super::{CcekContext, CcekElement, CcekKey};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
 
-/// HTX session element - holds verification state
-pub struct HtxElement {
-    pub tickets_processed: Arc<RwLock<u64>>,
-    pub current_hour: Arc<RwLock<u64>>,
-    pub verified_count: Arc<RwLock<u64>>,
-    pub failed_count: Arc<RwLock<u64>>,
-}
+// ============================================================================
+// HTX Element - async Coroutine
+// ============================================================================
+
+pub struct HtxElement;
 
 impl HtxElement {
-    pub fn new() -> Self {
-        Self {
-            tickets_processed: Arc::new(RwLock::new(0)),
-            current_hour: Arc::new(RwLock::new(0)),
-            verified_count: Arc::new(RwLock::new(0)),
-            failed_count: Arc::new(RwLock::new(0)),
-        }
-    }
-
-    pub fn increment_verified(&self) {
-        *self.tickets_processed.write().unwrap() += 1;
-        *self.verified_count.write().unwrap() += 1;
-    }
-
-    pub fn increment_failed(&self) {
-        *self.failed_count.write().unwrap() += 1;
+    pub const fn new() -> Self {
+        Self
     }
 }
 
@@ -40,40 +32,42 @@ impl CcekElement for HtxElement {
     }
 }
 
-impl Default for HtxElement {
-    fn default() -> Self {
-        Self::new()
+impl Future for HtxElement {
+    type Output = Self;
+    fn poll(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        Poll::Ready(self.get_mut().clone())
     }
 }
 
-/// QUIC session element - holds connection state
+impl Clone for HtxElement {
+    fn clone(&self) -> Self {
+        Self
+    }
+}
+
+pub struct HtxKey;
+
+impl HtxKey {
+    pub const fn create() -> HtxElement {
+        HtxElement::new()
+    }
+}
+
+impl CcekKey for HtxKey {
+    type Element = HtxElement;
+}
+
+// ============================================================================
+// QUIC Element - async Coroutine
+// ============================================================================
+
 pub struct QuicElement {
-    pub packets_in: Arc<RwLock<u64>>,
-    pub packets_out: Arc<RwLock<u64>>,
-    pub connections: Arc<RwLock<u32>>,
-    pub streams: Arc<RwLock<u64>>,
+    pub connections: u32,
 }
 
 impl QuicElement {
-    pub fn new() -> Self {
-        Self {
-            packets_in: Arc::new(RwLock::new(0)),
-            packets_out: Arc::new(RwLock::new(0)),
-            connections: Arc::new(RwLock::new(0)),
-            streams: Arc::new(RwLock::new(0)),
-        }
-    }
-
-    pub fn increment_in(&self, n: u64) {
-        *self.packets_in.write().unwrap() += n;
-    }
-
-    pub fn increment_out(&self, n: u64) {
-        *self.packets_out.write().unwrap() += n;
-    }
-
-    pub fn new_connection(&self) {
-        *self.connections.write().unwrap() += 1;
+    pub const fn new() -> Self {
+        Self { connections: 0 }
     }
 }
 
@@ -83,46 +77,48 @@ impl CcekElement for QuicElement {
     }
 }
 
-impl Default for QuicElement {
-    fn default() -> Self {
-        Self::new()
+impl Future for QuicElement {
+    type Output = Self;
+    fn poll(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        Poll::Ready(self.get_mut().clone())
     }
 }
 
-/// NIO session element - holds reactor state
+impl Clone for QuicElement {
+    fn clone(&self) -> Self {
+        Self {
+            connections: self.connections,
+        }
+    }
+}
+
+pub struct QuicKey;
+
+impl QuicKey {
+    pub const fn create() -> QuicElement {
+        QuicElement::new()
+    }
+}
+
+impl CcekKey for QuicKey {
+    type Element = QuicElement;
+}
+
+// ============================================================================
+// NIO Element - async Coroutine
+// ============================================================================
+
 pub struct NioElement {
-    pub active_fds: Arc<RwLock<u32>>,
-    pub submitted_ops: Arc<RwLock<u64>>,
-    pub completed_ops: Arc<RwLock<u64>>,
-    pub read_events: Arc<RwLock<u64>>,
-    pub write_events: Arc<RwLock<u64>>,
+    pub active_fds: u32,
+    pub max_fds: u32,
 }
 
 impl NioElement {
-    pub fn new() -> Self {
+    pub const fn new(max_fds: u32) -> Self {
         Self {
-            active_fds: Arc::new(RwLock::new(0)),
-            submitted_ops: Arc::new(RwLock::new(0)),
-            completed_ops: Arc::new(RwLock::new(0)),
-            read_events: Arc::new(RwLock::new(0)),
-            write_events: Arc::new(RwLock::new(0)),
+            active_fds: 0,
+            max_fds,
         }
-    }
-
-    pub fn register_fd(&self) {
-        *self.active_fds.write().unwrap() += 1;
-    }
-
-    pub fn unregister_fd(&self) {
-        *self.active_fds.write().unwrap() -= 1;
-    }
-
-    pub fn submit_op(&self) {
-        *self.submitted_ops.write().unwrap() += 1;
-    }
-
-    pub fn complete_op(&self) {
-        *self.completed_ops.write().unwrap() += 1;
     }
 }
 
@@ -132,34 +128,45 @@ impl CcekElement for NioElement {
     }
 }
 
-impl Default for NioElement {
-    fn default() -> Self {
-        Self::new()
+impl Future for NioElement {
+    type Output = Self;
+    fn poll(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        Poll::Ready(self.get_mut().clone())
     }
 }
 
-/// HTTP session element
+impl Clone for NioElement {
+    fn clone(&self) -> Self {
+        Self {
+            active_fds: self.active_fds,
+            max_fds: self.max_fds,
+        }
+    }
+}
+
+pub struct NioKey;
+
+impl NioKey {
+    pub const fn create(max_fds: u32) -> NioElement {
+        NioElement::new(max_fds)
+    }
+}
+
+impl CcekKey for NioKey {
+    type Element = NioElement;
+}
+
+// ============================================================================
+// HTTP Element - async Coroutine
+// ============================================================================
+
 pub struct HttpElement {
-    pub requests: Arc<RwLock<u64>>,
-    pub responses: Arc<RwLock<u64>>,
-    pub active_connections: Arc<RwLock<u32>>,
+    pub requests: u64,
 }
 
 impl HttpElement {
-    pub fn new() -> Self {
-        Self {
-            requests: Arc::new(RwLock::new(0)),
-            responses: Arc::new(RwLock::new(0)),
-            active_connections: Arc::new(RwLock::new(0)),
-        }
-    }
-
-    pub fn increment_requests(&self) {
-        *self.requests.write().unwrap() += 1;
-    }
-
-    pub fn increment_responses(&self) {
-        *self.responses.write().unwrap() += 1;
+    pub const fn new() -> Self {
+        Self { requests: 0 }
     }
 }
 
@@ -169,34 +176,44 @@ impl CcekElement for HttpElement {
     }
 }
 
-impl Default for HttpElement {
-    fn default() -> Self {
-        Self::new()
+impl Future for HttpElement {
+    type Output = Self;
+    fn poll(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        Poll::Ready(self.get_mut().clone())
     }
 }
 
-/// SCTP session element
+impl Clone for HttpElement {
+    fn clone(&self) -> Self {
+        Self {
+            requests: self.requests,
+        }
+    }
+}
+
+pub struct HttpKey;
+
+impl HttpKey {
+    pub const fn create() -> HttpElement {
+        HttpElement::new()
+    }
+}
+
+impl CcekKey for HttpKey {
+    type Element = HttpElement;
+}
+
+// ============================================================================
+// SCTP Element - async Coroutine
+// ============================================================================
+
 pub struct SctpElement {
-    pub chunks_in: Arc<RwLock<u64>>,
-    pub chunks_out: Arc<RwLock<u64>>,
-    pub associations: Arc<RwLock<u32>>,
+    pub associations: u32,
 }
 
 impl SctpElement {
-    pub fn new() -> Self {
-        Self {
-            chunks_in: Arc::new(RwLock::new(0)),
-            chunks_out: Arc::new(RwLock::new(0)),
-            associations: Arc::new(RwLock::new(0)),
-        }
-    }
-
-    pub fn increment_in(&self, n: u64) {
-        *self.chunks_in.write().unwrap() += n;
-    }
-
-    pub fn increment_out(&self, n: u64) {
-        *self.chunks_out.write().unwrap() += n;
+    pub const fn new() -> Self {
+        Self { associations: 0 }
     }
 }
 
@@ -206,8 +223,29 @@ impl CcekElement for SctpElement {
     }
 }
 
-impl Default for SctpElement {
-    fn default() -> Self {
-        Self::new()
+impl Future for SctpElement {
+    type Output = Self;
+    fn poll(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        Poll::Ready(self.get_mut().clone())
     }
+}
+
+impl Clone for SctpElement {
+    fn clone(&self) -> Self {
+        Self {
+            associations: self.associations,
+        }
+    }
+}
+
+pub struct SctpKey;
+
+impl SctpKey {
+    pub const fn create() -> SctpElement {
+        SctpElement::new()
+    }
+}
+
+impl CcekKey for SctpKey {
+    type Element = SctpElement;
 }

@@ -2,31 +2,36 @@
 
 ## Overview
 
-CCEK (CoroutineContext Element Key) is a Rust pattern for composing libraries under a security boundary, based on Kotlin's CoroutineContext.
+CCEK (CoroutineContext Element Key) is a Rust pattern for composing async libraries under a security boundary, based on Kotlin's CoroutineContext.
+
+**Key insight**: Elements ARE Coroutines. Context hosts Coroutine[Contexts]. This guides the compiler through explicit performant locality.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────┐
 │         CcekContext                 │
-│     (Security Boundary)             │
+│     (Host of Coroutine[Contexts])    │
 │                                     │
-│  Element + Key + Trait              │
+│  Element = Coroutine (async fn)      │
+│  Key = static const factory         │
 │                                     │
 └─────────────────────────────────────┘
 ```
 
 ## Three Components
 
-### 1. Keys (static const, weight 100)
+### 1. Keys (static const factory, weight 100)
 
-Keys are compile-time singleton identifiers. Each Key is a `static const` that provides its Element.
+Keys are compile-time const factories that create Coroutine Elements.
 
 ```rust
 pub struct HtxKey;
 
 impl HtxKey {
-    pub const ELEMENT: HtxElement = HtxElement::new();
+    pub const fn create() -> HtxElement {
+        HtxElement::new()
+    }
 }
 
 impl CcekKey for HtxKey {
@@ -34,18 +39,23 @@ impl CcekKey for HtxKey {
 }
 ```
 
-### 2. Elements (CoroutineContext.Element, weight 100)
+### 2. Elements (Coroutine, weight 100 for access)
 
-Elements are the actual library implementations. They hold state and implement traits.
+Elements ARE Coroutines (async fn returning Self). They implement `Future`.
 
 ```rust
-pub struct HtxElement {
-    pub connections: u32,
-}
+pub struct HtxElement;
 
 impl HtxElement {
     pub const fn new() -> Self {
-        Self { connections: 0 }
+        Self
+    }
+}
+
+impl Future for HtxElement {
+    type Output = Self;
+    fn poll(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        Poll::Ready(self.get_mut().clone())
     }
 }
 
@@ -54,63 +64,62 @@ impl CcekElement for HtxElement {
 }
 ```
 
-### 3. Traits (declarations on Elements)
+### 3. Context (host of Coroutine[Contexts])
 
-Traits define interfaces that Elements implement.
-
-```rust
-pub trait HtxVerifier {
-    fn verify(&self, input: &[u8]) -> bool;
-}
-
-impl HtxVerifier for HtxElement {
-    fn verify(&self, _input: &[u8]) -> bool {
-        true
-    }
-}
-```
-
-## Context Pattern
-
-Context composes Elements via the `+` operator (like Kotlin):
+Context hosts Coroutine[Contexts] for explicit compiler locality.
 
 ```rust
 let ctx = EmptyContext
-    + HtxKey::ELEMENT
-    + QuicKey::ELEMENT
-    + NioKey::element(1024);
+    + HtxKey::create()           // Coroutine[Context]
+    + QuicKey::create()           // Coroutine[Context]
+    + NioKey::create(1024);      // Coroutine[Context]
 ```
 
-## Usage
+## Why This Matters
 
-```rust
-use literbike::ccek_sdk::{CcekContext, CcekElement, CcekKey, EmptyContext};
-use literbike::ccek_sdk::elements::{HtxElement, HtxKey, QuicElement, QuicKey};
-use literbike::ccek_sdk::traits::HtxVerifier;
+When Elements are Coroutines and Context hosts Coroutine[Contexts]:
 
-// Create context
-let ctx = EmptyContext + HtxKey::ELEMENT;
-
-// Get element
-if let Some(htx) = ctx.get::<HtxKey>() {
-    htx.verify(data);
-}
-```
+1. **Compiler locality** - async/await chains are explicit
+2. **No heap allocation** - static dispatch where possible
+3. **Stack coroutines** - cooperative multitasking without boxing
+4. **Security boundary** - Context isolates library composition
 
 ## Key Catalog
 
-| Key | Element | Trait |
-|-----|---------|-------|
-| `HtxKey` | `HtxElement` | `HtxVerifier` |
-| `QuicKey` | `QuicElement` | `QuicEngine` |
-| `NioKey` | `NioElement` | `NioReactor` |
-| `HttpKey` | `HttpElement` | `HttpHandler` |
-| `SctpKey` | `SctpElement` | `SctpHandler` |
+| Key | Element (Coroutine) | Factory |
+|-----|-------------------|--------|
+| `HtxKey` | `HtxElement` | `HtxKey::create()` |
+| `QuicKey` | `QuicElement` | `QuicKey::create()` |
+| `NioKey` | `NioElement` | `NioKey::create(max_fds)` |
+| `HttpKey` | `HttpElement` | `HttpKey::create()` |
+| `SctpKey` | `SctpElement` | `SctpKey::create()` |
 
 ## Files
 
-- `src/ccek_sdk/context.rs` - Context, CcekKey, CcekElement traits
-- `src/ccek_sdk/elements.rs` - Element implementations + companion Keys
-- `src/ccek_sdk/keys.rs` - Key exports
-- `src/ccek_sdk/traits.rs` - Trait definitions and implementations
-- `src/ccek_sdk/channels.rs` - Channel types for tributary flow
+- `src/ccek_sdk/context.rs` - Context, CcekKey, CcekElement, EmptyContext
+- `src/ccek_sdk/elements.rs` - Element = Coroutine implementations
+- `src/ccek_sdk/keys.rs` - Key = static const factories
+- `src/ccek_sdk/traits.rs` - Trait definitions
+- `src/ccek_sdk/channels.rs` - Channel types
+
+## Pattern in Kotlin
+
+```kotlin
+// Kotlin CoroutineContext.Element pattern
+return EmptyCoroutineContext +
+    dhtService +
+    protocolDetector +
+    crdtStorage +
+    crdtNetwork +
+    conflictResolver
+```
+
+## Pattern in Rust (CCEK)
+
+```rust
+// Rust CCEK - Elements ARE Coroutines
+let ctx = EmptyContext
+    + HtxKey::create()
+    + QuicKey::create()
+    + NioKey::create(1024);
+```
