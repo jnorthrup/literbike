@@ -6,7 +6,7 @@
 //! - Each Element is a CoroutineContext.Element
 
 use super::{CcekContext, CcekElement, CcekKey};
-use std::any::Any;
+use std::any::{Any, TypeId};
 
 // ============================================================================
 // HTX Element - Constant-time ticket verification
@@ -33,6 +33,9 @@ impl HtxElement {
 impl CcekElement for HtxElement {
     fn key(&self) -> &'static str {
         "HtxElement"
+    }
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
     }
 }
 
@@ -74,6 +77,9 @@ impl CcekElement for QuicElement {
     fn key(&self) -> &'static str {
         "QuicElement"
     }
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
+    }
 }
 
 pub struct QuicKey;
@@ -110,6 +116,9 @@ impl CcekElement for HttpElement {
     fn key(&self) -> &'static str {
         "HttpElement"
     }
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
+    }
 }
 
 pub struct HttpKey;
@@ -145,6 +154,9 @@ impl SctpElement {
 impl CcekElement for SctpElement {
     fn key(&self) -> &'static str {
         "SctpElement"
+    }
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
     }
 }
 
@@ -189,6 +201,9 @@ impl NioElement {
 impl CcekElement for NioElement {
     fn key(&self) -> &'static str {
         "NioElement"
+    }
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
     }
 }
 

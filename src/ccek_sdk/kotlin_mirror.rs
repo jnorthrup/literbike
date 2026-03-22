@@ -64,7 +64,7 @@ pub trait CcekElement: Send + Sync + 'static {
 
 // Rust limitation: Cannot have associated const in trait with default impl
 // Kotlin: public interface Element { val key: Key<*> }
-// Rust: key() returns &'static str instead of Key<Self>
+// Rust: key() returns &'static str (type name), type_id() returns TypeId
 
 impl<T: Send + Sync + 'static> CcekElement for T {
     fn key(&self) -> &'static str {
