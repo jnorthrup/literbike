@@ -1,118 +1,148 @@
-//! CCEK - Kotlin CoroutineContext Exact Mirror
+//! CCEK - Exact Kotlin kotlinx-coroutines Translation
 //!
-//! Kotlin source (kotlinx-coroutines):
+//! Kotlin source:
 //! ```kotlin
-//! public interface CoroutineContext {
-//!     public operator fun <E : Element> get(key: Key<E>): E?
-//!     public fun minusKey(key: Key<*>): CoroutineContext
-//!     public operator fun plus(context: CoroutineContext): CoroutineContext
-//! }
-//!
-//! public interface Element {
-//!     public val key: Key<*>
-//! }
-//!
+//! public interface CoroutineContext { ... }
+//! public interface Element { val key: Key<*> }
 //! public interface Key<E : Element>
-//!
-//! public interface Job : Element, Coroutine {
-//!     public val isActive: Boolean
-//!     public val isCompleted: Boolean
-//!     public suspend fun join()
-//!     public fun cancel()
-//!     public companion object Key : Key<Job>
-//! }
-//!
-//! public interface CoroutineScope {
-//!     public val coroutineContext: CoroutineContext
-//! }
-//!
-//! public interface Flow<out T> {
-//!     public suspend fun collect(collector: FlowCollector<T>)
-//! }
-//!
-//! public interface FlowCollector<in T> {
-//!     public suspend fun emit(value: T)
-//! }
-//!
-//! public fun <E> Channel(capacity: Int): Channel<E>
+//! public interface Job : Element, Coroutine { ... }
+//! public interface CoroutineScope { ... }
+//! public interface Flow<out T> { ... }
+//! public fun Channel<T>(capacity: Int): Channel<T>
 //! ```
 
-use std::any::{Any, TypeId};
+use std::marker::PhantomData;
+use std::any::TypeId;
 
 // CoroutineContext -----------------------------------------------------------
-
-pub trait CcekContext {
-    fn get<E: CcekElement + 'static>(&self) -> Option<&E>;
-    fn minus_key(&self, key: TypeId) -> Self;
+// Kotlin: public interface CoroutineContext
+pub trait CoroutineContext {
+    fn get<E: Element>(&self, key: Key<E>) -> Option<E>
+    where
+        E: 'static;
+    fn minus_key(&self, key: KeyAny) -> Self;
+    fn size(&self) -> usize;
 }
 
-impl std::ops::Add for dyn CcekContext {
-    type Output = Box<dyn CcekContext>;
-    fn add(self, rhs: Self) -> Self::Output {
+impl std::ops::Add for dyn CoroutineContext {
+    type Output = Box<dyn CoroutineContext>;
+    fn add(self, _rhs: Self) -> Self::Output {
         todo!("compound context")
     }
 }
 
-// Element --------------------------------------------------------------------
-
-pub trait CcekElement: Send + Sync + 'static {
-    fn key(&self) -> TypeId;
-    fn as_any(&self) -> &dyn Any;
+// Element -------------------------------------------------------------------
+// Kotlin: public interface Element { public val key: Key<*> }
+pub trait Element {
+    fn key(&self) -> KeyAny;
 }
 
 // Key -----------------------------------------------------------------------
+// Kotlin: public interface Key<E : Element>
+pub trait Key<E: Element>: 'static {}
 
-pub trait CcekKey: 'static {
-    type Element: CcekElement;
-}
+// Key<Any> for minusKey ---------------------------------------------------
+// Kotlin uses Key<*> for the minusKey parameter
+pub trait AnyElement: Element {}
+impl<T: Element> AnyElement for T {}
+
+// Rust limitation: No way to express Key<*> directly, using AnyElement
 
 // Job -----------------------------------------------------------------------
-
-pub trait CcekJob: CcekElement {
+// Kotlin: public interface Job : Element, Coroutine
+pub trait Job: Element + Coroutine {
     fn is_active(&self) -> bool;
     fn is_completed(&self) -> bool;
-    fn cancel(&self);
     fn join(&self);
+    fn cancel(&self);
 }
 
-// CoroutineScope ------------------------------------------------------------
+// Coroutine -----------------------------------------------------------------
+// Kotlin: public interface Coroutine (marker interface)
+pub trait Coroutine {}
 
-pub trait CcekCoroutineScope {
-    fn coroutine_context(&self) -> &dyn CcekContext;
+// CoroutineScope -----------------------------------------------------------
+// Kotlin: public interface CoroutineScope
+pub trait CoroutineScope {
+    fn coroutine_context(&self) -> &dyn CoroutineContext;
 }
 
-// Flow ----------------------------------------------------------------------
+// coroutineScope -----------------------------------------------------------
+// Kotlin: public suspend fun CoroutineScope.coroutineScope(block: suspend CoroutineScope.() -> Unit)
+// Rust limitation: No receiver extension, no suspend keyword
+pub async fn coroutine_scope<S, F>(scope: &S, block: F)
+where
+    S: CoroutineScope,
+    F: FnOnce(&S),
+{
+    block(scope)
+}
 
-pub trait CcekFlow<T>: Send + Sync {
+// Flow ---------------------------------------------------------------------
+// Kotlin: public interface Flow<out T>
+pub trait Flow<T> {
     fn collect<C>(&self, collector: C)
     where
-        C: CcekFlowCollector<T>;
+        C: FlowCollector<T>;
 }
 
-pub trait CcekFlowCollector<T>: Send {
+// Kotlin: public interface FlowCollector<in T>
+pub trait FlowCollector<T> {
     fn emit(&mut self, value: T);
 }
 
-// Channel -------------------------------------------------------------------
-
-pub struct CcekChannel<T> {
-    _marker: std::marker::PhantomData<T>,
+// Channel ------------------------------------------------------------------
+// Kotlin: public fun <E> Channel(capacity: Int): Channel<E>
+pub struct Channel<T> {
+    _marker: PhantomData<T>,
 }
 
-pub fn ccek_channel<T>(capacity: usize) -> CcekChannel<T> {
+pub fn Channel<T>(capacity: usize) -> Channel<T> {
     let _ = capacity;
-    CcekChannel {
-        _marker: std::marker::PhantomData,
+    Channel { _marker: PhantomData }
+}
+
+// Kotlin: public interface SendChannel<in E>
+pub trait SendChannel<T> {
+    fn send(&self, _element: T);
+    fn try_send(&self, _element: T) -> ChannelResult<()>;
+    fn close(&self) -> bool;
+}
+
+// Kotlin: public interface ReceiveChannel<out E>
+pub trait ReceiveChannel<T> {
+    fn receive(&self) -> T;
+    fn try_receive(&self) -> ChannelResult<T>;
+}
+
+// Kotlin: public enum class ChannelResult
+// Rust limitation: Cannot parameterize enum with E, using ChannelResult<()> 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelResult<T> {
+    Success(T),
+    Closed,
+    Empty,
+    Full,
+}
+
+// EmptyCoroutineContext ----------------------------------------------------
+#[derive(Clone, Default)]
+pub struct EmptyCoroutineContext;
+
+impl CoroutineContext for EmptyCoroutineContext {
+    fn get<E: Element>(&self, _key: Key<E>) -> Option<E> {
+        None
+    }
+    fn minus_key(&self, _key: KeyAny) -> Self {
+        EmptyCoroutineContext
+    }
+    fn size(&self) -> usize {
+        0
     }
 }
 
-pub trait CcekSendChannel<T>: Send {
-    fn send(&self, element: T);
-    fn try_send(&self, element: T);
-    fn close(&self);
-}
-
-pub trait CcekReceiveChannel<T>: Send {
-    fn receive(&self) -> T;
-    fn try_receive(&self) -> Option<T>;
+impl Element for EmptyCoroutineContext {
+    fn key(&self) -> KeyAny {
+        KeyAny
+    }
 }
