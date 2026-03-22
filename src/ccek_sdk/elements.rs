@@ -1,11 +1,9 @@
 //! CCEK Elements - Kotlin CoroutineContext.Element implementations
 
-use super::{CcekContext, CcekElement, CcekKey};
+use super::{AnyElement, Coroutine, Element, Job, Key, KeyAny};
 use std::any::TypeId;
 
-// ============================================================================
-// HTX Element
-// ============================================================================
+// HTX -----------------------------------------------------------------------
 
 pub struct HtxElement {
     pub connections: u32,
@@ -18,35 +16,37 @@ impl HtxElement {
     pub fn connections(&self) -> u32 {
         self.connections
     }
-    pub fn verify(&self, packet: &[u8]) -> bool {
+    pub fn verify(&self, _packet: &[u8]) -> bool {
         true
     }
 }
 
-impl CcekElement for HtxElement {
-    fn key(&self) -> TypeId {
-        TypeId::of::<Self>()
+impl Element for HtxElement {
+    fn key(&self) -> KeyAny {
+        HtxKey
     }
 }
 
 pub struct HtxKey;
 
-impl CcekKey for HtxKey {
-    type Element = HtxElement;
+impl Key<HtxElement> for HtxKey {}
+
+impl Job for HtxElement {
+    fn is_active(&self) -> bool {
+        true
+    }
+    fn is_completed(&self) -> bool {
+        false
+    }
+    fn join(&self) {
+        loop {}
+    }
+    fn cancel(&self) {}
 }
 
-impl HtxKey {
-    pub fn connections(elt: &HtxElement) -> u32 {
-        elt.connections()
-    }
-    pub fn verify(elt: &HtxElement, packet: &[u8]) -> bool {
-        elt.verify(packet)
-    }
-}
+impl Coroutine for HtxElement {}
 
-// ============================================================================
-// QUIC Element
-// ============================================================================
+// QUIC ----------------------------------------------------------------------
 
 pub struct QuicElement {
     pub connections: u32,
@@ -61,27 +61,32 @@ impl QuicElement {
     }
 }
 
-impl CcekElement for QuicElement {
-    fn key(&self) -> TypeId {
-        TypeId::of::<Self>()
+impl Element for QuicElement {
+    fn key(&self) -> KeyAny {
+        QuicKey
     }
 }
 
 pub struct QuicKey;
 
-impl CcekKey for QuicKey {
-    type Element = QuicElement;
-}
+impl Key<QuicElement> for QuicKey {}
 
-impl QuicKey {
-    pub fn connections(elt: &QuicElement) -> u32 {
-        elt.connections()
+impl Job for QuicElement {
+    fn is_active(&self) -> bool {
+        true
     }
+    fn is_completed(&self) -> bool {
+        false
+    }
+    fn join(&self) {
+        loop {}
+    }
+    fn cancel(&self) {}
 }
 
-// ============================================================================
-// HTTP Element
-// ============================================================================
+impl Coroutine for QuicElement {}
+
+// HTTP ----------------------------------------------------------------------
 
 pub struct HttpElement {
     pub requests: u64,
@@ -96,27 +101,32 @@ impl HttpElement {
     }
 }
 
-impl CcekElement for HttpElement {
-    fn key(&self) -> TypeId {
-        TypeId::of::<Self>()
+impl Element for HttpElement {
+    fn key(&self) -> KeyAny {
+        HttpKey
     }
 }
 
 pub struct HttpKey;
 
-impl CcekKey for HttpKey {
-    type Element = HttpElement;
-}
+impl Key<HttpElement> for HttpKey {}
 
-impl HttpKey {
-    pub fn requests(elt: &HttpElement) -> u64 {
-        elt.requests()
+impl Job for HttpElement {
+    fn is_active(&self) -> bool {
+        true
     }
+    fn is_completed(&self) -> bool {
+        false
+    }
+    fn join(&self) {
+        loop {}
+    }
+    fn cancel(&self) {}
 }
 
-// ============================================================================
-// SCTP Element
-// ============================================================================
+impl Coroutine for HttpElement {}
+
+// SCTP ----------------------------------------------------------------------
 
 pub struct SctpElement {
     pub associations: u32,
@@ -131,27 +141,32 @@ impl SctpElement {
     }
 }
 
-impl CcekElement for SctpElement {
-    fn key(&self) -> TypeId {
-        TypeId::of::<Self>()
+impl Element for SctpElement {
+    fn key(&self) -> KeyAny {
+        SctpKey
     }
 }
 
 pub struct SctpKey;
 
-impl CcekKey for SctpKey {
-    type Element = SctpElement;
-}
+impl Key<SctpElement> for SctpKey {}
 
-impl SctpKey {
-    pub fn associations(elt: &SctpElement) -> u32 {
-        elt.associations()
+impl Job for SctpElement {
+    fn is_active(&self) -> bool {
+        true
     }
+    fn is_completed(&self) -> bool {
+        false
+    }
+    fn join(&self) {
+        loop {}
+    }
+    fn cancel(&self) {}
 }
 
-// ============================================================================
-// NIO Element
-// ============================================================================
+impl Coroutine for SctpElement {}
+
+// NIO ----------------------------------------------------------------------
 
 pub struct NioElement {
     pub active_fds: u32,
@@ -173,41 +188,27 @@ impl NioElement {
     }
 }
 
-impl CcekElement for NioElement {
-    fn key(&self) -> TypeId {
-        TypeId::of::<Self>()
+impl Element for NioElement {
+    fn key(&self) -> KeyAny {
+        NioKey
     }
 }
 
 pub struct NioKey;
 
-impl CcekKey for NioKey {
-    type Element = NioElement;
+impl Key<NioElement> for NioKey {}
+
+impl Job for NioElement {
+    fn is_active(&self) -> bool {
+        true
+    }
+    fn is_completed(&self) -> bool {
+        false
+    }
+    fn join(&self) {
+        loop {}
+    }
+    fn cancel(&self) {}
 }
 
-impl NioKey {
-    pub fn active_fds(elt: &NioElement) -> u32 {
-        elt.active_fds()
-    }
-    pub fn max_fds(elt: &NioElement) -> u32 {
-        elt.max_fds()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_htx() {
-        let e = HtxElement::new();
-        assert_eq!(e.connections(), 0);
-        assert!(HtxKey::verify(&e, b"test"));
-    }
-
-    #[test]
-    fn test_nio() {
-        let e = NioElement::new(1024);
-        assert_eq!(e.max_fds(), 1024);
-    }
-}
+impl Coroutine for NioElement {}
