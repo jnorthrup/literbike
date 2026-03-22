@@ -1,178 +1,87 @@
-//! CCEK - Exact Kotlin CoroutineContext Translation
+//! CCEK - Kotlin CoroutineContext Exact Mirror
 //!
-//! Each type mirrors Kotlin exactly. Deviations marked with "Rust limitation: ..."
-//!
-//! ## Kotlin Source
-//!
+//! Kotlin source (kotlinx-coroutines):
 //! ```kotlin
-//! // CoroutineContext
 //! public interface CoroutineContext {
 //!     public operator fun <E : Element> get(key: Key<E>): E?
 //!     public fun minusKey(key: Key<*>): CoroutineContext
 //!     public operator fun plus(context: CoroutineContext): CoroutineContext
 //! }
 //!
-//! // Element
 //! public interface Element {
 //!     public val key: Key<*>
 //! }
 //!
-//! // Key (companion object pattern)
 //! public interface Key<E : Element>
 //!
-//! // Job = Element + Coroutine
-//! public interface Job : CoroutineContext.Element, Coroutine {
+//! public interface Job : Element, Coroutine {
 //!     public val isActive: Boolean
+//!     public val isCompleted: Boolean
+//!     public suspend fun join()
+//!     public fun cancel()
 //!     public companion object Key : Key<Job>
 //! }
 //!
-//! // CoroutineScope
 //! public interface CoroutineScope {
 //!     public val coroutineContext: CoroutineContext
 //! }
 //!
-//! // Channel
-//! public fun <E> Channel(capacity: Int): Channel<E>
-//!
-//! // Flow
 //! public interface Flow<out T> {
 //!     public suspend fun collect(collector: FlowCollector<T>)
 //! }
+//!
+//! public interface FlowCollector<in T> {
+//!     public suspend fun emit(value: T)
+//! }
+//!
+//! public fun <E> Channel(capacity: Int): Channel<E>
 //! ```
 
 use std::any::{Any, TypeId};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
 
-// ============================================================================
-// CcekKey - Kotlin's Key<E : Element> companion object pattern
-// ============================================================================
+// CoroutineContext -----------------------------------------------------------
+
+pub trait CcekContext {
+    fn get<E: CcekElement + 'static>(&self) -> Option<&E>;
+    fn minus_key(&self, key: TypeId) -> Self;
+}
+
+impl std::ops::Add for dyn CcekContext {
+    type Output = Box<dyn CcekContext>;
+    fn add(self, rhs: Self) -> Self::Output {
+        todo!("compound context")
+    }
+}
+
+// Element --------------------------------------------------------------------
+
+pub trait CcekElement: Send + Sync + 'static {
+    fn key(&self) -> TypeId;
+    fn as_any(&self) -> &dyn Any;
+}
+
+// Key -----------------------------------------------------------------------
 
 pub trait CcekKey: 'static {
     type Element: CcekElement;
 }
 
-// ============================================================================
-// CcekElement - Kotlin's CoroutineContext.Element
-// ============================================================================
-
-pub trait CcekElement: Send + Sync + 'static {
-    fn key(&self) -> &'static str;
-    fn as_any(&self) -> &dyn Any;
-}
-
-// Rust limitation: Cannot have associated const in trait with default impl
-// Kotlin: public interface Element { val key: Key<*> }
-// Rust: key() returns &'static str (type name), type_id() returns TypeId
-
-impl<T: Send + Sync + 'static> CcekElement for T {
-    fn key(&self) -> &'static str {
-        std::any::type_name::<T>()
-    }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-// ============================================================================
-// CcekContext - Kotlin's CoroutineContext
-// ============================================================================
-
-#[derive(Clone, Default)]
-pub struct CcekContext {
-    // Rust limitation: Cannot have heterogeneous list at type level
-    // Kotlin: real map with Element values
-    // Rust: using TypeId-based resolution
-}
-
-impl CcekContext {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn get<E: CcekElement + 'static>(&self) -> Option<&E> {
-        // Rust limitation: TypeId-based resolution, not compile-time const keys
-        None
-    }
-
-    pub fn minus_key(&self, _key: &'static str) -> Self {
-        self.clone()
-    }
-
-    pub fn size(&self) -> usize {
-        0
-    }
-}
-
-impl std::ops::Add for CcekContext {
-    type Output = Self;
-    fn add(self, _rhs: Self) -> Self::Output {
-        // Rust limitation: Cannot overload + for heterogeneous types elegantly
-        self
-    }
-}
-
-// ============================================================================
-// EmptyContext - Kotlin's EmptyCoroutineContext
-// ============================================================================
-
-#[derive(Clone, Default)]
-pub struct EmptyContext;
-
-impl CcekElement for EmptyContext {
-    fn key(&self) -> &'static str {
-        "EmptyContext"
-    }
-}
-
-// ============================================================================
-// CcekCoroutine - Kotlin's Coroutine (suspend function owner)
-// ============================================================================
-
-// Rust limitation: Cannot express "can be used with suspend"
-// Kotlin: public interface Coroutine
-// Rust: Using async fn pattern instead
-
-// ============================================================================
-// CcekJob - Kotlin's Job (Element + Coroutine)
-// ============================================================================
+// Job -----------------------------------------------------------------------
 
 pub trait CcekJob: CcekElement {
     fn is_active(&self) -> bool;
     fn is_completed(&self) -> bool;
     fn cancel(&self);
-    fn on_complete(&self, callback: Box<dyn FnOnce()>);
+    fn join(&self);
 }
 
-// Rust limitation: Cannot have companion object in trait
-// Kotlin: public companion object Key : Key<Job>
-// Rust: Using associated type in CcekKey trait instead
-
-// ============================================================================
-// CcekCoroutineScope - Kotlin's CoroutineScope
-// ============================================================================
+// CoroutineScope ------------------------------------------------------------
 
 pub trait CcekCoroutineScope {
-    fn coroutine_context(&self) -> &CcekContext;
+    fn coroutine_context(&self) -> &dyn CcekContext;
 }
 
-// coroutineScope function - Kotlin: public suspend fun CoroutineScope.coroutineScope(block: ...)
-pub async fn coroutine_scope<S, T, F>(scope: &S, block: F) -> T
-where
-    S: CcekCoroutineScope,
-    F: FnOnce(&S) -> Pin<Box<dyn Future<Output = T> + Send>>,
-{
-    block(scope).await
-}
-
-// Rust limitation: Cannot have receiver extension in traits
-// Kotlin: suspend fun CoroutineScope.coroutineScope(block: suspend CoroutineScope.() -> T)
-// Rust: Free function instead
-
-// ============================================================================
-// CcekFlow - Kotlin's Flow<T>
-// ============================================================================
+// Flow ----------------------------------------------------------------------
 
 pub trait CcekFlow<T>: Send + Sync {
     fn collect<C>(&self, collector: C)
@@ -184,13 +93,7 @@ pub trait CcekFlowCollector<T>: Send {
     fn emit(&mut self, value: T);
 }
 
-// Rust limitation: Cannot have suspend functions in traits
-// Kotlin: suspend fun collect(collector: FlowCollector<T>)
-// Rust: Using async fn pattern with boxed futures
-
-// ============================================================================
-// CcekChannel - Kotlin's Channel<E>
-// ============================================================================
+// Channel -------------------------------------------------------------------
 
 pub struct CcekChannel<T> {
     _marker: std::marker::PhantomData<T>,
@@ -198,28 +101,18 @@ pub struct CcekChannel<T> {
 
 pub fn ccek_channel<T>(capacity: usize) -> CcekChannel<T> {
     let _ = capacity;
-    CcekChannel { _marker: std::marker::PhantomData }
+    CcekChannel {
+        _marker: std::marker::PhantomData,
+    }
 }
 
 pub trait CcekSendChannel<T>: Send {
     fn send(&self, element: T);
-    fn try_send(&self, element: T) -> CcekChannelResult;
+    fn try_send(&self, element: T);
     fn close(&self);
 }
 
 pub trait CcekReceiveChannel<T>: Send {
     fn receive(&self) -> T;
-    fn try_receive(&self) -> CcekChannelResult;
+    fn try_receive(&self) -> Option<T>;
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CcekChannelResult {
-    Success,
-    Closed,
-    Empty,
-    Full,
-}
-
-// Rust limitation: Cannot have Result-like enum with type parameter cleanly
-// Kotlin: ChannelResult<E> with success, failure variants
-// Rust: Using separate enum without type param
