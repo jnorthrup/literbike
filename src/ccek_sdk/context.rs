@@ -1,23 +1,15 @@
 //! CCEK - Kotlin CoroutineContext pattern
 //!
-//! Mirrors Kotlin exactly:
-//! ```kotlin
-//! return EmptyCoroutineContext +
-//!     dhtService +
-//!     protocolDetector +
-//!     crdtStorage
-//! ```
+//! Exact Kotlin mirror with TypeId as key type.
 
 use std::any::{Any, TypeId};
 
 pub trait CcekKey: 'static {
     type Element: CcekElement;
-    fn id() -> TypeId;
 }
 
 pub trait CcekElement: Send + Sync + 'static {
-    fn key(&self) -> &'static str;
-    fn type_id(&self) -> TypeId;
+    fn key(&self) -> TypeId;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -29,22 +21,18 @@ impl CcekContext {
         Self
     }
 
-    pub fn get<E: CcekElement>(&self) -> Option<&E> {
+    pub fn get<E: CcekElement + 'static>(&self) -> Option<&E> {
         None
     }
 
-    pub fn minus_key(&self, _key: &'static str) -> Self {
-        Self
-    }
-
-    pub fn is_empty(&self) -> bool {
-        true
+    pub fn minus_key(&self, _key: TypeId) -> Self {
+        self.clone()
     }
 }
 
 impl std::ops::Add for CcekContext {
     type Output = Self;
-    fn add(self, _rhs: Self) -> Self {
+    fn add(self, _rhs: Self) -> Self::Output {
         self
     }
 }
@@ -53,13 +41,7 @@ impl std::ops::Add for CcekContext {
 pub struct EmptyContext;
 
 impl CcekElement for EmptyContext {
-    fn key(&self) -> &'static str {
-        "EmptyContext"
-    }
-}
-
-impl EmptyContext {
-    pub fn is_empty(&self) -> bool {
-        true
+    fn key(&self) -> TypeId {
+        TypeId::of::<Self>()
     }
 }
