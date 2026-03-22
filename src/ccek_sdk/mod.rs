@@ -1,45 +1,47 @@
 //! CCEK SDK - Compile-Time Channelized Protocol Bindings
 //!
-//! CCEK (CoroutineContext Element Key) provides:
-//! - Compile-time bindings for services in the active context
-//! - Channelized protocol tributaries flowing into ENDGAME
-//! - Explicit SDK features that wire at compile time
-//!
-//! ## Architecture
+//! Architecture:
+//! - Keys: Linkage points between components (one per channel)
+//! - Elements: Hold session state for each SDK
+//! - Traits: Many-to-one bindings into Context
 //!
 //! ```text
-//! Protocol Tributaries (CCEK Channels)
+//! Protocol Tributaries (many Keys)
 //!        │
 //!        ▼
 //! ┌─────────────────────────────────────┐
-//! │     Active Context (CoroutineContext) │
+//! │     CcekContext (single context)     │
 //! │                                     │
-//! │  [DHTService] [ProtocolDetector]    │
-//! │  [CRDTStorage] [HtxVerifier]      │
-//! │  [QuicEngine] [HttpHandler]        │
+//! │  [HtxElement] ──► HTX session       │
+//! │  [QuicElement] ──► QUIC session     │
+//! │  [NioElement] ───► NIO session     │
+//! │                                     │
 //! └─────────────────────────────────────┘
 //!        │
-//!        ▼ (channelized flow)
+//!        ▼ (all flow into)
 //! ┌─────────────────────────────────────┐
 //! │         ENDGAME Reactor              │
-//! │    (Densification Processing Path)    │
 //! └─────────────────────────────────────┘
 //! ```
 
 pub mod context;
 pub mod channels;
-pub mod tributaries;
+pub mod keys;
+pub mod elements;
+pub mod traits;
 
-pub use context::{CcekContext, CcekElement, CcekKey};
+pub use context::{CcekContext, CcekKey, CcekElement};
 pub use channels::{Channel, ChannelRx, ChannelTx};
-pub use tributaries::{ProtocolTributary, HtxTributary, QuicTributary};
 
-// SDK feature bindings - these wire at compile time
+// SDK trait bindings (many-to-one into context)
 #[cfg(feature = "htx")]
-pub use tributaries::htx_verifier;
+pub use traits::htx_verifier;
 
 #[cfg(feature = "quic")]
-pub use tributaries::quic_engine;
+pub use traits::quic_engine;
 
 #[cfg(feature = "userspace-nio")]
-pub use tributaries::nio_reactor;
+pub use traits::nio_reactor;
+
+#[cfg(feature = "http")]
+pub use traits::http_handler;
