@@ -65,6 +65,19 @@ impl<T> ChannelRx<T> {
     pub fn try_recv(&self) -> Option<T> {
         self.recv()
     }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+}
+
+impl<T> Clone for ChannelRx<T> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: Arc::clone(&self.queue),
+            capacity: self.capacity,
+        }
+    }
 }
 
 impl<T> Clone for ChannelTx<T> {

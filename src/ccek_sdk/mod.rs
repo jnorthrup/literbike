@@ -1,27 +1,31 @@
 //! CCEK SDK - CoroutineContext Element Key pattern
 //!
 //! Elements ARE Coroutines. Context hosts Coroutine[Contexts].
-//! This guides the compiler through explicit performant locality.
 //!
-//! Pattern:
-//! - Element = Coroutine (implements Future)
-//! - Key = static const factory for Coroutine
-//! - Context = host of Coroutine[Contexts]
+//! ## Kotlin River Mapping
 //!
-//! Usage:
-//! ```rust
-//! let ctx = EmptyContext
-//!     + HtxKey::create()
-//!     + QuicKey::create()
-//!     + NioKey::create(1024);
-//! ```
+//! | Kotlin | Literbike River | Description |
+//! |--------|-----------------|-------------|
+//! | CoroutineContext | CcekContext | Compile-time optimized map |
+//! | CoroutineContext.Element | CcekElement | Protocol element |
+//! | CoroutineContext.Key | CcekKey | Const singleton factory |
+//! | Channel | Channel<T> | River connecting tributaries |
+//! | Flow | RiverFlow<T> | Cold async stream |
+//! | Job | ProtocolJob | Cancellable task handle |
+//! | CoroutineScope | CcekScope | Structured concurrency scope |
 
 pub mod channels;
 pub mod context;
+pub mod delta;
 pub mod elements;
 pub mod keys;
+pub mod scope;
 pub mod traits;
 
-pub use channels::{Channel, ChannelRx, ChannelTx};
+pub use channels::{Channel, ChannelRx, ChannelTx, ChannelError};
 pub use context::{CcekContext, CcekElement, CcekKey, EmptyContext};
+pub use delta::{Delta, Inlet, Outflow, Tributary, ProtocolDelta};
+pub use elements::{NetPacket, HtxElement, QuicElement, HttpElement, SctpElement, NioElement};
+pub use elements::{HtxKey, QuicKey, HttpKey, SctpKey, NioKey};
 pub use keys::*;
+pub use scope::{CcekScope, CcekScopeHandle, CcekScopeRef, CcekElementAdd};
