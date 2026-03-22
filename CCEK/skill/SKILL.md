@@ -32,15 +32,13 @@ pub struct CcekContext;
 
 ### 2. Keys = const compile-time singletons
 
-Like Kotlin's `Element.Key` companion objects. Static const compile-time resolution.
+Like Kotlin's `Element.Key` companion objects. **Stateless. Globally accessible. Nothing more.**
 
 ```rust
-pub struct HtxKey;
-
-impl HtxKey {
-    pub fn element() -> HtxElement { HtxElement::new() }
-}
+pub struct HtxKey;  // singleton - no state, just a type
 ```
+
+A Key can have functions, but a Key is NOT required to be a factory.
 
 ### 3. Elements = river deltas (NOT flat structures)
 
@@ -67,6 +65,8 @@ impl HtxElement {
     }
 }
 ```
+
+Key and Element are **separate**. Key is the singleton lookup key. Element is the stateful river delta.
 
 ## Delta Architecture
 
