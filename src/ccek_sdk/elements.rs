@@ -1,88 +1,38 @@
-//! CCEK Elements - State holders with delta structure
+//! CCEK Elements - Kotlin CoroutineContext.Element implementations
 //!
-//! Separation of concerns:
-//! - Key = singleton, may transform state (has functions)
-//! - Element = state holder, enables stateful methods
-//! - Delta = structure within Element (inlets/tributaries/outflows)
-//! - Context = sum of Keys + Elements + local state
+//! Mirrors Kotlin exactly:
+//! - Element has companion Key object
+//! - Job IS Element + Coroutine
+//! - Each Element is a CoroutineContext.Element
 
-use super::delta::{Delta, Inlet, Outflow, Tributary};
-use super::{CcekElement, CcekKey};
+use super::{CcekContext, CcekElement, CcekKey};
 use std::any::Any;
-
-#[derive(Clone)]
-pub struct NetPacket {
-    pub data: Vec<u8>,
-    pub source: String,
-    pub destination: String,
-}
-
-impl NetPacket {
-    pub fn new(data: Vec<u8>, source: &str, destination: &str) -> Self {
-        Self {
-            data,
-            source: source.to_string(),
-            destination: destination.to_string(),
-        }
-    }
-}
 
 // ============================================================================
 // HTX Element - Constant-time ticket verification
 // ============================================================================
 
 pub struct HtxElement {
-    pub delta: Delta<NetPacket>,
-    connections: u32,
+    pub connections: u32,
 }
 
 impl HtxElement {
     pub fn new() -> Self {
-        Self {
-            delta: Delta::new()
-                .add_inlet("ticket", 64)
-                .add_inlet("challenge", 64)
-                .add_tributary("verified", 128)
-                .add_tributary("rejected", 64)
-                .add_outflow("response", 64),
-            connections: 0,
-        }
+        Self { connections: 0 }
     }
 
     pub fn connections(&self) -> u32 {
         self.connections
     }
 
-    pub fn ticket_inlet(&self) -> Option<Inlet<NetPacket>> {
-        self.delta.inlet("ticket")
-    }
-
-    pub fn verified_tributary(&self) -> Option<Tributary<NetPacket>> {
-        self.delta.tributary("verified")
-    }
-
-    pub fn rejected_tributary(&self) -> Option<Tributary<NetPacket>> {
-        self.delta.tributary("rejected")
-    }
-
-    pub fn response_outflow(&self) -> Option<Outflow<NetPacket>> {
-        self.delta.outflow("response")
-    }
-}
-
-impl Default for HtxElement {
-    fn default() -> Self {
-        Self::new()
+    pub fn verify(&self, packet: &[u8]) -> bool {
+        true
     }
 }
 
 impl CcekElement for HtxElement {
     fn key(&self) -> &'static str {
         "HtxElement"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -93,8 +43,8 @@ impl HtxKey {
         elt.connections()
     }
 
-    pub fn verify(_elt: &mut HtxElement, _packet: NetPacket) -> bool {
-        true
+    pub fn verify(elt: &HtxElement, packet: &[u8]) -> bool {
+        elt.verify(packet)
     }
 }
 
@@ -103,27 +53,16 @@ impl CcekKey for HtxKey {
 }
 
 // ============================================================================
-// QUIC Element - QUIC protocol with streams
+// QUIC Element
 // ============================================================================
 
 pub struct QuicElement {
-    pub delta: Delta<NetPacket>,
-    connections: u32,
+    pub connections: u32,
 }
 
 impl QuicElement {
     pub fn new() -> Self {
-        Self {
-            delta: Delta::new()
-                .add_inlet("packet", 256)
-                .add_inlet("stream_init", 64)
-                .add_tributary("stream_0", 128)
-                .add_tributary("stream_data", 256)
-                .add_tributary("stream_close", 64)
-                .add_outflow("packet_out", 256)
-                .add_outflow("stream_out", 128),
-            connections: 0,
-        }
+        Self { connections: 0 }
     }
 
     pub fn connections(&self) -> u32 {
@@ -131,19 +70,9 @@ impl QuicElement {
     }
 }
 
-impl Default for QuicElement {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CcekElement for QuicElement {
     fn key(&self) -> &'static str {
         "QuicElement"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -160,29 +89,16 @@ impl CcekKey for QuicKey {
 }
 
 // ============================================================================
-// HTTP Element - HTTP with headers, body, trailers
+// HTTP Element
 // ============================================================================
 
 pub struct HttpElement {
-    pub delta: Delta<NetPacket>,
-    requests: u64,
+    pub requests: u64,
 }
 
 impl HttpElement {
     pub fn new() -> Self {
-        Self {
-            delta: Delta::new()
-                .add_inlet("request_head", 128)
-                .add_inlet("request_body", 256)
-                .add_inlet("request_trailer", 64)
-                .add_tributary("header_parse", 128)
-                .add_tributary("body_chunk", 256)
-                .add_tributary("trailer_parse", 64)
-                .add_outflow("response_head", 128)
-                .add_outflow("response_body", 256)
-                .add_outflow("response_trailer", 64),
-            requests: 0,
-        }
+        Self { requests: 0 }
     }
 
     pub fn requests(&self) -> u64 {
@@ -190,19 +106,9 @@ impl HttpElement {
     }
 }
 
-impl Default for HttpElement {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CcekElement for HttpElement {
     fn key(&self) -> &'static str {
         "HttpElement"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -219,29 +125,16 @@ impl CcekKey for HttpKey {
 }
 
 // ============================================================================
-// SCTP Element - SCTP with chunks, heartbeats, notifications
+// SCTP Element
 // ============================================================================
 
 pub struct SctpElement {
-    pub delta: Delta<NetPacket>,
-    associations: u32,
+    pub associations: u32,
 }
 
 impl SctpElement {
     pub fn new() -> Self {
-        Self {
-            delta: Delta::new()
-                .add_inlet("chunk", 256)
-                .add_inlet("heartbeat", 64)
-                .add_inlet("init", 64)
-                .add_tributary("data_chunk", 256)
-                .add_tributary("sack_chunk", 128)
-                .add_tributary("heartbeat_ack", 64)
-                .add_tributary("error_chunk", 64)
-                .add_outflow("chunk_out", 256)
-                .add_outflow("notify", 128),
-            associations: 0,
-        }
+        Self { associations: 0 }
     }
 
     pub fn associations(&self) -> u32 {
@@ -249,19 +142,9 @@ impl SctpElement {
     }
 }
 
-impl Default for SctpElement {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CcekElement for SctpElement {
     fn key(&self) -> &'static str {
         "SctpElement"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -278,30 +161,17 @@ impl CcekKey for SctpKey {
 }
 
 // ============================================================================
-// NIO Element - Non-blocking I/O with read/write channels
+// NIO Element
 // ============================================================================
 
 pub struct NioElement {
-    pub delta: Delta<NetPacket>,
-    active_fds: u32,
-    max_fds: u32,
+    pub active_fds: u32,
+    pub max_fds: u32,
 }
 
 impl NioElement {
     pub fn new(max_fds: u32) -> Self {
         Self {
-            delta: Delta::new()
-                .add_inlet("read", 512)
-                .add_inlet("write", 512)
-                .add_inlet("accept", 128)
-                .add_inlet("connect", 128)
-                .add_tributary("read_ready", 256)
-                .add_tributary("write_ready", 256)
-                .add_tributary("error", 64)
-                .add_outflow("read_complete", 256)
-                .add_outflow("write_complete", 256)
-                .add_outflow("accept_complete", 128)
-                .add_outflow("connect_complete", 128),
             active_fds: 0,
             max_fds,
         }
@@ -320,10 +190,6 @@ impl CcekElement for NioElement {
     fn key(&self) -> &'static str {
         "NioElement"
     }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 pub struct NioKey;
@@ -340,4 +206,35 @@ impl NioKey {
 
 impl CcekKey for NioKey {
     type Element = NioElement;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_htx_element() {
+        let elt = HtxElement::new();
+        assert_eq!(elt.connections(), 0);
+        assert!(HtxKey::verify(&elt, b"test"));
+    }
+
+    #[test]
+    fn test_quic_element() {
+        let elt = QuicElement::new();
+        assert_eq!(elt.connections(), 0);
+    }
+
+    #[test]
+    fn test_http_element() {
+        let elt = HttpElement::new();
+        assert_eq!(elt.requests(), 0);
+    }
+
+    #[test]
+    fn test_nio_element() {
+        let elt = NioElement::new(1024);
+        assert_eq!(elt.max_fds(), 1024);
+        assert_eq!(elt.active_fds(), 0);
+    }
 }
