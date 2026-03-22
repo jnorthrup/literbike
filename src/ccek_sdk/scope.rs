@@ -86,6 +86,10 @@ impl CcekScopeRef {
         self.0.context()
     }
 
+    pub fn get<E: CcekElement>(&self) -> Option<&E> {
+        self.0.context().get::<E>()
+    }
+
     pub async fn with<R, F, Fut>(&self, element: impl CcekElementAdd, f: F) -> R
     where
         F: Fn(CcekScopeRef) -> Fut + Send + Sync + 'static,
