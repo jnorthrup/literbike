@@ -26,4 +26,4 @@ pub use context::{CcekContext, CcekElement, CcekKey, EmptyContext};
 pub use elements::{HtxElement, QuicElement, HttpElement, SctpElement, NioElement};
 pub use elements::{HtxKey, QuicKey, HttpKey, SctpKey, NioKey};
 pub use keys::*;
-pub use scope::{CcekScope, CcekScopeHandle, CcekScopeRef, CcekElementAdd};
+pub use scope::{CcekScope, CcekScopeHandle, CcekScopeRef, CcekElementAdd, CcekLocal, ScopeExt};
