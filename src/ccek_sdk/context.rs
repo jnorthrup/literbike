@@ -10,8 +10,8 @@
 
 use std::any::Any;
 
-pub trait CcekKey<E: CcekElement>: 'static {
-    // Companion object pattern - like Kotlin's Element.Key
+pub trait CcekKey: 'static {
+    type Element: CcekElement;
 }
 
 pub trait CcekElement: Send + Sync + 'static {
