@@ -1,22 +1,17 @@
-//! CCEK - CoroutineContext Element Key pattern
+//! CCEK - Kotlin CoroutineContext pattern
 //!
-//! Based on Kotlin's CoroutineContext:
-//! - Context = compile-time optimized map with const keys
-//! - Elements = values in the map (implement CoroutineContext.Element)
-//! - Keys = const compile-time Key singletons (companion objects)
-//!
-//! Pattern mirrors Kotlin:
+//! Mirrors Kotlin exactly:
 //! ```kotlin
 //! return EmptyCoroutineContext +
 //!     dhtService +
-////!     protocolDetector +
+//!     protocolDetector +
 //!     crdtStorage
 //! ```
 
 use std::any::Any;
 
-pub trait CcekKey: 'static {
-    type Element: CcekElement;
+pub trait CcekKey<E: CcekElement>: 'static {
+    // Companion object pattern - like Kotlin's Element.Key
 }
 
 pub trait CcekElement: Send + Sync + 'static {
@@ -28,16 +23,16 @@ pub trait CcekElement: Send + Sync + 'static {
 pub struct CcekContext;
 
 impl CcekContext {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self
     }
 
-    pub fn with<E: CcekElement + 'static>(self, _element: E) -> Self {
-        self
+    pub fn get<E: CcekElement>(&self) -> Option<&E> {
+        None
     }
 
-    pub fn get<E: CcekElement + 'static>(&self) -> Option<&E> {
-        None
+    pub fn minus_key(&self, _key: &'static str) -> Self {
+        Self
     }
 
     pub fn is_empty(&self) -> bool {
@@ -45,7 +40,7 @@ impl CcekContext {
     }
 }
 
-impl const std::ops::Add for CcekContext {
+impl std::ops::Add for CcekContext {
     type Output = Self;
     fn add(self, _rhs: Self) -> Self {
         self
@@ -55,5 +50,14 @@ impl const std::ops::Add for CcekContext {
 #[derive(Clone, Default)]
 pub struct EmptyContext;
 
-// EmptyContext is covered by the blanket impl<T: Send + Sync + 'static> CcekElement for T
-// key() returns std::any::type_name::<EmptyContext>() which is "ccek_sdk::context::EmptyContext"
+impl CcekElement for EmptyContext {
+    fn key(&self) -> &'static str {
+        "EmptyContext"
+    }
+}
+
+impl EmptyContext {
+    pub fn is_empty(&self) -> bool {
+        true
+    }
+}

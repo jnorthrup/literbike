@@ -16,7 +16,6 @@
 
 pub mod channels;
 pub mod context;
-pub mod delta;
 pub mod elements;
 pub mod keys;
 pub mod scope;
@@ -24,8 +23,7 @@ pub mod traits;
 
 pub use channels::{Channel, ChannelRx, ChannelTx, ChannelError};
 pub use context::{CcekContext, CcekElement, CcekKey, EmptyContext};
-pub use delta::{Delta, Inlet, Outflow, Tributary, ProtocolDelta};
-pub use elements::{NetPacket, HtxElement, QuicElement, HttpElement, SctpElement, NioElement};
+pub use elements::{HtxElement, QuicElement, HttpElement, SctpElement, NioElement};
 pub use elements::{HtxKey, QuicKey, HttpKey, SctpKey, NioKey};
 pub use keys::*;
 pub use scope::{CcekScope, CcekScopeHandle, CcekScopeRef, CcekElementAdd};
