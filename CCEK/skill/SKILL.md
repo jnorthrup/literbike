@@ -19,54 +19,60 @@ return EmptyCoroutineContext +
 // With a companion object Key for compile-time resolution
 ```
 
-## Three Components
+## Four Concepts (NOT Three)
 
-### 1. Context = Compile-time optimized map
+### 1. Key = singleton, may transform state
 
-Like Kotlin's `CoroutineContext` - specialized map with const key resolution.
-
-```rust
-#[derive(Clone, Default)]
-pub struct CcekContext;
-```
-
-### 2. Keys = const compile-time singletons
-
-Like Kotlin's `Element.Key` companion objects. **Stateless. Globally accessible. Nothing more.**
+Stateless. Globally accessible. Has functions that may transform state.
 
 ```rust
-pub struct HtxKey;  // singleton - no state, just a type
+pub struct HtxKey;
+
+impl HtxKey {
+    pub fn verify(elt: &mut HtxElement, packet: NetPacket) -> bool { ... }
+    pub fn connections(elt: &HtxElement) -> u32 { ... }
+}
 ```
 
-A Key can have functions, but a Key is NOT required to be a factory.
+### 2. Element = state holder, enables stateful methods
 
-### 3. Elements = river deltas (NOT flat structures)
-
-Each protocol Element is a **river delta** with:
-- **INLETS**: incoming data sources
-- **TRIBUTARIES**: branching sub-streams
-- **OUTFLOWS**: outgoing data sinks
+Holds state (including Delta). Element has Delta, not IS Delta.
 
 ```rust
 pub struct HtxElement {
-    pub delta: Delta<NetPacket>,
-}
-
-impl HtxElement {
-    pub fn new() -> Self {
-        Self {
-            delta: Delta::new()
-                .add_inlet("ticket", 64)           // incoming tickets
-                .add_inlet("challenge", 64)         // challenge requests
-                .add_tributary("verified", 128)     // verified tickets branch
-                .add_tributary("rejected", 64)     // rejected tickets branch
-                .add_outflow("response", 64),      // verification responses
-        }
-    }
+    pub delta: Delta<NetPacket>,  // delta is PART of element
+    connections: u32,            // local state
 }
 ```
 
-Key and Element are **separate**. Key is the singleton lookup key. Element is the stateful river delta.
+### 3. Delta = structure within Element
+
+Inlets/tributaries/outflows are the **structure** of state flow.
+
+```rust
+delta: Delta::new()
+    .add_inlet("ticket", 64)
+    .add_tributary("verified", 128)
+    .add_outflow("response", 64)
+```
+
+### 4. Context = sum of Keys + Elements + local state
+
+```rust
+pub struct CcekContext {
+    elements: HashMap<&'static str, Box<dyn CcekElement>>,
+    // local state lives here
+}
+```
+
+## Separation of Concerns
+
+| Concept | Role | Stateful? |
+|---------|------|-----------|
+| Key | Singleton lookup, may transform | No |
+| Element | State holder | Yes |
+| Delta | Structure within Element | Yes (structure) |
+| Context | Sum of Keys + Elements + state | Yes |
 
 ## Delta Architecture
 
