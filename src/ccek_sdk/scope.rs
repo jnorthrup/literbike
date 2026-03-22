@@ -1,25 +1,13 @@
-//! CCEK Scope - Implicit CoroutineContext like Kotlin
+//! CCEK Scope - Kotlin CoroutineScope pattern
 //!
-//! Kotlin: `suspend fun` has implicit CoroutineContext via `currentCoroutineContext()`
-//! Rust: We use a Scope trait to provide context implicitly.
+//! Scopes narrow future scopes - structured concurrency.
 //!
-//! ## Sequential Composition (no dispatch tables)
-//!
-//! ```rust
-//! // Both Kotlin and Rust are SEQUENTIAL by default
-//!
-//! // Kotlin
-//! suspend fun pipeline(ctx: CoroutineContext) {
-//!     val data = source()
-//!     val processed = transform(ctx, data)
-//!     sink(processed)
-//! }
-//!
-//! // Rust (same sequential pattern)
-//! async fn pipeline(ctx: impl CcekScope) {
-//!     let data = source().await;
-//!     let processed = ctx.transform(data).await;
-//!     sink(processed).await;
+//! ```kotlin
+//! coroutineScope {  // narrower than parent
+//!     launch { ... }
+//!     withContext(Dispatchers.IO) {  // even narrower
+//!         ...
+//!     }
 //! }
 //! ```
 
@@ -27,7 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::context::CcekContext;
+use super::context::{CcekContext, CcekElement, EmptyContext};
 
 pub trait CcekScope: Send + Sync {
     fn context(&self) -> &CcekContext;
@@ -49,87 +37,161 @@ pub struct CcekScopeHandle {
 
 impl CcekScopeHandle {
     pub fn new(ctx: CcekContext) -> Self {
-        Self {
-            ctx: Arc::new(ctx),
-        }
+        Self { ctx: Arc::new(ctx) }
+    }
+
+    pub fn context(&self) -> &CcekContext {
+        self.ctx.context()
+    }
+
+    pub fn child(&self, ctx: CcekContext) -> CcekScopeHandle {
+        CcekScopeHandle::new(ctx)
+    }
+
+    pub async fn with_context<C2, F, Fut>(&self, ctx: C2, f: F) -> Fut::Output
+    where
+        C2: Into<CcekContext>,
+        F: FnOnce(CcekScopeRef) -> Fut,
+        Fut: Future,
+    {
+        let child_scope = self.child(ctx.into());
+        let scope_ref = CcekScopeRef::new(child_scope);
+        f(scope_ref).await
     }
 
     pub fn scope<F, Fut>(&self, f: F) -> impl Future<Output = ()> + Send
     where
-        F: Fn(CcekScopeRef) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: FnOnce(CcekScopeRef) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
-        let ctx = self.ctx.clone();
-        async move {
-            let scope = CcekScopeRef(ctx);
-            f(scope).await;
-        }
+        let scope_ref = CcekScopeRef::new(self.clone());
+        async move { f(scope_ref).await }
     }
+}
 
-    pub async fn run<R, F, Fut>(&self, f: F) -> R
-    where
-        F: Fn(CcekScopeRef) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
-    {
-        let ctx = self.ctx.clone();
-        let scope = CcekScopeRef(ctx);
-        f(scope).await
+impl Default for CcekScopeHandle {
+    fn default() -> Self {
+        Self::new(EmptyContext)
     }
 }
 
 #[derive(Clone)]
-pub struct CcekScopeRef(Arc<dyn CcekScope>);
+pub struct CcekScopeRef {
+    scope: Arc<dyn CcekScope>,
+}
 
 impl CcekScopeRef {
+    pub fn new(scope: impl CcekScope + 'static) -> Self {
+        Self {
+            scope: Arc::new(scope),
+        }
+    }
+
     pub fn context(&self) -> &CcekContext {
-        self.0.context()
+        self.scope.context()
     }
 
-    pub fn get<E: CcekElement>(&self) -> Option<&E> {
-        self.0.context().get::<E>()
+    pub fn child(&self, ctx: CcekContext) -> CcekScopeRef {
+        CcekScopeRef::new(CcekScopeHandle::new(ctx))
     }
 
-    pub async fn with<R, F, Fut>(&self, element: impl CcekElementAdd, f: F) -> R
+    pub fn narrow<C2>(&self, ctx: C2) -> CcekScopeRef
     where
-        F: Fn(CcekScopeRef) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = R> + Send + 'static,
+        C2: Into<CcekContext>,
     {
-        let ctx = self.0.context().clone().with(element);
-        let scope = CcekScopeRef(Arc::new(ctx));
-        f(scope).await
+        self.child(ctx.into())
+    }
+
+    pub async fn with<C2, F, Fut>(&self, ctx: C2, f: F) -> Fut::Output
+    where
+        C2: Into<CcekContext>,
+        F: FnOnce(CcekScopeRef) -> Fut,
+        Fut: Future,
+    {
+        let child = self.narrow(ctx);
+        f(child).await
     }
 }
 
 impl AsRef<CcekContext> for CcekScopeRef {
     fn as_ref(&self) -> &CcekContext {
-        self.0.context()
+        self.context()
     }
 }
 
-pub trait CcekElementAdd: Send + Sync + 'static {
-    fn add_to(self, ctx: CcekContext) -> CcekContext;
+impl AsRef<dyn CcekScope> for CcekScopeRef {
+    fn as_ref(&self) -> &(dyn CcekScope + 'static) {
+        &*self.scope
+    }
 }
 
-impl<T: Send + Sync + 'static> CcekElementAdd for T
+pub trait ScopeExt: CcekScope + Sized {
+    fn get<E: CcekElement>(&self) -> Option<&E> {
+        self.context().get::<E>()
+    }
+}
+
+impl<S: CcekScope> ScopeExt for S {}
+
+pub struct CcekLocal<T: Send + 'static> {
+    value: std::cell::RefCell<Option<T>>,
+}
+
+impl<T: Send + 'static> CcekLocal<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value: std::cell::RefCell::new(Some(value)),
+        }
+    }
+
+    pub fn get(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.value.borrow().clone()
+    }
+
+    pub fn set(&self, value: T) {
+        *self.value.borrow_mut() = Some(value);
+    }
+}
+
+impl<T: Send + 'static> Default for CcekLocal<T>
 where
-    T: Clone,
+    T: Default,
 {
-    fn add_to(self, mut ctx: CcekContext) -> CcekContext {
-        ctx = ctx.with(self);
-        ctx
+    fn default() -> Self {
+        Self::new(T::default())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ccek_sdk::context::EmptyContext;
+    use crate::ccek_sdk::{HtxElement, HtxKey};
 
     #[test]
-    fn test_scope_context() {
-        let ctx = EmptyContext;
-        let scope = CcekScopeRef(Arc::new(ctx));
-        assert!(scope.context().is_empty());
+    fn test_scope_narrowing() {
+        let parent = CcekScopeHandle::new(EmptyContext);
+        assert!(parent.context().is_empty());
+
+        let child_ctx = CcekContext::new().with(HtxElement::new());
+        let child = parent.child(child_ctx);
+        assert!(child.context().get::<HtxElement>().is_some());
+    }
+
+    #[test]
+    fn test_scope_ref_narrowing() {
+        let parent = CcekScopeRef::new(CcekScopeHandle::default());
+        let child = parent.narrow(CcekContext::new().with(HtxElement::new()));
+        assert!(child.context().get::<HtxElement>().is_some());
+    }
+
+    #[test]
+    fn test_scope_context_get() {
+        let ctx = CcekContext::new().with(HtxElement::new());
+        let scope = CcekScopeHandle::new(ctx);
+        let htx = scope.get::<HtxElement>();
+        assert!(htx.is_some());
     }
 }

@@ -60,11 +60,19 @@ public interface Flow<out T> {
 }
 ```
 
-### 7. CoroutineScope
+### 7. CoroutineScope (narrows future scopes)
 
 ```kotlin
 public interface CoroutineScope {
     public val coroutineContext: CoroutineContext
+}
+
+// Scopes narrow future scopes - structured concurrency
+coroutineScope {  // child scope, narrower than parent
+    launch { ... }
+    withContext(Dispatchers.IO) {  // even narrower
+        ...
+    }
 }
 ```
 
@@ -120,6 +128,13 @@ val job = ctx[Job]?.launch {
         ctx[Channel]?.send(value)
     }
 }
+
+// Scope narrowing
+coroutineScope {
+    val child = withContext(Dispatchers.IO) {
+        // narrower scope
+    }
+}
 ```
 
 ## Rust Usage (Same Pattern)
@@ -132,6 +147,12 @@ let job = ctx.get::<dyn CcekJob>()?.launch(|| async {
         ctx.get::<Channel<_>>()?.send(value).await
     });
 });
+
+// Scope narrowing
+let scope = CcekScopeHandle::new(ctx);
+scope.with_context(Dispatchers::IO, |scope| async {
+    // narrower scope
+}).await;
 ```
 
 ## Files
