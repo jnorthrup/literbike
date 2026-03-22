@@ -81,7 +81,7 @@ impl QuicEngine {
         initial_state: QuicConnectionState,
         socket: Arc<UdpSocket>,
         remote_addr: SocketAddr,
-        _private_key: Vec<u8>,
+        private_key: Vec<u8>,
         crypto_provider: Arc<dyn QuicCryptoProvider>,
         ctx: crate::concurrency::ccek::CoroutineContext,
     ) -> Self {
@@ -97,7 +97,7 @@ impl QuicEngine {
             };
 
         // Try to get TlsCcekService from context to upgrade crypto_provider automatically
-        let final_provider = crypto_provider;
+        let mut final_provider = crypto_provider;
         #[cfg(feature = "tls-quic")]
         if let Some(tls_svc) = ctx.get_typed::<crate::quic::tls_ccek::TlsCcekService>("TlsCcekService") {
             {
@@ -294,7 +294,7 @@ impl QuicEngine {
         encoded_packet_number_len: Option<usize>,
     ) -> Result<(), QuicError> {
         // Prepare ACK data in a separate scope to drop guards early
-        let (_ack_packet_opt, _ack_level_opt, serialized_ack_opt): (
+        let (ack_packet_opt, ack_level_opt, serialized_ack_opt): (
             Option<QuicPacket>,
             Option<EncryptionLevel>,
             Option<Vec<u8>>,
@@ -322,7 +322,7 @@ impl QuicEngine {
             self.crypto_provider
                 .on_inbound_header(&mut packet.header, &inbound_ctx)?;
             packet.header.packet_number = reconstructed_packet_number;
-            let _inbound_packet_type = packet.header.r#type;
+            let inbound_packet_type = packet.header.r#type;
 
             // Process each frame
             for frame in packet.frames.iter() {

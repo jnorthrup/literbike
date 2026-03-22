@@ -1,7 +1,7 @@
 //! Lean HTTP/1.1 Server - relaxfactory pattern
 //!
 //! Zero-copy, minimal-allocation HTTP server using POSIX select reactor
-//! 
+//!
 //! # Example
 //!
 //! ```rust,no_run
@@ -34,10 +34,42 @@
 //! ```
 
 pub mod header_parser;
-pub mod session;
 pub mod server;
+pub mod session;
 
-pub use header_parser::{HttpMethod, HttpStatus, HeaderParser, headers, mime};
+pub use header_parser::{headers, mime, HeaderParser, HttpMethod, HttpStatus};
+pub use server::{send_html, send_json, send_redirect, send_response};
+pub use server::{FnHandler, HttpEventHandler, HttpHandler, HttpServer, HttpSessionContainer};
 pub use session::HttpSession;
-pub use server::{HttpServer, HttpHandler, FnHandler, HttpEventHandler, HttpSessionContainer};
-pub use server::{send_response, send_json, send_html, send_redirect};
+
+// Re-export userspace network adapters for HTTP protocol integration
+#[cfg(feature = "userspace-network")]
+pub use crate::userspace_network::adapters::NetworkAdapter;
+
+/// HTTP protocol handler that implements ProtocolHandler for unified detection
+use crate::protocol::ProtocolHandler;
+use std::io;
+
+pub struct HttpProtocolHandler {
+    server: std::sync::Arc<std::sync::Mutex<HttpEventHandler>>,
+}
+
+impl HttpProtocolHandler {
+    pub fn new(server: HttpEventHandler) -> Self {
+        Self {
+            server: std::sync::Arc::new(std::sync::Mutex::new(server)),
+        }
+    }
+}
+
+impl ProtocolHandler for HttpProtocolHandler {
+    fn handle(&mut self, data: &[u8]) -> io::Result<()> {
+        // Parse HTTP request and dispatch to server
+        // This is a simplified integration point
+        Ok(())
+    }
+
+    fn protocol(&self) -> crate::protocol::Protocol {
+        crate::protocol::Protocol::Http
+    }
+}

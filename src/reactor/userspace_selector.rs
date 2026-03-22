@@ -6,11 +6,11 @@
 
 use crate::reactor::operation::InterestSet;
 use crate::reactor::selector::{ReadyEvent, SelectorBackend};
+use crate::userspace_nio_module::{NioChannel, Reactor as _, SimpleReactor};
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::os::fd::RawFd;
 use std::time::Duration;
-use userspace::kernel::nio::{NioChannel, Reactor as _, SimpleReactor};
 
 pub struct UserspaceSelector {
     registrations: HashMap<RawFd, InterestSet>,

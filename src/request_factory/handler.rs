@@ -1,4 +1,6 @@
 use axum::{Json, response::IntoResponse, extract::State};
+use std::sync::Arc;
+use crate::request_factory::tracker::OperationsTracker;
 use serde_json::Value;
 
 use crate::couchdb::api::AppState;

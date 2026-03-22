@@ -9,25 +9,25 @@ use std::io::{self, Read, Write};
 pub struct HttpSession {
     /// Header parser (holds header buffer)
     pub parser: HeaderParser,
-    
+
     /// Session state
     pub state: SessionState,
-    
+
     /// Read phase
     pub read_phase: ReadPhase,
-    
+
     /// Write phase  
     pub write_phase: WritePhase,
-    
+
     /// Request body buffer (if Content-Length > 0)
     pub body_buffer: Vec<u8>,
-    
+
     /// Response buffer (being written)
     pub response_buffer: Vec<u8>,
-    
+
     /// Content-Length for request body
     pub expected_body_len: Option<usize>,
-    
+
     /// Keep-alive connection
     pub keep_alive: bool,
 }
@@ -102,17 +102,17 @@ impl HttpSession {
             SessionState::ReadingHeaders => {
                 let buf = self.parser.buffer_mut();
                 let start_len = buf.len();
-                
+
                 // Grow buffer if needed
                 buf.resize(start_len + 1024, 0);
-                
+
                 let n = reader.read(&mut buf[start_len..])?;
                 buf.truncate(start_len + n);
-                
+
                 if n > 0 {
                     self.read_phase = ReadPhase::Headers;
                 }
-                
+
                 Ok(n)
             }
             SessionState::ReadingBody => {
@@ -121,10 +121,10 @@ impl HttpSession {
                     if current_len < expected {
                         let remaining = expected - current_len;
                         self.body_buffer.resize(current_len + remaining, 0);
-                        
+
                         let n = reader.read(&mut self.body_buffer[current_len..])?;
                         self.body_buffer.truncate(current_len + n);
-                        
+
                         self.read_phase = ReadPhase::Body;
                         return Ok(n);
                     }
@@ -145,7 +145,7 @@ impl HttpSession {
             Ok(true) => {
                 // Headers complete
                 self.state = SessionState::ReadingBody;
-                
+
                 // Check Content-Length
                 if let Some(len) = self.parser.content_length() {
                     self.expected_body_len = Some(len);
@@ -156,7 +156,7 @@ impl HttpSession {
                     // No Content-Length, proceed to processing
                     self.state = SessionState::Processing;
                 }
-                
+
                 // Move any body bytes already read into parser buffer over to body_buffer
                 if let Some(offset) = self.parser.body_offset() {
                     let buf = self.parser.buffer();
@@ -165,7 +165,7 @@ impl HttpSession {
                         self.body_buffer.extend_from_slice(&body_bytes);
                     }
                 }
-                
+
                 // Check Connection header for keep-alive
                 if let Some(conn) = self.parser.header("Connection") {
                     self.keep_alive = conn.eq_ignore_ascii_case("keep-alive");
@@ -173,7 +173,7 @@ impl HttpSession {
                     // HTTP/1.1 defaults to keep-alive
                     self.keep_alive = self.parser.protocol() == Some("HTTP/1.1");
                 }
-                
+
                 Ok(true)
             }
             Ok(false) => Ok(false),
@@ -184,9 +184,7 @@ impl HttpSession {
     /// Check if body reading is complete
     pub fn body_complete(&self) -> bool {
         match (self.state, self.expected_body_len) {
-            (SessionState::ReadingBody, Some(expected)) => {
-                self.body_buffer.len() >= expected
-            }
+            (SessionState::ReadingBody, Some(expected)) => self.body_buffer.len() >= expected,
             _ => true,
         }
     }
@@ -200,7 +198,9 @@ impl HttpSession {
 
     /// Prepare response for writing
     pub fn prepare_response(&mut self, status: HttpStatus, content_type: &str, body: &[u8]) {
-        self.response_buffer = self.parser.build_simple_response(status, content_type, body);
+        self.response_buffer = self
+            .parser
+            .build_simple_response(status, content_type, body);
         self.state = SessionState::Writing;
         self.write_phase = WritePhase::Headers;
     }
@@ -212,11 +212,11 @@ impl HttpSession {
         }
 
         let n = writer.write(&self.response_buffer)?;
-        
+
         if n >= self.response_buffer.len() {
             self.response_buffer.clear();
             self.write_phase = WritePhase::Idle;
-            
+
             if self.keep_alive {
                 self.reset();
                 self.state = SessionState::ReadingHeaders;
@@ -224,7 +224,7 @@ impl HttpSession {
                 self.state = SessionState::Done;
             }
         }
-        
+
         Ok(n)
     }
 
@@ -255,7 +255,10 @@ impl HttpSession {
 
     /// Check if session wants to read
     pub fn wants_read(&self) -> bool {
-        matches!(self.state, SessionState::ReadingHeaders | SessionState::ReadingBody)
+        matches!(
+            self.state,
+            SessionState::ReadingHeaders | SessionState::ReadingBody
+        )
     }
 
     /// Check if session wants to write
@@ -288,10 +291,10 @@ mod tests {
         let mut session = HttpSession::new();
         let request = b"GET /test HTTP/1.1\r\nHost: localhost\r\n\r\n";
         let mut cursor = Cursor::new(request);
-        
+
         let n = session.read_from_socket(&mut cursor).unwrap();
         assert!(n > 0);
-        
+
         let parsed = session.try_parse_headers().unwrap();
         assert!(parsed);
         assert_eq!(session.method(), Some(HttpMethod::GET));
@@ -301,22 +304,23 @@ mod tests {
     #[test]
     fn test_read_body() {
         let mut session = HttpSession::new();
-        let request = b"POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 11\r\n\r\nHello, World";
+        let request =
+            b"POST /test HTTP/1.1\r\nHost: localhost\r\nContent-Length: 11\r\n\r\nHello, World";
         let mut cursor = Cursor::new(request);
-        
+
         // Read headers
         let n = session.read_from_socket(&mut cursor).unwrap();
         assert!(n > 0);
-        
+
         session.try_parse_headers().unwrap();
         assert_eq!(session.state, SessionState::ReadingBody);
         assert_eq!(session.expected_body_len, Some(11));
-        
+
         // Read body
         while !session.body_complete() {
             session.read_from_socket(&mut cursor).unwrap();
         }
-        
+
         session.finish_reading_body();
         assert_eq!(session.state, SessionState::Processing);
         assert_eq!(session.body(), b"Hello, World");
@@ -326,11 +330,11 @@ mod tests {
     fn test_prepare_response() {
         let mut session = HttpSession::new();
         session.prepare_response(HttpStatus::Status200, "text/plain", b"Hello");
-        
+
         assert_eq!(session.state, SessionState::Writing);
         assert!(session.wants_write());
         assert!(!session.response_buffer.is_empty());
-        
+
         // Check response format
         let response = String::from_utf8_lossy(&session.response_buffer);
         assert!(response.starts_with("HTTP/1.1 200 OK"));
@@ -343,17 +347,17 @@ mod tests {
         let mut session = HttpSession::new();
         let request = b"GET /test HTTP/1.1\r\nHost: localhost\r\n\r\n";
         let mut cursor = Cursor::new(request);
-        
+
         session.read_from_socket(&mut cursor).unwrap();
         session.try_parse_headers().unwrap();
         assert!(session.keep_alive);
-        
+
         session.prepare_response(HttpStatus::Status200, "text/plain", b"OK");
-        
+
         // Write response
         let mut output = Vec::new();
         session.write_to_socket(&mut output).unwrap();
-        
+
         // Session should be reset for keep-alive
         assert_eq!(session.state, SessionState::ReadingHeaders);
         assert!(session.wants_read());

@@ -199,6 +199,18 @@ impl ModelRegistry {
             self.register_model(entry);
         }
     }
+
+    /// Deregister a model and remove its aliases
+    pub fn deregister_model(&mut self, model_id: &str) {
+        let resolved = self.resolve_model(model_id).to_string();
+        if let Some(entry) = self.models.remove(&resolved) {
+            for alias in &entry.aliases {
+                self.model_aliases.remove(alias);
+            }
+        }
+        // Also remove direct model_id if it was an alias pointing to itself
+        self.model_aliases.remove(model_id);
+    }
 }
 
 impl Default for ModelRegistry {

@@ -20,8 +20,6 @@
 //! 5. **Backpressure** → async-channel bounded buffers
 
 use crate::concurrency::*;
-// betanet patterns removed during cleanup
-// use crate::betanet_patterns::*;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;

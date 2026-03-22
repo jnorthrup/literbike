@@ -151,19 +151,19 @@ pub mod mime {
 pub struct HeaderParser {
     /// Raw header buffer (like Rfc822HeaderState.headerBuf)
     buffer: Vec<u8>,
-    
+
     /// Parsed headers (lazy, populated on demand)
     headers: HashMap<String, String>,
-    
+
     /// Request line components
     method: Option<HttpMethod>,
     path: Option<String>,
     protocol: Option<String>,
-    
+
     /// Response line components
     status: Option<HttpStatus>,
     status_text: Option<String>,
-    
+
     /// Parse state
     header_complete: bool,
     content_length: Option<usize>,
@@ -247,7 +247,7 @@ impl HeaderParser {
         // Check for \r\n\r\n
         if self.buffer.len() >= 4 {
             let len = self.buffer.len();
-            self.buffer[len-4..] == [CR, LF, CR, LF]
+            self.buffer[len - 4..] == [CR, LF, CR, LF]
         } else {
             false
         }
@@ -266,7 +266,10 @@ impl HeaderParser {
             let header_end = pos;
 
             // Find first line ending and copy data to avoid borrow conflicts
-            if let Some(first_line_end) = self.buffer[..header_end].windows(2).position(|w| w == &CRLF[..]) {
+            if let Some(first_line_end) = self.buffer[..header_end]
+                .windows(2)
+                .position(|w| w == &CRLF[..])
+            {
                 // Copy first line data before calling mutable methods
                 let first_line_data = self.buffer[..first_line_end].to_vec();
                 let first_line = first_line_data.as_slice();
@@ -288,12 +291,24 @@ impl HeaderParser {
                     }
 
                     // Remove leading/trailing CR
-                    let line = if line.starts_with(&[CR]) { &line[1..] } else { line };
-                    let line = if line.ends_with(&[CR]) { &line[..line.len()-1] } else { line };
+                    let line = if line.starts_with(&[CR]) {
+                        &line[1..]
+                    } else {
+                        line
+                    };
+                    let line = if line.ends_with(&[CR]) {
+                        &line[..line.len() - 1]
+                    } else {
+                        line
+                    };
 
                     if let Some(colon_pos) = line.iter().position(|&b| b == COLON) {
-                        let name = String::from_utf8_lossy(&line[..colon_pos]).trim().to_string();
-                        let value = String::from_utf8_lossy(&line[colon_pos+1..]).trim().to_string();
+                        let name = String::from_utf8_lossy(&line[..colon_pos])
+                            .trim()
+                            .to_string();
+                        let value = String::from_utf8_lossy(&line[colon_pos + 1..])
+                            .trim()
+                            .to_string();
 
                         // Track Content-Length specially
                         if name.eq_ignore_ascii_case(headers::CONTENT_LENGTH) {
@@ -390,16 +405,18 @@ impl HeaderParser {
         if !self.header_complete {
             return None;
         }
-        
+
         let terminator = [CR, LF, CR, LF];
-        self.buffer.windows(4).position(|w| *w == terminator)
+        self.buffer
+            .windows(4)
+            .position(|w| *w == terminator)
             .map(|pos| pos + 4)
     }
 
     /// Build response header bytes (like Rfc822HeaderState.HttpResponse.asByteBuffer)
     pub fn build_response(&self, body_len: usize) -> Vec<u8> {
         let mut buf = Vec::with_capacity(256);
-        
+
         // Status line
         let status = self.status.unwrap_or(HttpStatus::Status200);
         buf.extend_from_slice(b"HTTP/1.1 ");
@@ -407,13 +424,13 @@ impl HeaderParser {
         buf.extend_from_slice(b" ");
         buf.extend_from_slice(status.reason_phrase().as_bytes());
         buf.extend_from_slice(CRLF);
-        
+
         // Headers
         buf.extend_from_slice(headers::CONTENT_LENGTH.as_bytes());
         buf.extend_from_slice(b": ");
         buf.extend_from_slice(body_len.to_string().as_bytes());
         buf.extend_from_slice(CRLF);
-        
+
         for (name, value) in &self.headers {
             if name.eq_ignore_ascii_case(headers::CONTENT_LENGTH) {
                 continue; // Already set
@@ -423,41 +440,46 @@ impl HeaderParser {
             buf.extend_from_slice(value.as_bytes());
             buf.extend_from_slice(CRLF);
         }
-        
+
         // Empty line
         buf.extend_from_slice(CRLF);
-        
+
         buf
     }
 
     /// Build simple response (status + content-type + body)
-    pub fn build_simple_response(&self, status: HttpStatus, content_type: &str, body: &[u8]) -> Vec<u8> {
+    pub fn build_simple_response(
+        &self,
+        status: HttpStatus,
+        content_type: &str,
+        body: &[u8],
+    ) -> Vec<u8> {
         let mut buf = Vec::with_capacity(256 + body.len());
-        
+
         // Status line
         buf.extend_from_slice(b"HTTP/1.1 ");
         buf.extend_from_slice(status.as_u16().to_string().as_bytes());
         buf.extend_from_slice(b" ");
         buf.extend_from_slice(status.reason_phrase().as_bytes());
         buf.extend_from_slice(CRLF);
-        
+
         // Headers
         buf.extend_from_slice(headers::CONTENT_TYPE.as_bytes());
         buf.extend_from_slice(b": ");
         buf.extend_from_slice(content_type.as_bytes());
         buf.extend_from_slice(CRLF);
-        
+
         buf.extend_from_slice(headers::CONTENT_LENGTH.as_bytes());
         buf.extend_from_slice(b": ");
         buf.extend_from_slice(body.len().to_string().as_bytes());
         buf.extend_from_slice(CRLF);
-        
+
         buf.extend_from_slice(b"Connection: close\r\n");
         buf.extend_from_slice(CRLF);
-        
+
         // Body
         buf.extend_from_slice(body);
-        
+
         buf
     }
 }
@@ -499,7 +521,7 @@ mod tests {
         let mut parser = HeaderParser::new();
         let request = b"GET /path?query=1 HTTP/1.1\r\nHost: example.com\r\nAccept: */*\r\n\r\n";
         parser.append(request);
-        
+
         assert!(parser.parse().unwrap());
         assert_eq!(parser.method(), Some(HttpMethod::GET));
         assert_eq!(parser.path(), Some("/path?query=1"));
@@ -513,7 +535,7 @@ mod tests {
         let mut parser = HeaderParser::new();
         let response = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 13\r\n\r\nHello, World!";
         parser.append(response);
-        
+
         assert!(parser.parse().unwrap());
         assert_eq!(parser.status(), Some(HttpStatus::Status200));
         assert_eq!(parser.header("Content-Type"), Some("text/html"));
@@ -526,11 +548,11 @@ mod tests {
         let mut parser = HeaderParser::new();
         parser.set_status(HttpStatus::Status200);
         parser.set_header("Content-Type", "text/plain");
-        
+
         let body = b"Hello";
         let response = parser.build_simple_response(HttpStatus::Status200, "text/plain", body);
         let response_str = String::from_utf8_lossy(&response);
-        
+
         assert!(response_str.starts_with("HTTP/1.1 200 OK"));
         assert!(response_str.contains("Content-Type: text/plain"));
         assert!(response_str.contains("Content-Length: 5"));
