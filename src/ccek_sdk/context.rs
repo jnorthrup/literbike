@@ -8,14 +8,16 @@
 //!     crdtStorage
 //! ```
 
-use std::any::Any;
+use std::any::{Any, TypeId};
 
 pub trait CcekKey: 'static {
     type Element: CcekElement;
+    fn id() -> TypeId;
 }
 
 pub trait CcekElement: Send + Sync + 'static {
     fn key(&self) -> &'static str;
+    fn type_id(&self) -> TypeId;
     fn as_any(&self) -> &dyn Any;
 }
 
