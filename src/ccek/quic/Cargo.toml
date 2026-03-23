@@ -1,0 +1,31 @@
+[package]
+name = "ccek-quic"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "mod.rs"
+
+[features]
+# Default: basic QUIC protocol
+default = ["quic-core"]
+
+# Core QUIC protocol
+quic-core = []
+
+# Crypto/tls module
+crypto = ["quic-core"]
+
+# Stream multiplexing
+stream = ["quic-core"]
+
+# Connection state machine
+connection = ["quic-core"]
+
+# Full QUIC stack
+full = ["quic-core", "crypto", "stream", "connection"]
+
+[dependencies]
+ccek-core = { path = "../core" }
+
+[dev-dependencies]

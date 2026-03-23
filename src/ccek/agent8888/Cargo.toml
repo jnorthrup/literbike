@@ -1,0 +1,38 @@
+[package]
+name = "ccek-agent8888"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "agent8888"
+path = "mod.rs"
+
+[features]
+# Base feature - always enabled
+default = ["protocol-detection"]
+
+# Protocol detection (top level)
+protocol-detection = []
+
+# Speculative matcher - fanout/fanin for parsing
+matcher = ["protocol-detection"]
+
+# Layer 1: TCP Listener
+listener = ["protocol-detection"]
+
+# Layer 2: Event Reactor (depends on listener)
+reactor = ["listener"]
+
+# Layer 3: Timer Wheel (depends on reactor)
+timer = ["reactor"]
+
+# Layer 4: Protocol Handlers (depends on reactor)
+handler = ["reactor"]
+
+# Full assembly
+full = ["protocol-detection", "matcher", "listener", "reactor", "timer", "handler"]
+
+[dependencies]
+# No external dependencies - pure stdlib + CCEK core
+
+[dev-dependencies]
