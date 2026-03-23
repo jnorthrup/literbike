@@ -1,4 +1,4 @@
-//! HTX Assembly - Cryptographic access tickets
+//! HTXKE Assembly - Cryptographic access tickets
 //!
 //! Hierarchical structure (matches Kotlin CCEK):
 //! ```text
@@ -8,6 +8,9 @@
 //!
 //! Provides constant-time ticket verification for access control using X25519
 //! key agreement and HKDF-SHA256 based ticket derivation.
+//!
+//! This is the CCEK assembly for HTX tickets. The name HTXKE means "HTX Key Element"
+//! to distinguish from HAProxy's HTX (HTTP message abstraction layer).
 //!
 //! Code reuse via shared ccek-core.
 

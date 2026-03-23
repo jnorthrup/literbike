@@ -145,5 +145,5 @@ members = [
     "src/ccek/agent8888",
     "src/ccek/quic",
     "src/ccek/sctp",
-    "src/ccek/htx",
+    "src/ccek/htxke",
 ]
