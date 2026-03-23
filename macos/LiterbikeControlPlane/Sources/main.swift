@@ -1,30 +1,23 @@
 import AppKit
 import Foundation
 
-// MARK: - Provider Config from JSON
+// MARK: - Models from Server
 
-private struct ProviderConfig: Decodable {
-    let base_url: String
-    let key_env: String
-    let format: String
-    let models: [String: ModelConfig]?
+private struct ModelList: Decodable {
+    let data: [Model]
+    let object: String
 }
 
-private struct ModelConfig: Decodable {
-    let endpoint: String
-    let format: String
+private struct Model: Decodable {
+    let id: String
+    let object: String?
 }
 
-private struct ProvidersRoot: Decodable {
-    let providers: [String: ProviderConfig]
-}
-
-// MARK: - Server Response
+// MARK: - Toolbar State
 
 private struct ServerRoute: Decodable {
     let provider: String?
     let model: String?
-    let family: String
 }
 
 private struct ToolbarState: Decodable {
@@ -35,36 +28,17 @@ private struct ToolbarState: Decodable {
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private var providers: [String: ProviderConfig] = [:]
+    private var models: [String] = []
     private var currentProvider: String = ""
     private var currentModel: String = ""
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        loadProviders()
         setupStatusItem()
+        fetchModels()
         fetchStatus()
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.fetchStatus()
         }
-    }
-    
-    // MARK: - Load Providers from JSON
-    
-    private func loadProviders() {
-        let paths = [
-            Bundle.main.resourcePath.flatMap { $0 + "/providers.json" },
-            Bundle.main.resourcePath.flatMap { $0 + "/Resources/providers.json" },
-            FileManager.default.currentDirectoryPath + "/macos/LiterbikeControlPlane/Resources/providers.json",
-        ].compactMap { $0 }
-        
-        for path in paths {
-            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-               let root = try? JSONDecoder().decode(ProvidersRoot.self, from: data) {
-                providers = root.providers
-                return
-            }
-        }
-        print("Failed to load providers.json")
     }
     
     // MARK: - Grandfather's Icon
@@ -89,6 +63,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     
     // MARK: - Data
     
+    private func fetchModels() {
+        guard let url = URL(string: "http://localhost:8888/v1/models") else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data = data,
+                  let list = try? JSONDecoder().decode(ModelList.self, from: data) else { return }
+            DispatchQueue.main.async {
+                self?.models = list.data.map { $0.id }.sorted()
+                self?.updateMenu()
+            }
+        }.resume()
+    }
+    
     private func fetchStatus() {
         guard let url = URL(string: "http://localhost:8888/toolbar/state") else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -98,7 +84,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.currentProvider = state.route.provider ?? ""
                 self?.currentModel = state.route.model ?? ""
                 self?.updateTitle()
-                self?.updateMenu()
             }
         }.resume()
     }
@@ -121,7 +106,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func updateMenu() {
         let menu = NSMenu()
-        let env = ProcessInfo.processInfo.environment
         
         // Active route
         if !currentProvider.isEmpty {
@@ -136,57 +120,37 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
         }
         
-        // Provider tree from JSON
-        menu.addItem(NSMenuItem(title: "PROVIDERS", action: nil, keyEquivalent: ""))
+        // Models from server /v1/models
+        menu.addItem(NSMenuItem(title: "MODELS (\(models.count))", action: nil, keyEquivalent: ""))
         
-        for (name, config) in providers.sorted(by: { $0.key < $1.key }) {
-            let hasKey = !config.key_env.isEmpty && env[config.key_env] != nil && !env[config.key_env]!.isEmpty
-            let indicator = hasKey ? "✓" : "○"
+        // Group by provider prefix
+        var byProvider: [String: [String]] = [:]
+        for modelId in models {
+            let parts = modelId.split(separator: "/")
+            let provider = parts.first.map(String.init) ?? "unknown"
+            byProvider[provider, default: []].append(modelId)
+        }
+        
+        for (provider, providerModels) in byProvider.sorted(by: { $0.key < $1.key }) {
+            let providerItem = NSMenuItem(title: provider.uppercased(), action: nil, keyEquivalent: "")
+            let providerMenu = NSMenu()
             
-            // Build display name with format indicator
-            var displayName = "\(indicator) \(name)"
-            if config.format == "dynamic", let models = config.models, !models.isEmpty {
-                displayName += " [\(models.count) models]"
+            for modelId in providerModels.prefix(20) { // Limit to 20 per provider
+                let name = modelId.split(separator: "/").dropFirst().joined(separator: "/")
+                let modelItem = NSMenuItem(title: name, action: #selector(selectModel(_:)), keyEquivalent: "")
+                modelItem.representedObject = modelId
+                modelItem.target = self
+                providerMenu.addItem(modelItem)
             }
             
-            let item = NSMenuItem(title: displayName, action: nil, keyEquivalent: "")
-            
-            // Submenu
-            let sub = NSMenu()
-            
-            // Base URL
-            let urlItem = NSMenuItem(title: config.base_url, action: nil, keyEquivalent: "")
-            urlItem.isEnabled = false
-            sub.addItem(urlItem)
-            
-            // Format
-            let formatItem = NSMenuItem(title: "format: \(config.format)", action: nil, keyEquivalent: "")
-            formatItem.isEnabled = false
-            sub.addItem(formatItem)
-            
-            // Key
-            if !config.key_env.isEmpty {
-                let keyItem = NSMenuItem(title: "key: \(config.key_env)", action: nil, keyEquivalent: "")
-                keyItem.isEnabled = false
-                sub.addItem(keyItem)
+            if providerModels.count > 20 {
+                let moreItem = NSMenuItem(title: "... and \(providerModels.count - 20) more", action: nil, keyEquivalent: "")
+                moreItem.isEnabled = false
+                providerMenu.addItem(moreItem)
             }
             
-            // Model-specific endpoints for dynamic providers
-            if let models = config.models {
-                sub.addItem(.separator())
-                for (modelName, modelConfig) in models.sorted(by: { $0.key < $1.key }) {
-                    let modelItem = NSMenuItem(
-                        title: "\(modelName) → \(modelConfig.endpoint) [\(modelConfig.format)]",
-                        action: nil,
-                        keyEquivalent: ""
-                    )
-                    modelItem.isEnabled = false
-                    sub.addItem(modelItem)
-                }
-            }
-            
-            item.submenu = sub
-            menu.addItem(item)
+            providerItem.submenu = providerMenu
+            menu.addItem(providerItem)
         }
         
         menu.addItem(.separator())
@@ -196,8 +160,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
     
+    @objc private func selectModel(_ sender: NSMenuItem) {
+        guard let modelId = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(modelId, forType: .string)
+        currentModel = modelId
+        updateTitle()
+    }
+    
     @objc private func refresh(_ sender: NSMenuItem) {
-        loadProviders()
+        fetchModels()
         fetchStatus()
     }
     
