@@ -1,0 +1,47 @@
+[package]
+name = "http-htx"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "http_htx"
+path = "mod.rs"
+
+[features]
+# Base feature - always enabled
+default = ["http1-parser"]
+
+# HTTP/1 parser
+http1-parser = []
+
+# HTTP/2 (H2) parser
+http2-parser = ["http1-parser"]
+
+# HTTP/3 (H3) parser
+http3-parser = ["http2-parser"]
+
+# HTX normalization (output format)
+htx-normalize = []
+
+# Speculative matcher - fanout/fanin for parsing
+matcher = ["htx-normalize"]
+
+# Layer 1: Listener
+listener = ["htx-normalize"]
+
+# Layer 2: Event Reactor (depends on listener)
+reactor = ["listener"]
+
+# Layer 3: Timer Wheel (depends on reactor)
+timer = ["reactor"]
+
+# Layer 4: Protocol Handlers (depends on reactor)
+handler = ["reactor"]
+
+# Full assembly
+full = ["http1-parser", "http2-parser", "http3-parser", "htx-normalize", "matcher", "listener", "reactor", "timer", "handler"]
+
+[dependencies]
+# No external dependencies - pure stdlib only
+
+[dev-dependencies]
