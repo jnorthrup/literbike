@@ -57,12 +57,12 @@ pub mod types;
 pub mod model_serving_taxonomy;
 pub mod provider_facade_models;
 pub mod env_facade_parity;
-pub mod http;
 pub mod io_substrate;
 
 // CCEK re-exports (code lives in src/ccek/)
 pub use ccek_api_translation as api_translation;
 pub use ccek_keymux as keymux;
+pub use ccek_http as http;
 
 // Userspace kernel emulation (inlined)
 #[cfg(feature = "userspace-nio")]
@@ -111,9 +111,6 @@ pub mod ssh_tools;
 pub mod tls_fingerprint;
 
 #[cfg(feature = "quic")]
-pub mod universal_listener;
-
-#[cfg(feature = "quic")]
 pub mod packet_fragment;
 
 #[cfg(feature = "quic")]
@@ -124,9 +121,6 @@ pub mod traffic_mirror;
 
 #[cfg(all(feature = "quic", feature = "tensor"))]
 pub mod wam_engine;
-
-#[cfg(feature = "sctp")]
-pub mod sctp;
 
 #[cfg(test)]
 mod tests {

@@ -134,6 +134,7 @@ libpijul = { path = "../pijul/libpijul", optional = true }
 # CCEK sub-crates (code moved from src/)
 ccek-api-translation = { path = "src/ccek/api_translation" }
 ccek-keymux = { path = "src/ccek/keymux" }
+ccek-http = { path = "src/ccek/http" }
 
 [workspace]
 resolver = "2"
@@ -149,6 +150,7 @@ members = [
     "src/ccek/json",
     "src/ccek/api_translation",
     "src/ccek/keymux",
+    "src/ccek/http",
     "src/ccek/quic",
     "src/ccek/sctp",
     "src/ccek/htxke",
