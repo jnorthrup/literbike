@@ -6,7 +6,7 @@ license = "AGPL-3.0"
 repository = "https://github.com/literbike/literbike"
 
 [features]
-default = ["quic", "userspace-nio", "userspace-kernel", "userspace-network", "htx"]
+default = ["quic", "userspace-nio", "userspace-kernel", "htx"]
 quic = ["dep:bincode", "dep:tracing", "dep:log", "dep:glob", "dep:base64"]
 quic-crypto = ["quic"]
 full = ["quic", "couchdb", "gates"]
@@ -30,7 +30,6 @@ htx = ["x25519-dalek"]
 # Userspace kernel emulation (inlined, FFI via libc)
 userspace-nio = ["libc"]
 userspace-kernel = ["libc"]
-userspace-network = ["libc"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
@@ -132,6 +131,10 @@ zeroize = "1.0"
 
 libpijul = { path = "../pijul/libpijul", optional = true }
 
+# CCEK sub-crates (code moved from src/)
+ccek-api-translation = { path = "src/ccek/api_translation" }
+ccek-keymux = { path = "src/ccek/keymux" }
+
 [workspace]
 resolver = "2"
 members = [
@@ -143,9 +146,12 @@ members = [
     "conductor-cli",
     "src/ccek/core",
     "src/ccek/agent8888",
+    "src/ccek/json",
+    "src/ccek/api_translation",
+    "src/ccek/keymux",
     "src/ccek/quic",
     "src/ccek/sctp",
     "src/ccek/htxke",
-    "src/ccek/store",
+    #"src/ccek/store",
     "src/http-htx",
 ]

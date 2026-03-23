@@ -18,3 +18,6 @@ pub use proxy::{ModelProxy, ProxyConfig, ProxyRoute};
 pub use metamodel::{Metamodel, MetamodelCache, BlobStore, HfModelCard, HfCardCache, fetch_hf_model_card};
 pub use control::{GatewayRuntimeControl, GatewayControlAction, GatewayControlState};
 pub use toolbar::{ToolbarAction, ToolbarState};
+
+pub mod decision;
+pub use decision::*;

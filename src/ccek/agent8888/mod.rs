@@ -1,10 +1,35 @@
 //! Agent8888 Protocol Detection - Top level module
 //!
-//! This is the ROOT of the hierarchy. Only public exports here.
-//! Internal modules are private to this crate.
+//! This is the ROOT of the CCEK hierarchy. CCEK claims all I/O and
+//! production execution code from litebike protocols.
+//!
+//! ## Module Hierarchy
+//!
+//! ```text
+//! protocol (detection, always enabled)
+//!   │
+//!   ├── io (PrefixedStream, Connection, ConnectionPool)
+//!   │
+//!   ├── matcher (speculative parsing)
+//!   │
+//!   ├── listener (TCP socket acceptance)
+//!   │   └── depends on: protocol, io
+//!   │
+//!   ├── reactor (event loop)
+//!   │   └── depends on: listener
+//!   │
+//!   ├── timer (timeout management)
+//!   │   └── depends on: reactor
+//!   │
+//!   └── handler (protocol-specific I/O)
+//!       └── depends on: reactor, io
+//! ```
 
 // Private modules - internal implementation
 mod protocol;
+
+#[cfg(feature = "io")]
+mod io;
 
 #[cfg(feature = "matcher")]
 mod matcher;
@@ -23,8 +48,15 @@ mod handler;
 
 // Public exports - controlled API surface
 pub use protocol::{
-    detect_protocol, Agent8888Element, Agent8888Key, HttpMethod, ProtocolDetection,
+    detect_protocol, Agent8888Element, Agent8888Key, HttpElement, HttpKey, HttpMethod, HtxElement,
+    HtxKey, ProtocolDetection, QuicElement, QuicKey, SctpElement, SctpKey, SshElement, SshKey,
+    TlsElement, TlsKey, CcekDetectionResult, CcekProtocolDetector, CcekProtocolHandler,
+    CcekHandlerResult, CcekProtocolRegistryKey, CcekProtocolRegistryElement, BitFlags,
 };
+
+// Re-export I/O types (when io feature enabled)
+#[cfg(feature = "io")]
+pub use io::{PrefixedStream, Connection, ConnectionPool, IoStats};
 
 // Re-export core types
 pub mod core {
@@ -231,4 +263,4 @@ pub use reactor::{InterestSet, ReactorElement, ReactorKey, ReadyEvent};
 pub use timer::{TimerElement, TimerId, TimerKey};
 
 #[cfg(feature = "handler")]
-pub use handler::{HandlerElement, HandlerKey, HandlerStats};
+pub use handler::{HandlerElement, HandlerKey, HandlerStats, HandlerResult};

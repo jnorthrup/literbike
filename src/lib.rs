@@ -38,7 +38,7 @@ pub mod quic;
 #[cfg(feature = "htx")]
 pub mod htx;
 
-// Unified modules
+// Unified modules (re-exported from CCEK)
 pub mod adapters;
 pub mod cas_gateway;
 pub mod cas_storage;
@@ -46,10 +46,7 @@ pub mod cas_backends;
 pub mod channel;
 pub mod dht;
 pub mod reactor;
-pub mod api_translation;
 pub mod rbcursive;
-pub mod model_mux;
-pub mod keymux;
 pub mod modelmux;
 pub mod protocol;
 pub mod rbcurse;
@@ -62,6 +59,10 @@ pub mod provider_facade_models;
 pub mod env_facade_parity;
 pub mod http;
 pub mod io_substrate;
+
+// CCEK re-exports (code lives in src/ccek/)
+pub use ccek_api_translation as api_translation;
+pub use ccek_keymux as keymux;
 
 // Userspace kernel emulation (inlined)
 #[cfg(feature = "userspace-nio")]

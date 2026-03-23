@@ -14,11 +14,14 @@ default = ["protocol-detection"]
 # Protocol detection (top level)
 protocol-detection = []
 
+# I/O abstractions for protocol handling
+io = ["protocol-detection"]
+
 # Speculative matcher - fanout/fanin for parsing
 matcher = ["protocol-detection"]
 
 # Layer 1: TCP Listener
-listener = ["protocol-detection"]
+listener = ["protocol-detection", "io"]
 
 # Layer 2: Event Reactor (depends on listener)
 reactor = ["listener"]
@@ -26,11 +29,11 @@ reactor = ["listener"]
 # Layer 3: Timer Wheel (depends on reactor)
 timer = ["reactor"]
 
-# Layer 4: Protocol Handlers (depends on reactor)
-handler = ["reactor"]
+# Layer 4: Protocol Handlers (depends on reactor, io)
+handler = ["reactor", "io"]
 
 # Full assembly
-full = ["protocol-detection", "matcher", "listener", "reactor", "timer", "handler"]
+full = ["protocol-detection", "io", "matcher", "listener", "reactor", "timer", "handler"]
 
 [dependencies]
 # No external dependencies - pure stdlib + CCEK core

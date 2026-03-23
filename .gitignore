@@ -56,3 +56,21 @@ litebike-proxy
 *.bak
 *.orig
 *.tmp
+
+# CCEK sub-crate build artifacts
+src/ccek/*/target/
+src/ccek/core/target/
+src/ccek/agent8888/target/
+src/ccek/api_translation/target/
+src/ccek/keymux/target/
+src/ccek/json/target/
+src/ccek/quic/target/
+src/ccek/sctp/target/
+src/ccek/htxke/target/
+src/ccek/store/target/
+
+# Kilo plans
+.kilo/
+
+# Decision module
+src/modelmux/decision.rs
