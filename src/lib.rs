@@ -24,8 +24,8 @@
 //! └─────────────────────────────────────┘
 //! ```
 
-// Core CCEK SDK - compile-time channelized bindings
-pub mod ccek_sdk;
+// HTXKE - Kotlin kotlinx-coroutines translation (legacy)
+pub mod htxke;
 
 // Stubs for missing modules
 pub mod core_types;
@@ -130,8 +130,8 @@ pub mod sctp;
 #[cfg(test)]
 mod tests {
     #[test]
-    fn ccek_sdk_smoke() {
-        use crate::ccek_sdk::*;
+    fn htxke_smoke() {
+        use crate::htxke::*;
         
         let ctx = CcekContext::new();
         #[cfg(feature = "htx")]
