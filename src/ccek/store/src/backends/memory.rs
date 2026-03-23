@@ -180,7 +180,7 @@ impl BlockStore for MemoryBlockStore {
     async fn list(&self) -> StoreResult<Series<BlockId>> {
         let blocks = self.blocks.read().unwrap();
         let ids: Vec<BlockId> = blocks.keys().cloned().collect();
-        Ok(Series::from_vec(ids))
+        Ok(Vec::from(ids))
     }
     
     fn stats(&self) -> StoreStats {
@@ -284,7 +284,7 @@ impl ObjectStore for MemoryObjectStore {
             .map(|(_, (_, meta))| meta.clone())
             .collect();
         
-        Ok(Series::from_vec(metas))
+        Ok(Vec::from(metas))
     }
     
     async fn head_object(&self, key: &str) -> StoreResult<Option<ObjectMeta>> {

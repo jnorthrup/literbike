@@ -3,14 +3,14 @@
 //! Provides SctpSocket type that implements SelectableChannel for the Literbike reactor.
 //! Supports multi-homing, stream multiplexing, and the 4-way handshake.
 
-use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr};
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::io;
+use std::net::SocketAddr;
+use std::os::unix::io::RawFd;
 
 #[cfg(target_os = "linux")]
 use std::os::fd::BorrowedFd;
 
-use crate::chunks::{Chunk, ChunkFlags, ChunkType, DataChunk};
+use crate::chunk::{Chunk, DataChunk, DataFlags};
 
 pub trait SelectableChannel: Send + Sync {
     fn as_raw_fd(&self) -> RawFd;
@@ -230,7 +230,7 @@ impl SctpSocket {
         }
 
         let chunk = DataChunk {
-            flags: ChunkFlags::EMPTY.with_beginning().with_end(),
+            flags: DataFlags::new(DataFlags::BEGIN | DataFlags::END),
             stream_id,
             stream_seq_num: 0,
             payload_protocol_id: 0,
@@ -312,12 +312,16 @@ impl SctpSocket {
 }
 
 impl SelectableChannel for SctpSocket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+
     fn raw_fd(&self) -> RawFd {
         self.fd
     }
 
     fn is_open(&self) -> bool {
-        self.fd >= 0 && self.state != AssociationState::Closed
+        self.fd >= 0
     }
 
     fn close(&mut self) -> io::Result<()> {
@@ -330,6 +334,32 @@ impl SelectableChannel for SctpSocket {
         }
         self.state = AssociationState::Closed;
         Ok(())
+    }
+
+    fn bind(&mut self, _addr: SocketAddr) -> io::Result<()> {
+        // Re-bind is handled via SctpSocket::bind() constructor
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "use SctpSocket::bind() instead",
+        ))
+    }
+
+    fn listen(&mut self) -> io::Result<()> {
+        unsafe {
+            if libc::listen(self.fd, 128) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+
+    fn accept(&mut self) -> io::Result<(std::net::TcpStream, SocketAddr)> {
+        // SCTP associations are not TCP streams; this trait method
+        // doesn't map cleanly. Stub for SelectableChannel compatibility.
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "use SCTP association handshake instead",
+        ))
     }
 }
 
@@ -390,6 +420,7 @@ impl PacketHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn test_packet_header_roundtrip() {

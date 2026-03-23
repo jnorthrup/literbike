@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_chunk_factory() {
-        let elem = ChunkKey::FACTORY();
+        let _elem = ChunkKey::FACTORY();
         // Just verify it constructs
         assert!(true);
     }

@@ -1,7 +1,13 @@
 //! Agent8888 Protocol Detection - Top level module (always enabled)
 //!
-//! This module CANNOT see matcher, listener, reactor, etc.
-//! It only knows about itself and the core traits.
+//! This is the ROOT of the CCEK protocol hierarchy. It defines cross-cutting
+//! protocol Elements (QuicKey, SctpKey, HttpKey, HtxKey, TlsKey, SshKey) that
+//! are visible throughout the CCEK workspace.
+//!
+//! Note: Feature-gated submodules (matcher, listener, reactor, handler, timer)
+//! are conditionally compiled and not visible here at the protocol level.
+//! This is by design - protocol detection sits at the top, routing to
+//! specialized implementations in their respective crates.
 
 use crate::core::{Element, Key};
 use std::any::{Any, TypeId};

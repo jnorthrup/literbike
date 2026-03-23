@@ -1,18 +1,17 @@
 //! Web Model Cards - Specialized metadata cache for agent reasoning
 
 use crate::types::{Pricing, WebModelCard};
-use parking_lot::RwLock;
-use std::collections::HashMap;
-
-#[derive(Debug, Clone)]
+/// CachedModel stub (replaces modelmux dependency)
 pub struct CachedModel {
     pub id: String,
     pub name: String,
     pub supports_tools: bool,
-    pub input_cost_per_million: f64,
-    pub output_cost_per_million: f64,
-    pub context_window: u64,
+    pub input_cost_per_million: Option<f64>,
+    pub output_cost_per_million: Option<f64>,
+    pub context_window: Option<usize>,
 }
+use parking_lot::RwLock;
+use std::collections::HashMap;
 
 pub struct ModelCardStore {
     cards: RwLock<HashMap<String, WebModelCard>>,
@@ -103,10 +102,12 @@ impl ModelCardStore {
                 || haystack.contains("gpt-4")
                 || haystack.contains("gemini");
 
-            let pricing = if m.input_cost_per_million > 0.0 || m.output_cost_per_million > 0.0 {
+            let input_cost = m.input_cost_per_million.unwrap_or(0.0);
+            let output_cost = m.output_cost_per_million.unwrap_or(0.0);
+            let pricing = if input_cost > 0.0 || output_cost > 0.0 {
                 Some(Pricing {
-                    prompt: m.input_cost_per_million,
-                    completion: m.output_cost_per_million,
+                    prompt: input_cost,
+                    completion: output_cost,
                     unit: "1M tokens".to_string(),
                 })
             } else {
@@ -117,7 +118,7 @@ impl ModelCardStore {
                 m.id.clone(),
                 WebModelCard {
                     tags,
-                    context_window: m.context_window,
+                    context_window: m.context_window.map(|w| w as u64).unwrap_or(0),
                     pricing,
                     reasoning_depth,
                     code_native,

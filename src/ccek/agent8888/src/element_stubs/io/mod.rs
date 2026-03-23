@@ -53,7 +53,8 @@ impl Read for PrefixedStream {
         if self.prefix_offset < self.prefix.len() {
             let available = self.prefix.len() - self.prefix_offset;
             let to_copy = available.min(buf.len());
-            buf[..to_copy].copy_from_slice(&self.prefix[self.prefix_offset..self.prefix_offset + to_copy]);
+            buf[..to_copy]
+                .copy_from_slice(&self.prefix[self.prefix_offset..self.prefix_offset + to_copy]);
             self.prefix_offset += to_copy;
             return Ok(to_copy);
         }
@@ -119,10 +120,13 @@ impl Connection {
 
         // Now we need to wrap the stream with the detection buffer
         // First, extract the inner stream
-        let inner = std::mem::replace(&mut self.stream, PrefixedStream::new(
-            TcpStream::connect("127.0.0.1:1").unwrap(), // placeholder
-            Vec::new()
-        ));
+        let inner = std::mem::replace(
+            &mut self.stream,
+            PrefixedStream::new(
+                TcpStream::connect("127.0.0.1:1").unwrap(), // placeholder
+                Vec::new(),
+            ),
+        );
         let tcp_stream = inner.into_inner();
 
         // Create new PrefixedStream with detection buffer
@@ -251,7 +255,8 @@ impl IoStats {
 
     /// Get active connection count
     pub fn active_connections(&self) -> u64 {
-        self.connections_accepted.saturating_sub(self.connections_closed)
+        self.connections_accepted
+            .saturating_sub(self.connections_closed)
     }
 }
 

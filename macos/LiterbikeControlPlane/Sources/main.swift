@@ -1,348 +1,173 @@
 import AppKit
 import Foundation
-import Network
 
-private struct DselLane: Decodable {
-    let title: String
-    let route: String
-    let model: String
-    let host: String
-    let provider: String
-    let key: String?
-}
+// MARK: - Server Response (ACTUAL format from localhost:8888)
 
-private struct ToolbarEnvKey: Decodable {
-    let name: String
-    let is_set: Bool
-}
-
-private struct ToolbarEnvState: Decodable {
-    let keys: [ToolbarEnvKey]
-}
-
-private struct ProviderKeyResolution: Decodable {
-    let provider: String
-    let env_key: String?
-    let selected_env_key: String?
-    let key_present: Bool
-}
-
-private struct KeymuxState: Decodable {
-    let strategy: String
-    let provider_keys: [ProviderKeyResolution]
-}
-
-private struct ToolbarState: Decodable {
-    let dynamic_models: [String]
-    let env: ToolbarEnvState
-    let keymux: KeymuxState
-    let lanes: [DselLane]
-    let route: ToolbarRoute
-}
-
-private struct ToolbarRoute: Decodable {
+private struct ServerRoute: Decodable {
     let provider: String?
     let model: String?
     let family: String
 }
 
+private struct ServerEnv: Decodable {
+    let recognized_keys: Int
+    let unknown_keys: Int
+    let confidence: String
+}
+
+private struct ToolbarState: Decodable {
+    let route: ServerRoute
+    let env: ServerEnv
+}
+
+// MARK: - Provider Config (from DSEL - ONLY these are hardcoded)
+
+private let providerHosts: [(String, String, String)] = [
+    ("anthropic",  "https://api.anthropic.com/v1",                           "ANTHROPIC_API_KEY"),
+    ("openai",     "https://api.openai.com/v1",                              "OPENAI_API_KEY"),
+    ("google",     "https://generativelanguage.googleapis.com/v1beta/openai", "GOOGLE_API_KEY"),
+    ("gemini",     "https://generativelanguage.googleapis.com/v1beta/openai", "GOOGLE_API_KEY"),
+    ("groq",       "https://api.groq.com/openai/v1",                         "GROQ_API_KEY"),
+    ("openrouter", "https://openrouter.ai/api/v1",                           "OPENROUTER_API_KEY"),
+    ("mistral",    "https://api.mistral.ai/v1",                              "MISTRAL_API_KEY"),
+    ("xai",        "https://api.x.ai/v1",                                    "XAI_API_KEY"),
+    ("cerebras",   "https://api.cerebras.ai/v1",                             "CEREBRAS_API_KEY"),
+    ("kilocode",   "https://api.kilocode.ai",                                "KILOCODE_API_KEY"),
+    ("opencode",   "https://api.opencode.ai",                                "OPENCODE_API_KEY"),
+    ("zai",        "https://api.z.ai/v1",                                    "ZAI_API_KEY"),
+    ("nvidia",     "https://api.nvidia.com/v1",                              "NVIDIA_API_KEY"),
+    ("moonshot",   "https://api.moonshot.cn/v1",                             "MOONSHOT_API_KEY"),
+    ("ollama",     "http://localhost:11434/v1",                              ""),
+    ("lmstudio",   "http://localhost:1234/v1",                               ""),
+]
+
+// MARK: - App
+
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private var lanes: [DselLane] = []
-    private var refreshTimer: Timer?
-    private var lastState: ToolbarState?
-
+    private var currentProvider: String = ""
+    private var currentModel: String = ""
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
-
         fetchStatus()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.fetchStatus()
         }
-    }
-
-    private func fetchStatus() {
-        guard let url = URL(string: "http://localhost:8888/toolbar/state") else { return }
-
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data = data else { return }
-            do {
-                let state = try JSONDecoder().decode(ToolbarState.self, from: data)
-                DispatchQueue.main.async {
-                    self?.lastState = state
-                    self?.updateMenu()
-                    self?.updateTitle(state: state)
-                }
-            } catch {
-                print("Decode error: \(error)")
-            }
-        }.resume()
-    }
-
-    private func updateTitle(state: ToolbarState) {
-        let label = [state.route.provider, state.route.model].compactMap { $0 }.joined(separator: " / ")
-        if !label.isEmpty {
-            statusItem?.button?.title = " " + label.uppercased()
-        } else {
-            statusItem?.button?.title = ""
-        }
-    }
-
-    private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            button.image = loadTemplateStatusIcon()
-            button.imagePosition = .imageLeft
-        }
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "LOADING...", action: nil, keyEquivalent: ""))
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "QUIT", action: #selector(quit(_:)), keyEquivalent: "q"))
-        item.menu = menu
-        statusItem = item
-    }
-
-    private func updateMenu() {
-        guard let state = lastState, let menu = statusItem?.menu else { return }
-        menu.removeAllItems()
-
-        // --- KEYMUX section: KEY → {models} ---
-        let keymuxRoot = NSMenuItem(title: "KEYMUX", action: nil, keyEquivalent: "")
-        let keymuxMenu = NSMenu()
-
-        // Build provider→key mapping from keymux state
-        var providerToKey = [String: String]()
-        for pk in state.keymux.provider_keys where pk.key_present {
-            if let envKey = pk.selected_env_key {
-                providerToKey[pk.provider] = envKey
-            }
-        }
-
-        // Also include DSEL lane keys
-        for lane in state.lanes {
-            if let laneKey = lane.key, !laneKey.isEmpty {
-                providerToKey[lane.provider] = laneKey
-            }
-        }
-
-        // Group models by their resolved key
-        var keyToModels = [String: [String]]()
-        for modelId in state.dynamic_models {
-            let provider = String(modelId.split(separator: "/").first ?? "unknown")
-            if let key = providerToKey[provider] {
-                keyToModels[key, default: []].append(modelId)
-            }
-        }
-        // Add DSEL lane models under their keys
-        for lane in state.lanes {
-            if let laneKey = lane.key, !laneKey.isEmpty {
-                if !keyToModels[laneKey, default: []].contains(lane.model) {
-                    keyToModels[laneKey, default: []].append(lane.model)
-                }
-            }
-        }
-
-        for (key, models) in keyToModels.sorted(by: { $0.key < $1.key }) {
-            let keyItem = NSMenuItem(title: "\(key) (\(models.count))", action: nil, keyEquivalent: "")
-            let keySub = NSMenu()
-
-            for modelId in models.sorted() {
-                let name = modelId.split(separator: "/").last.map(String.init) ?? modelId
-                let modelItem = NSMenuItem(title: name, action: #selector(launchModelAction(_:)), keyEquivalent: "")
-                modelItem.representedObject = modelId
-                modelItem.target = self
-                keySub.addItem(modelItem)
-            }
-
-            keyItem.submenu = keySub
-            keymuxMenu.addItem(keyItem)
-        }
-
-        // Keys with no models yet — clickable to trigger draw-through fetch
-        let usedKeys = Set(keyToModels.keys)
-        for pk in state.keymux.provider_keys where pk.key_present {
-            if let envKey = pk.selected_env_key, !usedKeys.contains(envKey) {
-                let item = NSMenuItem(title: "\(envKey) — FETCH", action: #selector(fetchModelsAction(_:)), keyEquivalent: "")
-                item.target = self
-                keymuxMenu.addItem(item)
-            }
-        }
-
-        keymuxRoot.submenu = keymuxMenu
-        menu.addItem(keymuxRoot)
-
-        menu.addItem(.separator())
-
-        // --- PROVIDERS section: existing hierarchy ---
-        let providersRoot = NSMenuItem(title: "PROVIDERS", action: nil, keyEquivalent: "")
-        let providersMenu = NSMenu()
-
-        var groupedModels = [String: [String]]()
-        for modelId in state.dynamic_models {
-            let provider = String(modelId.split(separator: "/").first ?? "unknown")
-            groupedModels[provider, default: []].append(modelId)
-        }
-
-        for (provider, models) in groupedModels.sorted(by: { $0.key < $1.key }) {
-            let providerItem = NSMenuItem(title: provider.uppercased(), action: nil, keyEquivalent: "")
-            let providerSub = NSMenu()
-
-            let modelsItem = NSMenuItem(title: "models", action: nil, keyEquivalent: "")
-            let modelsSub = NSMenu()
-
-            let v1Item = NSMenuItem(title: "V1", action: nil, keyEquivalent: "")
-            let v1Sub = NSMenu()
-
-            for modelId in models.sorted() {
-                let name = modelId.split(separator: "/").last.map(String.init) ?? modelId
-                let modelItem = NSMenuItem(title: name, action: #selector(launchModelAction(_:)), keyEquivalent: "")
-                modelItem.representedObject = modelId
-                modelItem.target = self
-                v1Sub.addItem(modelItem)
-            }
-
-            v1Item.submenu = v1Sub
-            modelsSub.addItem(v1Item)
-            modelsItem.submenu = modelsSub
-            providerSub.addItem(modelsItem)
-            providerItem.submenu = providerSub
-            providersMenu.addItem(providerItem)
-        }
-
-        providersRoot.submenu = providersMenu
-        menu.addItem(providersRoot)
-
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "QUIT", action: #selector(quit(_:)), keyEquivalent: "q"))
-    }
-
-    @objc private func launchAction(_ sender: NSMenuItem) {
-        guard let lane = sender.representedObject as? DselLane else { return }
-        probeLaunch(host: lane.host, model: lane.model, route: lane.route)
-    }
-
-    @objc private func launchModelAction(_ sender: NSMenuItem) {
-        guard let modelId = sender.representedObject as? String, let state = lastState else { return }
-        let lane = state.lanes.first(where: { $0.model == modelId })
-        let route = lane?.route ?? "/{localhost:8888,chat}/\(modelId)"
-        let host = lane?.host ?? "localhost:8888"
-        probeLaunch(host: host, model: modelId, route: route)
-    }
-
-    private func probeLaunch(host: String, model: String, route: String) {
-        guard let url = URL(string: "http://\(host)/probe") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = ["model": model, "route": route, "action": "launch"]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
-            self?.fetchStatus()
-        }.resume()
-    }
-
-    @objc private func fetchModelsAction(_ sender: NSMenuItem) {
-        // Hit /v1/models to trigger draw-through for providers with 0 cached models
-        guard let url = URL(string: "http://localhost:8888/v1/models") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] _, _, _ in
-            // After draw-through completes, refresh menu
-            self?.fetchStatus()
-        }.resume()
-    }
-
-    @objc private func quit(_ sender: Any?) { NSApp.terminate(nil) }
-
-    private func loadTemplateStatusIcon() -> NSImage? {
-        // Try to load from app bundle Resources first, then fallback to cwd
-        let possiblePaths: [String]
-        
-        if let bundlePath = Bundle.main.resourcePath {
-            possiblePaths = [
-                bundlePath + "/literbike-vrod-icon.svg",
-                bundlePath + "/Resources/literbike-vrod-icon.svg",
-            ]
-        } else {
-            possiblePaths = []
-        }
-        
-        // Also check current directory for development
-        let cwd = FileManager.default.currentDirectoryPath
-        let allPaths = possiblePaths + [
-            cwd + "/literbike-vrod-icon.svg",
-            cwd + "/../literbike-vrod-icon.svg",
-            cwd + "/../../literbike-vrod-icon.svg",
-        ]
-        
-        for iconPath in allPaths {
-            print("DEBUG: Attempting to load icon from: \(iconPath)")
-            if FileManager.default.fileExists(atPath: iconPath) {
-                if let image = NSImage(contentsOfFile: iconPath) {
-                    image.isTemplate = true
-                    image.size = NSSize(width: 18, height: 18)
-                    print("DEBUG: Successfully loaded icon from: \(iconPath)")
-                    return image
-                }
-            }
-        }
-        
-        print("DEBUG: Could not load vrod icon, falling back to default")
-        // Return a programmatically drawn motorcycle icon as last resort
-        return createFallbackMotorcycleIcon()
     }
     
-    private func createFallbackMotorcycleIcon() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        return NSImage(size: size, flipped: false) { rect in
-            let ctx = NSGraphicsContext.current?.cgContext
-            ctx?.setFillColor(NSColor.labelColor.cgColor)
-            ctx?.setStrokeColor(NSColor.labelColor.cgColor)
-            
-            // Draw simple motorcycle shape (V-rod style)
-            let w = rect.width
-            let h = rect.height
-            
-            // Headlight (circle)
-            let headlight = NSBezierPath(ovalIn: NSRect(x: w*0.35, y: h*0.55, width: w*0.3, height: h*0.25))
-            headlight.fill()
-            
-            // Handlebars (V shape)
-            let path = NSBezierPath()
-            path.move(to: NSPoint(x: w*0.2, y: h*0.7))
-            path.line(to: NSPoint(x: w*0.5, y: h*0.6))
-            path.line(to: NSPoint(x: w*0.8, y: h*0.7))
-            path.lineWidth = 2
-            path.stroke()
-            
-            // Forks
-            let leftFork = NSBezierPath()
-            leftFork.move(to: NSPoint(x: w*0.35, y: h*0.6))
-            leftFork.line(to: NSPoint(x: w*0.3, y: h*0.2))
-            leftFork.lineWidth = 2
-            leftFork.stroke()
-            
-            let rightFork = NSBezierPath()
-            rightFork.move(to: NSPoint(x: w*0.65, y: h*0.6))
-            rightFork.line(to: NSPoint(x: w*0.7, y: h*0.2))
-            rightFork.lineWidth = 2
-            rightFork.stroke()
-            
-            // Tire (arc)
-            let tire = NSBezierPath()
-            tire.move(to: NSPoint(x: w*0.25, y: h*0.25))
-            tire.curve(to: NSPoint(x: w*0.75, y: h*0.25),
-                      controlPoint1: NSPoint(x: w*0.3, y: h*0.05),
-                      controlPoint2: NSPoint(x: w*0.7, y: h*0.05))
-            tire.lineWidth = 2.5
-            tire.stroke()
-            
-            return true
+    // MARK: - Grandfather's Icon
+    
+    private func loadTemplateStatusIcon() -> NSImage? {
+        let paths = [
+            Bundle.main.resourcePath.flatMap { $0 + "/literbike-vrod-icon.svg" },
+            Bundle.main.resourcePath.flatMap { $0 + "/Resources/literbike-vrod-icon.svg" },
+            FileManager.default.currentDirectoryPath + "/literbike-vrod-icon.svg",
+            FileManager.default.currentDirectoryPath + "/macos/LiterbikeControlPlane/Resources/literbike-vrod-icon.svg",
+        ].compactMap { $0 }
+        
+        for path in paths {
+            if FileManager.default.fileExists(atPath: path),
+               let image = NSImage(contentsOfFile: path) {
+                image.isTemplate = true
+                image.size = NSSize(width: 18, height: 18)
+                return image
+            }
         }
+        return nil
+    }
+    
+    // MARK: - Data
+    
+    private func fetchStatus() {
+        guard let url = URL(string: "http://localhost:8888/toolbar/state") else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data = data,
+                  let state = try? JSONDecoder().decode(ToolbarState.self, from: data) else { return }
+            DispatchQueue.main.async {
+                self?.currentProvider = state.route.provider ?? ""
+                self?.currentModel = state.route.model ?? ""
+                self?.updateTitle()
+                self?.updateMenu()
+            }
+        }.resume()
+    }
+    
+    // MARK: - UI
+    
+    private func setupStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.image = loadTemplateStatusIcon()
+        item.button?.imagePosition = .imageLeft
+        statusItem = item
+        updateMenu()
+    }
+    
+    private func updateTitle() {
+        if !currentProvider.isEmpty {
+            statusItem?.button?.title = " \(currentProvider.uppercased())"
+        }
+    }
+    
+    private func updateMenu() {
+        let menu = NSMenu()
+        let env = ProcessInfo.processInfo.environment
+        
+        // Active route
+        if !currentProvider.isEmpty {
+            let active = NSMenuItem(title: "✓ \(currentProvider.uppercased())", action: nil, keyEquivalent: "")
+            active.isEnabled = false
+            menu.addItem(active)
+            if !currentModel.isEmpty {
+                let modelItem = NSMenuItem(title: "  → \(currentModel)", action: nil, keyEquivalent: "")
+                modelItem.isEnabled = false
+                menu.addItem(modelItem)
+            }
+            menu.addItem(.separator())
+        }
+        
+        // Provider tree: host mappings from DSEL
+        menu.addItem(NSMenuItem(title: "PROVIDERS", action: nil, keyEquivalent: ""))
+        
+        for (name, host, keyEnv) in providerHosts {
+            let hasKey = !keyEnv.isEmpty && env[keyEnv] != nil && !env[keyEnv]!.isEmpty
+            let indicator = hasKey ? "✓" : "○"
+            let item = NSMenuItem(title: "\(indicator) \(name)", action: nil, keyEquivalent: "")
+            
+            // Submenu with host
+            let sub = NSMenu()
+            let hostItem = NSMenuItem(title: host, action: nil, keyEquivalent: "")
+            hostItem.isEnabled = false
+            sub.addItem(hostItem)
+            
+            if hasKey {
+                let keyItem = NSMenuItem(title: "Key: \(keyEnv)", action: nil, keyEquivalent: "")
+                keyItem.isEnabled = false
+                sub.addItem(keyItem)
+            }
+            
+            item.submenu = sub
+            menu.addItem(item)
+        }
+        
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "REFRESH", action: #selector(refresh(_:)), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: "QUIT", action: #selector(quit(_:)), keyEquivalent: "q"))
+        
+        statusItem?.menu = menu
+    }
+    
+    @objc private func refresh(_ sender: NSMenuItem) {
+        fetchStatus()
+    }
+    
+    @objc private func quit(_ sender: NSMenuItem) {
+        NSApp.terminate(nil)
     }
 }
 
-let app = NSApplication.shared
+private let app = NSApplication.shared
 private let delegate = AppDelegate()
-app.setActivationPolicy(.accessory)
 app.delegate = delegate
+app.setActivationPolicy(.accessory)
 app.run()

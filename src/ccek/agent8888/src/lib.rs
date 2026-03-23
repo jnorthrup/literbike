@@ -25,38 +25,21 @@
 //!       └── depends on: reactor, io
 //! ```
 
-// Private modules - internal implementation
-mod protocol;
-
-#[cfg(feature = "io")]
-mod io;
-
-#[cfg(feature = "matcher")]
-mod matcher;
-
-#[cfg(feature = "listener")]
-mod listener;
-
-#[cfg(feature = "reactor")]
-mod reactor;
-
-#[cfg(feature = "timer")]
-mod timer;
-
-#[cfg(feature = "handler")]
-mod handler;
+// Private modules - internal implementation (routed through element_stubs)
+mod element_stubs;
 
 // Public exports - controlled API surface
-pub use protocol::{
-    detect_protocol, Agent8888Element, Agent8888Key, HttpElement, HttpKey, HttpMethod, HtxElement,
-    HtxKey, ProtocolDetection, QuicElement, QuicKey, SctpElement, SctpKey, SshElement, SshKey,
-    TlsElement, TlsKey, CcekDetectionResult, CcekProtocolDetector, CcekProtocolHandler,
-    CcekHandlerResult, CcekProtocolRegistryKey, CcekProtocolRegistryElement, BitFlags,
+pub use element_stubs::protocol::{
+    detect_protocol, Agent8888Element, Agent8888Key, BitFlags, CcekDetectionResult,
+    CcekHandlerResult, CcekProtocolDetector, CcekProtocolHandler, CcekProtocolRegistryElement,
+    CcekProtocolRegistryKey, HttpElement, HttpKey, HttpMethod, HtxElement, HtxKey,
+    ProtocolDetection, QuicElement, QuicKey, SctpElement, SctpKey, SshElement, SshKey, TlsElement,
+    TlsKey,
 };
 
 // Re-export I/O types (when io feature enabled)
 #[cfg(feature = "io")]
-pub use io::{PrefixedStream, Connection, ConnectionPool, IoStats};
+pub use element_stubs::io::{Connection, ConnectionPool, IoStats, PrefixedStream};
 
 // Re-export core types
 pub mod core {
@@ -158,7 +141,7 @@ pub use core::{Context, Element, Key};
 
 #[cfg(test)]
 mod ccek_tests {
-    use super::protocol::{Agent8888Element, Agent8888Key};
+    use super::element_stubs::protocol::{Agent8888Element, Agent8888Key};
     use super::*;
 
     #[test]
@@ -218,7 +201,7 @@ mod ccek_tests {
         // Child context extends parent (COW tail)
         #[cfg(feature = "listener")]
         {
-            use listener::{ListenerElement, ListenerKey};
+            use element_stubs::listener::{ListenerElement, ListenerKey};
             let child = parent.clone().plus(ListenerKey::FACTORY());
 
             // Child can see both
@@ -242,25 +225,25 @@ mod ccek_tests {
         check_key_element_pair::<Agent8888Key>();
 
         #[cfg(feature = "listener")]
-        check_key_element_pair::<listener::ListenerKey>();
+        check_key_element_pair::<element_stubs::listener::ListenerKey>();
 
         #[cfg(feature = "reactor")]
-        check_key_element_pair::<reactor::ReactorKey>();
+        check_key_element_pair::<element_stubs::reactor::ReactorKey>();
     }
 }
 
 // Feature-gated public exports
 #[cfg(feature = "matcher")]
-pub use matcher::{Confidence, MatchResult, SpeculativeMatcher};
+pub use element_stubs::matcher::{Confidence, MatchResult, SpeculativeMatcher};
 
 #[cfg(feature = "listener")]
-pub use listener::{ListenerElement, ListenerKey};
+pub use element_stubs::listener::{ListenerElement, ListenerKey};
 
 #[cfg(feature = "reactor")]
-pub use reactor::{InterestSet, ReactorElement, ReactorKey, ReadyEvent};
+pub use element_stubs::reactor::{InterestSet, ReactorElement, ReactorKey, ReadyEvent};
 
 #[cfg(feature = "timer")]
-pub use timer::{TimerElement, TimerId, TimerKey};
+pub use element_stubs::timer::{TimerElement, TimerId, TimerKey};
 
 #[cfg(feature = "handler")]
-pub use handler::{HandlerElement, HandlerKey, HandlerStats, HandlerResult};
+pub use element_stubs::handler::{HandlerElement, HandlerKey, HandlerResult, HandlerStats};

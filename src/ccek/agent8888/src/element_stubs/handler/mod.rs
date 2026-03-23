@@ -4,7 +4,7 @@
 //! It provides concrete implementations for HTTP, SOCKS5, TLS, and WebSocket.
 
 use crate::core::{Element, Key};
-use crate::protocol::{HttpMethod, ProtocolDetection};
+use crate::element_stubs::protocol::{HttpMethod, ProtocolDetection};
 use std::any::{Any, TypeId};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -38,7 +38,12 @@ impl HandlerElement {
     }
 
     /// Dispatch handling based on protocol detection
-    pub fn handle(&self, protocol: &ProtocolDetection, stream: &mut TcpStream, buffer: &[u8]) -> HandlerResult {
+    pub fn handle(
+        &self,
+        protocol: &ProtocolDetection,
+        stream: &mut TcpStream,
+        buffer: &[u8],
+    ) -> HandlerResult {
         match protocol {
             ProtocolDetection::Http(method) => {
                 self.http_count.fetch_add(1, Ordering::Relaxed);
@@ -249,9 +254,7 @@ fn handle_socks5(stream: &mut TcpStream, buffer: &[u8]) -> HandlerResult {
     // Read SOCKS5 request
     let mut request_buf = [0u8; 256];
     match stream.read(&mut request_buf) {
-        Ok(n) if n >= 10 => {
-            handle_socks5_request(stream, &request_buf[..n])
-        }
+        Ok(n) if n >= 10 => handle_socks5_request(stream, &request_buf[..n]),
         Ok(_) => HandlerResult::NeedMoreData,
         Err(_) => HandlerResult::Error("Failed to read SOCKS5 request"),
     }
@@ -284,7 +287,10 @@ fn handle_socks5_request(stream: &mut TcpStream, request: &[u8]) -> HandlerResul
             if request.len() < 10 {
                 return HandlerResult::NeedMoreData;
             }
-            let ip = format!("{}.{}.{}.{}", request[4], request[5], request[6], request[7]);
+            let ip = format!(
+                "{}.{}.{}.{}",
+                request[4], request[5], request[6], request[7]
+            );
             let port = ((request[8] as u16) << 8) | (request[9] as u16);
             format!("{}:{}", ip, port)
         }
@@ -351,7 +357,10 @@ fn handle_upnp(stream: &mut TcpStream, buffer: &[u8]) -> HandlerResult {
                  ST: upnp:rootdevice\r\n\
                  USN: uuid:ccek-001::upnp:rootdevice\r\n\
                  \r\n",
-                stream.local_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "127.0.0.1".to_string())
+                stream
+                    .local_addr()
+                    .map(|a| a.ip().to_string())
+                    .unwrap_or_else(|_| "127.0.0.1".to_string())
             );
 
             if stream.write_all(response.as_bytes()).is_err() {
@@ -425,10 +434,16 @@ mod tests {
     #[test]
     fn test_extract_host_from_headers() {
         let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        assert_eq!(extract_host_from_headers(request), Some("example.com".to_string()));
+        assert_eq!(
+            extract_host_from_headers(request),
+            Some("example.com".to_string())
+        );
 
         let request_with_port = "GET / HTTP/1.1\r\nHost: example.com:8080\r\n\r\n";
-        assert_eq!(extract_host_from_headers(request_with_port), Some("example.com".to_string()));
+        assert_eq!(
+            extract_host_from_headers(request_with_port),
+            Some("example.com".to_string())
+        );
     }
 
     #[test]

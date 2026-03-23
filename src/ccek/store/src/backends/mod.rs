@@ -18,9 +18,6 @@ pub mod ipfs;
 #[cfg(feature = "s3")]
 pub mod s3;
 
-#[cfg(feature = "couchdb")]
-pub mod couchdb;
-
 /// Backend configuration
 #[derive(Debug, Clone)]
 pub enum BackendConfig {
@@ -56,18 +53,6 @@ pub enum BackendConfig {
         secret_key: String,
     },
     
-    /// CouchDB configuration
-    #[cfg(feature = "couchdb")]
-    Couchdb {
-        /// Database URL
-        url: String,
-        /// Database name
-        database: String,
-        /// Authentication username
-        username: Option<String>,
-        /// Authentication password
-        password: Option<String>,
-    },
 }
 
 impl Default for BackendConfig {
@@ -101,12 +86,6 @@ impl BackendFactory {
                 )?))
             }
             
-            #[cfg(feature = "couchdb")]
-            BackendConfig::Couchdb { url, database, username, password } => {
-                Ok(Arc::new(couchdb::CouchdbBlockStore::new(
-                    &url, &database, username.as_deref(), password.as_deref()
-                )?))
-            }
         }
     }
     
@@ -240,7 +219,7 @@ impl BlockStore for NoopBlockStore {
     }
     
     async fn list(&self) -> StoreResult<Series<BlockId>> {
-        Ok(Series::from_vec(vec![]))
+        Ok(Vec::new())
     }
     
     fn stats(&self) -> StoreStats {

@@ -5,10 +5,6 @@ edition = "2021"
 description = "CCEK JSON - TrikeShed port, pure Rust, no serde"
 license = "MIT OR Apache-2.0"
 
-[lib]
-name = "ccek_json"
-path = "mod.rs"
-
 [features]
 default = ["bitmap"]
 bitmap = []
@@ -16,5 +12,6 @@ full = ["bitmap"]
 
 [dependencies]
 ccek-core = { path = "../core" }
+crossbeam = "0.8"
 
 [dev-dependencies]

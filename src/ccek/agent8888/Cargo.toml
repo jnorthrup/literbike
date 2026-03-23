@@ -5,7 +5,6 @@ edition = "2021"
 
 [lib]
 name = "agent8888"
-path = "mod.rs"
 
 [features]
 # Base feature - always enabled

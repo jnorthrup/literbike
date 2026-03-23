@@ -3,7 +3,6 @@
 //! Implements EventHandler trait for dispatching SCTP events through the reactor.
 
 use super::socket::SctpSocket;
-use crate::chunks::Chunk;
 use parking_lot::Mutex;
 use std::io;
 use std::os::unix::io::RawFd;
@@ -100,6 +99,7 @@ impl EventHandler for SctpHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::socket::SelectableChannel;
 
     #[test]
     fn test_handler_creation() {

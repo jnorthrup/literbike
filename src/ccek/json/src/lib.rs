@@ -8,13 +8,17 @@ use std::any::{Any, TypeId};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub mod bitmap;
+pub mod error;
 pub mod index;
 pub mod parser;
+pub mod pool;
 pub mod value;
 
 pub use bitmap::JsonBitmap;
+pub use error::JsonError;
 pub use index::JsonIndex;
 pub use parser::{JsonParser, JsElement, JsIndex, JsContext};
+pub use pool::{AtomicPool, Pooled};
 pub use value::JsonValue;
 
 /// JsonKey - CCEK Key for JSON parsing

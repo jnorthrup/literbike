@@ -152,8 +152,8 @@ members = [
     "src/ccek/keymux",
     "src/ccek/http",
     "src/ccek/quic",
-    # "src/ccek/sctp",  # TODO: fix struct mismatches after consolidation
+    "src/ccek/sctp",
     "src/ccek/htxke",
-    #"src/ccek/store",
+    "src/ccek/store",
     "src/http-htx",
 ]

@@ -36,9 +36,15 @@ pub mod handler;
 // High-level async API
 pub mod chunks;
 
-// Re-export userspace network adapters for SCTP protocol integration
-#[cfg(feature = "userspace-network")]
-pub use crate::userspace_network::adapters::NetworkAdapter;
+// CCEK Element stubs (Key/Element pattern)
+pub mod association;
+pub mod chunk_element;
+pub mod stream;
+
+// TODO: NetworkAdapter needs a proper adapter trait defined in ccek-sctp
+// rather than re-exporting from the main literbike crate.
+// #[cfg(feature = "userspace-network")]
+// pub use crate::userspace_network::adapters::NetworkAdapter;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
