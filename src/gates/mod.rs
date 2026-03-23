@@ -8,6 +8,18 @@ use async_trait::async_trait;
 pub mod shadowsocks_gate;
 pub mod crypto_gate;
 pub mod ssh_gate;
+pub mod exclusive;
+pub mod edge_profile;
+pub mod daily_driver;
+
+pub use exclusive::{ExclusiveGate, ExclusiveGateController, GateProfile};
+pub use edge_profile::{EdgeCryptoGate, EdgeNetworkGate, EdgeProfileConfig};
+pub use daily_driver::{DailyDriverConfig, DailyDriverState, DriverMode, ConnectionTracker};
+pub use daily_driver::cli::{Cli, Commands, DriverStatus, RuntimeSwitches};
+pub use daily_driver::driver::CliDriver;
+
+#[cfg(test)]
+mod tests;
 
 /// Master gate trait for LITERBIKE
 #[async_trait]

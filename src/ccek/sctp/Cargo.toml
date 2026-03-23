@@ -1,0 +1,20 @@
+[package]
+name = "ccek-sctp"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "mod.rs"
+
+[features]
+default = ["sctp-core"]
+sctp-core = []
+association = ["sctp-core"]
+stream = ["sctp-core"]
+chunk = ["sctp-core"]
+full = ["sctp-core", "association", "stream", "chunk"]
+
+[dependencies]
+ccek-core = { path = "../core" }
+
+[dev-dependencies]

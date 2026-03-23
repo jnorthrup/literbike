@@ -3,8 +3,12 @@
 pub struct SimpleReactor;
 
 impl SimpleReactor {
-    pub fn new() -> Self { SimpleReactor }
-    pub fn run_one(&self) -> bool { true }
+    pub fn new() -> Self {
+        SimpleReactor
+    }
+    pub fn run_one(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

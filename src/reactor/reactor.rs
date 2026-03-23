@@ -76,11 +76,7 @@ impl<S: SelectorBackend> Reactor<S> {
         self.channels.len()
     }
 
-    pub fn schedule_timeout(
-        &mut self,
-        delay: Duration,
-        callback: TimeoutCallback,
-    ) -> TimerId {
+    pub fn schedule_timeout(&mut self, delay: Duration, callback: TimeoutCallback) -> TimerId {
         self.timer_wheel.schedule(delay, callback)
     }
 
@@ -348,9 +344,12 @@ mod tests {
 
         let fired = Arc::new(AtomicUsize::new(0));
         let fired_clone = fired.clone();
-        reactor.schedule_timeout(Duration::from_millis(0), Box::new(move || {
-            fired_clone.fetch_add(1, Ordering::SeqCst);
-        }));
+        reactor.schedule_timeout(
+            Duration::from_millis(0),
+            Box::new(move || {
+                fired_clone.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
 
         let tick = reactor.run_once().unwrap();
         assert_eq!(tick.timer_callbacks, 1);

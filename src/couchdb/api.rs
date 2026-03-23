@@ -14,7 +14,6 @@ use axum::{
     routing::{get, post, put, delete, head},
     Json, Router,
 };
-use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
@@ -31,6 +30,8 @@ pub struct AppState {
     pub tensor_engine: Arc<TensorEngine>,
     pub ipfs_manager: Arc<IpfsManager>,
     pub kv_store: Arc<IpfsKvStore>,
+    pub rf_tracker: Arc<crate::request_factory::tracker::OperationsTracker>,
+    pub rf_default_db: String,
 }
 
 /// OpenAPI documentation
@@ -118,12 +119,12 @@ pub struct ApiDoc;
 
 /// Create the main API router
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let base = Router::new()
         // Server endpoints
         .route("/", get(get_server_info))
         .route("/_all_dbs", get(list_databases))
         .route("/_stats", get(get_server_stats))
-        
+
         // Database endpoints
         .route("/:db", put(create_database))
         .route("/:db", delete(delete_database))
@@ -132,53 +133,64 @@ pub fn create_router(state: AppState) -> Router {
         .route("/:db/_bulk_docs", post(bulk_docs))
         .route("/:db/_changes", get(get_changes))
         .route("/:db/_compact", post(compact_database))
-        
+
         // Document endpoints
         .route("/:db/:doc_id", get(get_document))
         .route("/:db/:doc_id", put(put_document))
         .route("/:db/:doc_id", delete(delete_document))
         .route("/:db/:doc_id", head(head_document))
-        
+
         // View endpoints
         .route("/:db/_design/:ddoc/_view/:view", get(query_view))
         .route("/:db/_design/:ddoc/_view/:view", post(query_view_post))
-        
+
         // Attachment endpoints
         .route("/:db/:doc_id/:attachment", put(put_attachment))
         .route("/:db/:doc_id/:attachment", get(get_attachment))
         .route("/:db/:doc_id/:attachment", delete(delete_attachment))
-        
+
         // IPFS endpoints
         .route("/_ipfs/store", post(ipfs_store))
         .route("/_ipfs/get/:cid", get(ipfs_get))
         .route("/_ipfs/stats", get(ipfs_stats))
         .route("/_ipfs/gc", post(ipfs_gc))
-        
+
         // M2M endpoints
         .route("/_m2m/send", post(m2m_send_message))
         .route("/_m2m/broadcast", post(m2m_broadcast_message))
         .route("/_m2m/peers", get(m2m_list_peers))
         .route("/_m2m/stats", get(m2m_get_stats))
-        
+
         // Tensor endpoints
         .route("/_tensor/execute", post(tensor_execute_operation))
         .route("/_tensor/stats", get(tensor_get_stats))
-        
+
         // Key-Value store endpoints
         .route("/_kv/:key", put(kv_put))
         .route("/_kv/:key", get(kv_get))
         .route("/_kv/:key", delete(kv_delete))
         .route("/_kv", get(kv_list_keys))
         .route("/_kv/_stats", get(kv_get_stats))
-        
-        // Add Swagger UI
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        
-        .layer(
-            ServiceBuilder::new()
-                .layer(CorsLayer::permissive())
-                .layer(TraceLayer::new_for_http())
-        )
+
+        // Swagger UI
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
+
+    #[cfg(feature = "request-factory")]
+    let base = base
+        .route("/_rf", post(crate::request_factory::handler::rf_handler))
+        .route("/_rf/metrics", get(crate::request_factory::handler::rf_metrics_handler))
+        .route("/_rf/metrics/reset", post(crate::request_factory::handler::rf_reset_metrics_handler))
+        .route("/_rf/changes", get(crate::request_factory::changes::rf_changes_handler));
+
+    #[cfg(feature = "pijul-session")]
+    let base = base.merge(
+        crate::session::routes::session_router()
+            .with_state(crate::session::routes::SessionManager::new())
+    );
+
+    base
+        .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -612,21 +624,21 @@ pub async fn query_view_post(
 )]
 pub async fn put_attachment(
     Path((db_name, doc_id, attachment_name)): Path<(String, String, String)>,
-    headers: HeaderMap,
     State(state): State<AppState>,
+    headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<impl IntoResponse, ApiError> {
     let content_type = headers.get("content-type")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("application/octet-stream");
-    
+
     // Store in IPFS
     let ipfs_cid = state.ipfs_manager.store_data(&body, content_type).await?;
-    
+
     // Update document with attachment info
     let db_instance = state.db_manager.get_database_clone(&db_name)?;
     let mut doc = db_instance.get_document(&doc_id)?;
-    
+
     let attachment_info = AttachmentInfo {
         content_type: content_type.to_string(),
         length: body.len() as u64,
@@ -635,14 +647,14 @@ pub async fn put_attachment(
         revpos: Some(1),
         data: None,
     };
-    
+
     if doc.attachments.is_none() {
         doc.attachments = Some(std::collections::HashMap::new());
     }
     doc.attachments.as_mut().unwrap().insert(attachment_name, attachment_info);
-    
+
     let (id, rev) = db_instance.put_document(&doc)?;
-    
+
     Ok((StatusCode::CREATED, Json(serde_json::json!({
         "ok": true,
         "id": id,
@@ -670,18 +682,18 @@ pub async fn get_attachment(
 ) -> Result<impl IntoResponse, ApiError> {
     let db_instance = state.db_manager.get_database_clone(&db_name)?;
     let doc = db_instance.get_document(&doc_id)?;
-    
+
     let attachment_info = doc.attachments
         .and_then(|attachments| attachments.get(&attachment_name).cloned())
         .ok_or_else(|| CouchError::not_found("Attachment not found"))?;
-    
+
     // Get from IPFS using digest as CID
     let (data, _ipfs_cid) = state.ipfs_manager.get_attachment(&attachment_info.digest).await?;
-    
+
     let mut headers = HeaderMap::new();
     headers.insert("content-type", attachment_info.content_type.parse().unwrap());
     headers.insert("content-length", attachment_info.length.to_string().parse().unwrap());
-    
+
     Ok((headers, data))
 }
 
@@ -705,14 +717,14 @@ pub async fn delete_attachment(
 ) -> Result<impl IntoResponse, ApiError> {
     let db_instance = state.db_manager.get_database_clone(&db_name)?;
     let mut doc = db_instance.get_document(&doc_id)?;
-    
+
     if let Some(ref mut attachments) = doc.attachments {
         if let Some(attachment_info) = attachments.remove(&attachment_name) {
             // Unpin from IPFS
             if let Err(e) = state.ipfs_manager.unpin_content(&attachment_info.digest).await {
                 warn!("Failed to unpin attachment from IPFS: {}", e);
             }
-            
+
             let (id, rev) = db_instance.put_document(&doc)?;
             return Ok(Json(serde_json::json!({
                 "ok": true,
@@ -721,7 +733,7 @@ pub async fn delete_attachment(
             })));
         }
     }
-    
+
     Err(ApiError::from(CouchError::not_found("Attachment not found")))
 }
 
@@ -744,7 +756,7 @@ pub async fn ipfs_store(
     let content_type = headers.get("content-type")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("application/octet-stream");
-    
+
     let ipfs_cid = state.ipfs_manager.store_data(&body, content_type).await?;
     Ok(Json(ipfs_cid))
 }
@@ -766,7 +778,12 @@ pub async fn ipfs_get(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, ApiError> {
     let data = state.ipfs_manager.get_data(&cid).await?;
-    Ok(data)
+
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", "application/octet-stream".parse().unwrap());
+    headers.insert("content-length", data.len().to_string().parse().unwrap());
+
+    Ok((headers, data))
 }
 
 /// Get IPFS statistics
@@ -954,10 +971,10 @@ pub async fn kv_put(
     let content_type = headers.get("content-type")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("application/octet-stream");
-    
+
     let metadata = std::collections::HashMap::new();
     let entry = state.kv_store.put(&key, &body, content_type, metadata).await?;
-    
+
     Ok((StatusCode::CREATED, Json(entry)))
 }
 

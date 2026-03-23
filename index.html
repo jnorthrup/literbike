@@ -3,668 +3,176 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Literbike Agent Host - DSEL Quick Picks</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 220'%3E%3Cpath d='M12 72C45 68 60 80 66 105V208' fill='none' stroke='%231a1a1a' stroke-width='9' stroke-linecap='round'/%3E%3Cpath d='M188 72C155 68 140 80 134 105V208' fill='none' stroke='%231a1a1a' stroke-width='9' stroke-linecap='round'/%3E%3Ccircle cx='100' cy='99' r='27' fill='white' stroke='%231a1a1a' stroke-width='3.5'/%3E%3Cpath d='M66 130H134' fill='none' stroke='%231a1a1a' stroke-width='3.5' stroke-linecap='round'/%3E%3Cpath d='M66 208A34 44 0 0 1 134 208' fill='none' stroke='%231a1a1a' stroke-width='9' stroke-linecap='round'/%3E%3Cpath d='M66 208A34 28 0 0 1 134 208' fill='none' stroke='%231a1a1a' stroke-width='3.5' stroke-linecap='round'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="index.css">
+    <title>Literbike Control Plane</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg class=\"menu-icon\" xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 220'><path d='M 24 74 C 54 70 68 82 74 106 L 74 202' fill='none' stroke='%23000000' stroke-width='13' stroke-linecap='round'/><path d='M 176 74 C 146 70 132 82 126 106 L 126 202' fill='none' stroke='%23000000' stroke-width='13' stroke-linecap='round'/><circle cx='100' cy='100' r='22' fill='none' stroke='%23000000' stroke-width='9'/><line x1='74' y1='132' x2='126' y2='132' stroke='%23000000' stroke-width='9' stroke-linecap='round'/><path d='M 74 202 A 31 41 0 0 1 126 202' fill='none' stroke='%23000000' stroke-width='13' stroke-linecap='round'/></svg>">
+    <style>
+        :root {
+            --bg: #081018;
+            --bg-alt: #0d1722;
+            --card: rgba(8, 16, 24, 0.86);
+            --accent: #6ef1b6;
+            --text: #e6edf3;
+            --muted: #95a8b8;
+            --line: rgba(117, 196, 255, 0.18);
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "IBM Plex Mono", monospace;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .container { padding: 2rem; max-width: 1200px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+        header { margin-bottom: 3rem; display: flex; justify-content: space-between; align-items: flex-start; }
+        .brand h1 { margin: 0; font-size: 1.5rem; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); }
+        .brand p { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.8rem; }
+        
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1.5rem; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; position: relative; }
+        .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); font-weight: bold; }
+        .card h2 { margin: 0; font-size: 1.1rem; }
+        .card-copy { font-size: 0.85rem; color: var(--muted); margin: 1rem 0; line-height: 1.5; }
+        
+        .code-block { background: rgba(0,0,0,0.3); padding: 0.8rem; border-radius: 4px; font-size: 0.75rem; margin: 0.5rem 0; word-break: break-all; color: var(--accent); }
+        .btn-launch { width: 100%; padding: 0.8rem; background: transparent; border: 1px solid var(--accent); color: var(--accent); font-family: inherit; font-weight: bold; cursor: pointer; transition: all 0.2s; margin-top: 1rem; }
+        .btn-launch:hover { background: var(--accent); color: var(--bg); }
+
+        /* Visual QA */
+        #vqa { margin-bottom: 3rem; }
+        .screen-wrap { background: #000; border-radius: 8px; overflow: hidden; position: relative; aspect-ratio: 16/9; border: 1px solid var(--line); }
+        #test-pattern { width: 100%; height: 100%; object-fit: contain; filter: contrast(1.2) brightness(0.8); }
+        .scanlines { position: absolute; inset: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.2) 50%); background-size: 100% 4px; pointer-events: none; }
+        .noise { position: absolute; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"); opacity: 0.05; pointer-events: none; }
+        
+        .status-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-alt); padding: 0.5rem 2rem; border-top: 1px solid var(--line); font-size: 0.7rem; display: flex; gap: 2rem; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #333; display: inline-block; margin-right: 5px; }
+        .dot.active { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    </style>
 </head>
 <body>
     <div class="container">
-        <header class="masthead">
-            <div class="brand-block">
-                <p class="eyebrow">Macro Project Straw Man</p>
-                <h1>literbike Control Plane</h1>
-                <p class="subtitle">Gateway-first agent hosting with pack-backed DSEL picks for GLM5, Kimi K2.5, and NVIDIA-hosted fallback.</p>
-                <div class="headline-tags" aria-label="Current product framing">
-                    <span class="headline-tag">MODEL FACADE</span>
-                    <span class="headline-tag">UNIFIED PORT</span>
-                    <span class="headline-tag">PACK BACKED</span>
+        <header>
+            <div class="brand" style="display: flex; align-items: center; gap: 1rem;">
+                <img src="literbike.png" alt="Literbike" style="width: 48px; height: 48px;">
+                <div>
+                    <h1>Literbike Control Plane</h1>
+                    <p id="active-route-label">DISCONNECTED</p>
                 </div>
             </div>
-            <div class="menu-wrap">
-                <button
-                    class="menu-trigger"
-                    type="button"
-                    aria-label="Literbike DSEL launcher menu"
-                    aria-expanded="false"
-                    aria-controls="review-menu"
-                >
-                    <span class="menu-icon-shell" aria-hidden="true">
-                        <svg class="menu-icon" viewBox="0 0 200 220" aria-hidden="true">
-                            <path
-                                d="M 12 72 C 45 68 60 80 66 105 L 66 208"
-                                fill="none"
-                                stroke="#1a1a1a"
-                                stroke-width="9"
-                                stroke-linecap="round"
-                            />
-                            <path
-                                d="M 188 72 C 155 68 140 80 134 105 L 134 208"
-                                fill="none"
-                                stroke="#1a1a1a"
-                                stroke-width="9"
-                                stroke-linecap="round"
-                            />
-                            <circle cx="100" cy="99" r="27" fill="white" stroke="#1a1a1a" stroke-width="3.5" />
-                            <line x1="66" y1="130" x2="134" y2="130" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round" />
-                            <path d="M 66 208 A 34 44 0 0 1 134 208" fill="none" stroke="#1a1a1a" stroke-width="9" stroke-linecap="round" />
-                            <path d="M 66 208 A 34 28 0 0 1 134 208" fill="none" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round" />
-                        </svg>
-                    </span>
-                    <span class="menu-copy">
-                        <span class="menu-label">DSEL</span>
-                        <span class="menu-caption" id="menu-caption">pack-backed lanes</span>
-                    </span>
-                </button>
-                <section class="menu-panel" id="review-menu" aria-label="DSEL launcher menu" hidden>
-                    <div class="menu-section">
-                        <div class="section-heading">
-                            <span class="section-kicker">Launch</span>
-                            <h2>Pack-Backed DSEL Picks</h2>
-                        </div>
-                        <div class="dsel-grid" id="dsel-grid"></div>
-                    </div>
-                    <div class="menu-section">
-                        <div class="section-heading">
-                            <span class="section-kicker">Inventory</span>
-                            <h2>Gateway and Pack</h2>
-                        </div>
-                        <ul class="menu-list">
-                            <li><span>DSEL pack</span><strong>configs/agent-host-free-lanes.dsel</strong></li>
-                            <li><span>Preferred keys</span><strong id="key-summary">Loading pack…</strong></li>
-                            <li><span>Host wrapper</span><strong id="host-summary">localhost:8888 unified-port</strong></li>
-                            <li><span>Launch discipline</span><strong id="discipline-summary">gateway truth, pack-backed routing</strong></li>
-                        </ul>
-                        <!-- Live Gateway Inventory -->
-                        <div class="live-inventory" id="live-inventory" style="margin-top: 1rem;">
-                            <div class="section-heading">
-                                <span class="section-kicker">Live Status</span>
-                                <h3>Gateway Inventory</h3>
-                            </div>
-                            <div id="gateway-status" class="gateway-status-grid">
-                                <div class="status-loading">Loading gateway status...</div>
-                            </div>
-                            <!-- Env Key Presence -->
-                            <div class="env-key-status" id="env-key-status" style="margin-top: 0.75rem;">
-                                <div class="section-heading">
-                                    <span class="section-kicker">Environment</span>
-                                    <h3>Key Presence</h3>
-                                </div>
-                                <div id="key-presence-grid" class="key-presence-grid">
-                                    <div class="status-loading">Checking env keys...</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="menu-section">
-                        <div class="section-heading">
-                            <span class="section-kicker">Actions</span>
-                            <h2>Fast Copies</h2>
-                        </div>
-                        <div class="surface-stack">
-                            <button type="button" class="action-pill" data-copy-target="gateway-models" data-copy-label="gateway models curl">Copy gateway models curl</button>
-                            <button type="button" class="action-pill" data-copy-target="pack-path" data-copy-label="DSEL pack path">Copy DSEL pack path</button>
-                            <button type="button" class="action-pill" id="copy-priority-lane">Copy first lane</button>
-                        </div>
-                        <!-- Launch/Probe Actions -->
-                        <div class="launch-actions" style="margin-top: 1rem;">
-                            <div class="section-heading">
-                                <span class="section-kicker">Live Actions</span>
-                                <h3>Launch & Probe</h3>
-                            </div>
-                            <div class="action-grid" id="launch-actions-grid">
-                                <button type="button" class="action-probe" data-action="probe-all" data-label="Probe All Lanes">
-                                    <span class="action-icon">🔍</span>
-                                    <span class="action-text">Probe All Lanes</span>
-                                </button>
-                                <button type="button" class="action-launch" data-action="launch-primary" data-label="Launch Primary">
-                                    <span class="action-icon">🚀</span>
-                                    <span class="action-text">Launch Primary</span>
-                                </button>
-                                <button type="button" class="action-reload" data-action="reload-pack" data-label="Reload DSEL Pack">
-                                    <span class="action-icon">🔄</span>
-                                    <span class="action-text">Reload Pack</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <code class="menu-footnote" id="gateway-models">curl -s https://api.kilo.ai/api/gateway/models | jq -r '.data[].id' | rg ':free$'</code>
-                    <code class="menu-footnote" id="pack-path">/Users/jim/work/literbike/configs/agent-host-free-lanes.dsel</code>
-                </section>
+            <div class="status-box">
+                <span id="signal-dot" class="dot"></span>
+                <span id="signal-status">ACQUIRING SIGNAL...</span>
             </div>
         </header>
-        
-        <main class="workbench">
-            <section class="review-card hero-card">
-                <div class="card-heading">
-                    <span class="section-kicker">Operator Surface</span>
-                    <h2>Turn the menu icon into a route launcher, not a concept sketch.</h2>
-                </div>
-                <p class="card-copy">
-                    The icon now reads the checked-in DSEL pack and exposes copy-ready routes and lifecycle commands for the three lanes that matter most: GLM5 for primary work, Kimi K2.5 for deep context, and NVIDIA-hosted GLM5 as the wrapper-side fallback.
-                </p>
-                <div class="signal-grid">
-                    <div class="signal-tile">
-                        <span class="signal-label">Pack</span>
-                        <strong class="signal-value">configs/agent-host-free-lanes.dsel</strong>
-                    </div>
-                    <div class="signal-tile">
-                        <span class="signal-label">Host</span>
-                        <strong class="signal-value">localhost:8888 unified-port wrapper</strong>
-                    </div>
-                    <div class="signal-tile">
-                        <span class="signal-label">Keys</span>
-                        <strong class="signal-value" id="hero-key-summary">KILOAI_API_KEY, KIMI_API_KEY, NVIDIA_API_KEY</strong>
-                    </div>
-                </div>
-            </section>
 
-            <section class="card-grid" aria-label="Review board">
-                <article class="review-card">
-                    <div class="card-heading">
-                        <span class="section-kicker">GLM5</span>
-                        <h2>Fast Gateway Lane</h2>
-                    </div>
-                    <p class="card-copy">Use GLM5 when you want the quickest free lane and a gateway-first provider contract. The pack pins it to the local wrapper instead of scattering route strings across agents.</p>
-                    <ul class="card-list">
-                        <li>Free selector preserved through unified-port</li>
-                        <li>KILOAI alias preferred for Z-AI gateway routing</li>
-                        <li>Single copy surface for operator launch</li>
-                    </ul>
-                </article>
-
-                <article class="review-card">
-                    <div class="card-heading">
-                        <span class="section-kicker">Kimi K2.5</span>
-                        <h2>Deep-Context Lane</h2>
-                    </div>
-                    <p class="card-copy">Keep the long-context Moonshot path easy to invoke from the same icon. The route stays local-first while the env contract remains explicit and inspectable.</p>
-                    <ul class="card-list">
-                        <li>KIMI_API_KEY surfaced as the intended binding</li>
-                        <li>Pragmatic host-block ref stays copyable</li>
-                        <li>No extra proxy folklore in the operator path</li>
-                    </ul>
-                </article>
-
-                <article class="review-card">
-                    <div class="card-heading">
-                        <span class="section-kicker">NVIDIA</span>
-                        <h2>Sustained Fallback Lane</h2>
-                    </div>
-                    <p class="card-copy">When you need the same interface against the NVIDIA provider surface, the menu now reads an NVIDIA-hosted GLM5 route from the pack instead of hardcoding an old Nemotron lane.</p>
-                    <ul class="card-list">
-                        <li>NVIDIA_API_KEY is explicit in the route metadata</li>
-                        <li>Provider-hosted fallback stays in the same menu</li>
-                        <li>Same icon, same pack, same copy discipline</li>
-                    </ul>
-                </article>
-            </section>
-        </main>
-
-        <footer>
-            <div class="status-bar">
-                <span class="status-item"><span class="dot green"></span> DSEL HOST WRAPPER READY</span>
-                <span class="status-item">FREE LANES: GLM5 / KIMI K2.5 / NVIDIA</span>
-                <span class="status-item" id="timestamp">READY TO COPY</span>
+        <section id="vqa" hidden>
+            <div class="card-head"><span class="tag">VISUAL QA</span><h2>SIGNAL LOCKED</h2></div>
+            <div class="screen-wrap">
+                <img src="literbike.png" alt="V-Rod Pattern" id="test-pattern">
+                <div class="scanlines"></div>
+                <div class="noise"></div>
             </div>
-        </footer>
+        </section>
+
+        <div id="workbench-grid" class="card-grid">
+            <!-- Dynamic lanes will be injected here -->
+        </div>
     </div>
+
+    <div class="status-bar">
+        <span>BACKPLANE: <strong id="backplane-status">OFFLINE</strong></span>
+        <span>MODELS: <strong id="model-count">0</strong></span>
+        <span>KEYS: <strong id="key-count">0</strong></span>
+    </div>
+
     <script>
-        const menuTrigger = document.querySelector('.menu-trigger');
-        const menuPanel = document.getElementById('review-menu');
-        const timestamp = document.getElementById('timestamp');
-        const dselGrid = document.getElementById('dsel-grid');
-        const menuCaption = document.getElementById('menu-caption');
-        const keySummary = document.getElementById('key-summary');
-        const heroKeySummary = document.getElementById('hero-key-summary');
-        const hostSummary = document.getElementById('host-summary');
-        const disciplineSummary = document.getElementById('discipline-summary');
-        const copyPriorityLane = document.getElementById('copy-priority-lane');
-        const DSEL_PACK_PATH = 'configs/agent-host-free-lanes.dsel';
-        
-        // State for live gateway inventory and key presence
-        let loadedDselEntries = [];
-        let gatewayStatusCache = {};
-        let envKeyStatus = {};
+        const MODELMUX_URL = 'http://localhost:8888';
+        const workbench = document.getElementById('workbench-grid');
+        const backplaneStatus = document.getElementById('backplane-status');
+        const modelCount = document.getElementById('model-count');
+        const keyCount = document.getElementById('key-count');
+        const signalDot = document.getElementById('signal-dot');
+        const signalStatus = document.getElementById('signal-status');
+        const activeRouteLabel = document.getElementById('active-route-label');
+        const vqa = document.getElementById('vqa');
+        const patternImg = document.getElementById('test-pattern');
 
-        function slugify(value) {
-            return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-        }
-
-        function describeLane(entry) {
-            if (entry.model === 'z-ai/glm-5') {
-                return {
-                    title: 'GLM5',
-                    hint: entry.metadata.quota || 'gateway primary',
-                    copy: 'Primary GLM5 route through the unified port with the gateway-facing Z-AI key contract.',
-                };
-            }
-
-            if (entry.model === 'moonshotai/kimi-k2.5') {
-                return {
-                    title: 'KIMI K2.5',
-                    hint: entry.metadata.quota || 'deep context',
-                    copy: 'Deep-context Kimi lane pinned to the same host wrapper so the operator path stays uniform.',
-                };
-            }
-
-            if (entry.model === 'nvidia/z-ai/glm5') {
-                return {
-                    title: 'NVIDIA HOST',
-                    hint: entry.metadata.quota || 'provider fallback',
-                    copy: 'NVIDIA-hosted GLM5 fallback for when you want the provider surface without changing the icon workflow.',
-                };
-            }
-
-            return {
-                title: entry.model.toUpperCase(),
-                hint: entry.metadata.quota || entry.modality || 'pack route',
-                copy: 'Pack-backed route loaded directly from the checked-in DSEL file.',
-            };
-        }
-
-        // Check environment key presence
-        function checkEnvKeyPresence(entries) {
-            const keysToCheck = [...new Set(entries.map(e => e.metadata.key).filter(Boolean))];
-            const keyStatus = {};
-            
-            keysToCheck.forEach(keyName => {
-                // In browser context, we can't directly check env vars
-                // This would be populated by the server-side or via a backend API
-                // For now, we simulate based on what we know should be present
-                const isPresent = keyName && keyName.length > 0;
-                keyStatus[keyName] = {
-                    name: keyName,
-                    present: isPresent,
-                    selected: true // Assume selected if present
-                };
-            });
-            
-            envKeyStatus = keyStatus;
-            renderKeyPresence(keyStatus);
-            return keyStatus;
-        }
-
-        // Render key presence grid
-        function renderKeyPresence(keyStatus) {
-            const grid = document.getElementById('key-presence-grid');
-            if (!grid) return;
-            
-            const entries = Object.values(keyStatus);
-            if (entries.length === 0) {
-                grid.innerHTML = '<div class="status-loading">No keys configured</div>';
-                return;
-            }
-            
-            grid.innerHTML = entries.map(key => `
-                <div class="key-presence-card ${key.present ? 'present' : 'missing'}">
-                    <span class="key-icon">${key.present ? '🔑' : '⚠️'}</span>
-                    <span class="key-name">${key.name.replace('_API_KEY', '')}</span>
-                    <span class="key-status ${key.present ? 'present' : 'missing'}">
-                        ${key.present ? 'SET' : 'MISSING'}
-                    </span>
-                </div>
-            `).join('');
-        }
-
-        // Fetch live gateway status
-        async function fetchGatewayStatus(entries) {
-            const gatewayStatus = {};
-            const uniqueHosts = [...new Set(entries.map(e => e.host).filter(Boolean))];
-            
-            // For each unique host, check availability
-            for (const host of uniqueHosts) {
-                try {
-                    const startTime = performance.now();
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 3000);
-                    
-                    // Try to probe the host
-                    const response = await fetch(`http://${host}/health`, {
-                        method: 'GET',
-                        signal: controller.signal,
-                        mode: 'cors'
-                    });
-                    clearTimeout(timeoutId);
-                    
-                    const latency = Math.round(performance.now() - startTime);
-                    
-                    gatewayStatus[host] = {
-                        host,
-                        ready: response.ok,
-                        latency,
-                        status: response.status
-                    };
-                } catch (error) {
-                    gatewayStatus[host] = {
-                        host,
-                        ready: false,
-                        latency: null,
-                        status: null,
-                        error: error.message
-                    };
-                }
-            }
-            
-            gatewayStatusCache = gatewayStatus;
-            renderGatewayStatus(gatewayStatus);
-            return gatewayStatus;
-        }
-
-        // Render gateway status grid
-        function renderGatewayStatus(gatewayStatus) {
-            const grid = document.getElementById('gateway-status');
-            if (!grid) return;
-            
-            const entries = Object.values(gatewayStatus);
-            if (entries.length === 0) {
-                grid.innerHTML = '<div class="status-loading">No gateways configured</div>';
-                return;
-            }
-            
-            grid.innerHTML = entries.map(gw => `
-                <div class="gateway-status-card ${gw.ready ? 'ready' : 'error'}">
-                    <span class="gateway-name">${gw.host}</span>
-                    <div class="gateway-status">
-                        <span class="status-dot ${gw.ready ? 'ready' : 'error'}"></span>
-                        <span>${gw.ready ? 'READY' : 'UNAVAILABLE'}</span>
-                    </div>
-                    ${gw.latency !== null ? `<span class="gateway-latency">${gw.latency}ms</span>` : ''}
-                    ${!gw.ready && gw.error ? `<span class="gateway-latency">${gw.error}</span>` : ''}
-                </div>
-            `).join('');
-        }
-
-        // Probe all lanes
-        async function probeAllLanes() {
-            const timestamp = document.getElementById('timestamp');
-            timestamp.textContent = 'Probing all lanes...';
-            
-            // Refresh gateway status
-            await fetchGatewayStatus(loadedDselEntries);
-            
-            // Update timestamp
-            const readyCount = Object.values(gatewayStatusCache).filter(g => g.ready).length;
-            const totalCount = Object.keys(gatewayStatusCache).length;
-            timestamp.textContent = `Probed ${totalCount} lanes: ${readyCount} ready`;
-        }
-
-        // Launch primary lane
-        async function launchPrimary() {
-            const timestamp = document.getElementById('timestamp');
-            const firstEntry = loadedDselEntries[0];
-            
-            if (!firstEntry) {
-                timestamp.textContent = 'No lanes available';
-                return;
-            }
-            
-            timestamp.textContent = `Launching ${firstEntry.model}...`;
-            
-            // Try to launch via the unified port
+        async function fetchState() {
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000);
-                
-                const response = await fetch(`http://${firstEntry.host}/probe`, {
-                    method: 'POST',
-                    signal: controller.signal,
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: firstEntry.model,
-                        action: 'launch'
-                    })
-                });
-                clearTimeout(timeoutId);
-                
+                const response = await fetch(`${MODELMUX_URL}/toolbar/state`);
                 if (response.ok) {
-                    timestamp.textContent = `✅ Launched ${firstEntry.model}`;
-                } else {
-                    timestamp.textContent = `⚠️ Launch returned ${response.status}`;
+                    const state = await response.json();
+                    renderLanes(state.lanes);
+                    renderStatus(state);
                 }
-            } catch (error) {
-                timestamp.textContent = `⚠️ Launch failed: ${error.message}`;
+            } catch (e) {
+                backplaneStatus.textContent = 'OFFLINE';
+                signalDot.className = 'dot';
+                signalStatus.textContent = 'LINK LOST';
             }
         }
 
-        // Reload DSEL pack
-        async function reloadPack() {
-            const timestamp = document.getElementById('timestamp');
-            timestamp.textContent = 'Reloading DSEL pack...';
-            
-            // Clear cache and reload
-            loadedDselEntries = [];
-            gatewayStatusCache = {};
-            envKeyStatus = {};
-            
-            await loadDselPack();
-            timestamp.textContent = 'DSEL pack reloaded';
-        }
-
-        // Handle launch action clicks
-        function handleLaunchAction(action) {
-            switch (action) {
-                case 'probe-all':
-                    probeAllLanes();
-                    break;
-                case 'launch-primary':
-                    launchPrimary();
-                    break;
-                case 'reload-pack':
-                    reloadPack();
-                    break;
-                default:
-                    console.warn('Unknown action:', action);
-            }
-        }
-
-        function parseDselLine(line) {
-            const match = line.trim().match(/^\/\{([^}]*)\}\/(.+)$/);
-            if (!match) {
-                return null;
-            }
-
-            const tokens = match[1].split(',').map((token) => token.trim()).filter(Boolean);
-            const host = tokens.shift() || '';
-            const metadata = {};
-            const notes = [];
-            let modality = '';
-
-            for (const token of tokens) {
-                if (token.startsWith('meta:')) {
-                    const [key, value] = token.slice(5).split('=');
-                    if (key && value) {
-                        metadata[key.trim()] = value.trim();
-                    }
-                    continue;
-                }
-                if (token.startsWith('note=')) {
-                    notes.push(token.slice(5).trim());
-                    continue;
-                }
-                if (token.startsWith('modality/')) {
-                    modality = token.slice('modality/'.length).trim();
-                }
-            }
-
-            return {
-                route: line.trim(),
-                host,
-                model: match[2].trim(),
-                metadata,
-                notes,
-                modality,
-            };
-        }
-
-        function buildLifecycleCommand(entry) {
-            const envKey = entry.metadata.key || 'API_KEY';
-            return `cargo run --bin modelmux_mvp_lifecycle -- --ignore-process-env --env ${envKey}="$${envKey}" --model '${entry.route}'`;
-        }
-
-        function buildLaneCard(entry, index) {
-            const descriptor = describeLane(entry);
-            const slug = slugify(`${descriptor.title}-${index}`);
-            const routeId = `route-${slug}`;
-            const commandId = `cmd-${slug}`;
-
-            return `
-                <article class="dsel-card">
-                    <div class="dsel-head">
-                        <span class="surface-chip">${descriptor.title}</span>
-                        <span class="dsel-hint">${descriptor.hint}</span>
+        function renderLanes(lanes) {
+            if (!lanes) return;
+            workbench.innerHTML = lanes.map(lane => `
+                <article class="card">
+                    <div class="card-head">
+                        <span class="tag">${lane.provider.toUpperCase()}</span>
+                        <h2>${lane.title}</h2>
                     </div>
-                    <p class="dsel-copy">${descriptor.copy}</p>
-                    <code class="dsel-code" id="${routeId}">${entry.route}</code>
-                    <code class="dsel-code subtle" id="${commandId}">${buildLifecycleCommand(entry)}</code>
-                    <div class="copy-row">
-                        <button type="button" class="copy-pill" data-copy-target="${routeId}" data-copy-label="${descriptor.title} DSEL">Copy DSEL</button>
-                        <button type="button" class="copy-pill" data-copy-target="${commandId}" data-copy-label="${descriptor.title} lifecycle command">Copy Command</button>
-                    </div>
+                    <p class="card-copy">Mapped lane for ${lane.model} via ${lane.host}.</p>
+                    <div class="code-block">${lane.route}</div>
+                    <button class="btn-launch" onclick="launchLane('${lane.route}', '${lane.host}', '${lane.model}')">LAUNCH LINK</button>
                 </article>
-            `;
+            `).join('');
         }
 
-        async function copyCodeFromTarget(targetId, label) {
-            const source = document.getElementById(targetId);
-            if (!source) {
-                return;
+        function renderStatus(state) {
+            backplaneStatus.textContent = 'CONNECTED';
+            modelCount.textContent = state.dynamic_models.length;
+            keyCount.textContent = state.env.keys.filter(k => k.is_set).length;
+            
+            const routeLabel = [state.route.provider, state.route.model].filter(Boolean).join(' / ') || state.route.family;
+            activeRouteLabel.textContent = routeLabel.toUpperCase();
+            
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.updateTitle) {
+                window.webkit.messageHandlers.updateTitle.postMessage(routeLabel);
             }
 
-            const text = source.textContent.trim();
+            signalDot.className = 'dot active';
+            signalStatus.textContent = 'SIGNAL LOCKED';
+        }
+
+        window.launchLane = async (route, host, model) => {
+            signalStatus.textContent = 'TUNING...';
             try {
-                await navigator.clipboard.writeText(text);
-                timestamp.textContent = `${label} copied`;
-            } catch (_error) {
-                const selection = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(source);
-                selection.removeAllRanges();
-                selection.addRange(range);
-                document.execCommand('copy');
-                selection.removeAllRanges();
-                timestamp.textContent = `${label} copied`;
-            }
-        }
-
-        async function loadDselPack() {
-            try {
-                const response = await fetch(DSEL_PACK_PATH);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                const resp = await fetch(`http://${host}/probe`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model, route, action: 'launch' })
+                });
+                if (resp.ok) {
+                    const result = await resp.json();
+                    if (result.signal_locked) {
+                        if (result.evidence) {
+                            patternImg.src = result.evidence.startsWith('/') ? result.evidence.slice(1) : result.evidence;
+                        }
+                        vqa.hidden = false;
+                        vqa.scrollIntoView({ behavior: 'smooth' });
+                    }
+                    fetchState();
                 }
-
-                const text = await response.text();
-                const entries = text
-                    .split('\n')
-                    .map((line) => line.trim())
-                    .filter((line) => line && !line.startsWith('#'))
-                    .map(parseDselLine)
-                    .filter(Boolean);
-
-                loadedDselEntries = entries;
-                dselGrid.innerHTML = entries.map((entry, index) => buildLaneCard(entry, index)).join('');
-
-                const keys = [...new Set(entries.map((entry) => entry.metadata.key).filter(Boolean))];
-                const hosts = [...new Set(entries.map((entry) => entry.host).filter(Boolean))];
-                menuCaption.textContent = `${entries.length} pack-backed lanes`;
-                keySummary.textContent = keys.join(' / ');
-                heroKeySummary.textContent = keys.join(', ');
-                hostSummary.textContent = hosts.join(' / ');
-                disciplineSummary.textContent = entries.map((entry) => describeLane(entry).title).join(' -> ');
-
-                const firstRouteCode = dselGrid.querySelector('.dsel-code');
-                if (firstRouteCode) {
-                    copyPriorityLane.dataset.copyTarget = firstRouteCode.id;
-                    copyPriorityLane.dataset.copyLabel = 'Priority lane';
-                }
-
-                // Check env key presence
-                checkEnvKeyPresence(entries);
-                
-                // Fetch live gateway status (non-blocking)
-                fetchGatewayStatus(entries).catch(err => {
-                    console.warn('Gateway status fetch failed:', err);
-                });
-
-                // Add click listeners to copy buttons
-                document.querySelectorAll('[data-copy-target]').forEach((button) => {
-                    button.addEventListener('click', () => {
-                        copyCodeFromTarget(
-                            button.getAttribute('data-copy-target'),
-                            button.getAttribute('data-copy-label') || 'DSEL'
-                        );
-                    });
-                });
-                
-                // Add click listeners to launch action buttons
-                document.querySelectorAll('[data-action]').forEach((button) => {
-                    button.addEventListener('click', () => {
-                        const action = button.getAttribute('data-action');
-                        handleLaunchAction(action);
-                    });
-                });
-            } catch (error) {
-                dselGrid.innerHTML = `
-                    <article class="dsel-card">
-                        <div class="dsel-head">
-                            <span class="surface-chip">PACK LOAD FAILED</span>
-                            <span class="dsel-hint">manual fallback</span>
-                        </div>
-                        <p class="dsel-copy">Could not load ${DSEL_PACK_PATH}. Serve the control plane over HTTP so the menu can fetch the pack-backed routes.</p>
-                        <code class="dsel-code subtle">${String(error)}</code>
-                    </article>
-                `;
-                keySummary.textContent = 'pack unavailable';
-                disciplineSummary.textContent = 'serve over http, then reload';
-                timestamp.textContent = 'PACK LOAD FAILED';
+            } catch (e) {
+                signalStatus.textContent = 'TUNING FAILED';
             }
-        }
+        };
 
-        function setMenuOpen(open) {
-            if (!menuTrigger || !menuPanel) {
-                return;
-            }
-            menuTrigger.setAttribute('aria-expanded', String(open));
-            menuPanel.toggleAttribute('hidden', !open);
-            timestamp.textContent = open ? 'DSEL menu open' : 'READY TO COPY';
-            if (open) {
-                menuPanel.querySelector('button, [href], [tabindex]:not([tabindex="-1"])')?.focus();
-            } else {
-                menuTrigger.focus();
-            }
-        }
-
-        menuTrigger?.addEventListener('click', () => {
-            const open = menuTrigger.getAttribute('aria-expanded') === 'true';
-            setMenuOpen(!open);
-        });
-
-        document.addEventListener('keydown', (event) => {
-            if (event.key !== 'Escape' || !menuTrigger || !menuPanel) {
-                return;
-            }
-            const open = menuTrigger.getAttribute('aria-expanded') === 'true';
-            if (open) {
-                setMenuOpen(false);
-            }
-        });
-
-        document.addEventListener('click', (event) => {
-            if (!menuTrigger || !menuPanel) {
-                return;
-            }
-            const open = menuTrigger.getAttribute('aria-expanded') === 'true';
-            if (!open) {
-                return;
-            }
-            if (!event.target.closest('.menu-wrap')) {
-                setMenuOpen(false);
-            }
-        });
-
-        loadDselPack();
+        fetchState();
+        setInterval(fetchState, 5000);
     </script>
 </body>
 </html>

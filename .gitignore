@@ -51,3 +51,8 @@ litebike-proxy
 *.log**/*.o
 .aider*
 .artifacts/
+
+# Turds
+*.bak
+*.orig
+*.tmp

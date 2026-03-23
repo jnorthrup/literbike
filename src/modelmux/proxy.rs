@@ -8,14 +8,19 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::path::PathBuf;
+use std::pin::Pin;
 use tokio::sync::RwLock;
+use tokio::io::AsyncWriteExt;
 use log::{info, warn, error, debug};
+use bytes::Bytes;
+use futures::stream::Stream;
 
 use crate::modelmux::cache::{CachedModel, ModelCache};
 use crate::modelmux::control::{GatewayControlAction, GatewayControlState, GatewayRuntimeControl};
 use crate::modelmux::registry::{ModelRegistry, ProviderEntry};
 use crate::modelmux::metamodel::{MetamodelCache, Metamodel};
 use crate::modelmux::toolbar::{derive_toolbar_state, ToolbarAction, ToolbarState};
+use crate::modelmux::streaming::{create_tracked_sse_stream, StreamingConnectionPool};
 use crate::keymux::dsel::{DSELBuilder, RuleEngine, QuotaContainer};
 use crate::keymux::cards::ModelCardStore;
 
@@ -56,6 +61,11 @@ pub struct ProxyRoute {
     pub providers: Vec<String>,
 }
 
+/// Streaming chat completion response type
+pub struct StreamingChatResponse {
+    pub stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+}
+
 /// Model proxy state
 pub struct ModelProxy {
     config: ProxyConfig,
@@ -66,6 +76,7 @@ pub struct ModelProxy {
     http_client: reqwest::Client,
     metacache: Arc<RwLock<crate::modelmux::metamodel::MetamodelCache>>,
     card_store: Arc<ModelCardStore>,
+    streaming_pool: StreamingConnectionPool,
 }
 
 impl ModelProxy {
@@ -103,6 +114,7 @@ impl ModelProxy {
 
         let control = Arc::new(RwLock::new(GatewayRuntimeControl::from_config(&config)));
         let card_store = Arc::new(ModelCardStore::new());
+        let streaming_pool = StreamingConnectionPool::new();
 
         Self {
             config,
@@ -113,6 +125,7 @@ impl ModelProxy {
             http_client,
             metacache,
             card_store,
+            streaming_pool,
         }
     }
 
@@ -126,16 +139,7 @@ impl ModelProxy {
         // Load models from cache
         self.load_cached_models().await;
 
-        // load metamodels from HuggingFace if token provided
-        if let Ok(hf) = std::env::var("HUGGINGFACE_API_KEY") {
-            if let Ok(metas) = crate::models::metamodel::fetch_huggingface_sheet(&hf).await {
-                let mut mc = self.metacache.write().await;
-                for m in metas {
-                    let _ = mc.insert(m);
-                }
-                mc.replicate_all();
-            }
-        }
+        // HF metamodel hydration deferred (requires per-model id + token)
 
         // Pick up default/fallback model from env (may have been loaded from .env)
         if self.config.default_model.is_none() {
@@ -207,68 +211,27 @@ impl ModelProxy {
     /// context_window values are capped by MODELMUX_MAX_CONTEXT_WINDOW if set.
     pub async fn get_models(&self) -> Value {
         // Use shared helper so other modules leverage same value
-        let max_ctx = crate::models::utils::max_context_window();
+        let max_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000);
 
-        // Check cache first — only return if we have non-expired entries
-        {
+        // Discover all providers, then fetch models for any provider missing from cache
+        let providers = crate::keymux::dsel::discover_providers();
+
+        // Determine which providers need fetching (no cached models or all expired)
+        let providers_to_fetch: Vec<_> = {
             let cache = self.cache.read().await;
             let cached = cache.get_all_models();
-            let live: Vec<&crate::models::cache::CachedModel> = cached.iter()
-                .filter(|m| !m.is_expired())
-                .collect();
-            if !live.is_empty() {
-                // Populate model cards from cached data
-                let live_owned: Vec<CachedModel> = live.iter().map(|m| (*m).clone()).collect();
-                self.card_store.populate_from_cached(&live_owned);
+            providers.iter().filter(|p| {
+                !cached.iter().any(|m| m.provider == p.name && !m.is_expired())
+            }).collect::<Vec<_>>().into_iter().cloned().collect()
+        };
 
-                let mut models: Vec<Value> = live.iter().map(|m| json!({
-                    "id": &m.id,
-                    "object": "model",
-                    "created": m.cached_at,
-                    "owned_by": &m.provider,
-                    "permission": [],
-                    "root": &m.id,
-                    "parent": null,
-                })).collect();
-                // Always inject passthru model when flag+key are set
-                let passthru = std::env::var("MODELMUX_ENABLE_OLLAMA_OPENROUTER")
-                    .map(|v| { let v = v.to_ascii_lowercase(); v == "1" || v == "true" || v == "yes" || v == "on" })
-                    .unwrap_or(false);
-                if passthru && std::env::var("OPENROUTER_API_KEY").is_ok() {
-                    if !models.iter().any(|m| m.get("id").and_then(|i| i.as_str()) == Some("ollama/openrouter-free")) {
-                        models.push(json!({
-                            "id": "ollama/openrouter-free",
-                            "object": "model",
-                            "created": chrono::Utc::now().timestamp(),
-                            "owned_by": "ollama",
-                            "permission": [],
-                            "root": "ollama/openrouter-free",
-                            "parent": null,
-                        }));
-                    }
-                }
-                return json!({ "object": "list", "data": models });
-            }
+        if providers_to_fetch.is_empty() {
+            debug!("All providers have cached models, skipping draw-through");
         }
-
-        // Cache miss — draw through from upstream providers using API keys
-        let providers = crate::keymux::dsel::discover_providers();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
-        for p in &providers {
-            // Ollama-first default: do not include OpenRouter models unless explicitly requested.
-            if p.name == "openrouter" {
-                let include_openrouter = std::env::var("MODELMUX_INCLUDE_OPENROUTER_MODELS")
-                    .map(|v| {
-                        let v = v.to_ascii_lowercase();
-                        v == "1" || v == "true" || v == "yes" || v == "on"
-                    })
-                    .unwrap_or(false);
-                if !include_openrouter {
-                    continue;
-                }
-            }
+        for p in &providers_to_fetch {
             let api_key = match std::env::var(&p.key_env) {
                 Ok(k) if crate::keymux::dsel::is_real_key_pub(&k) => k,
                 _ => continue,
@@ -280,11 +243,11 @@ impl ModelProxy {
                 // Perplexity has no /models endpoint; skip fetch, seed known models
                 let mut cache = self.cache.write().await;
                 for model_name in &["sonar", "sonar-pro", "sonar-deep-research", "sonar-reasoning", "sonar-reasoning-pro"] {
-                    cache.cache(crate::models::cache::CachedModel {
+                    cache.cache(CachedModel {
                         id: format!("perplexity/{}", model_name),
                         provider: "perplexity".to_string(),
                         name: model_name.to_string(),
-                        context_window: crate::models::utils::max_context_window(),
+                        context_window: std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000),
                         max_tokens: 32768,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
@@ -319,7 +282,7 @@ impl ModelProxy {
                             .and_then(|d| d.as_array())
                             .unwrap_or(&empty);
                         let mut cache = self.cache.write().await;
-                        let max_ctx = crate::models::utils::max_context_window();
+                        let max_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000);
                         for m in data {
                             // OpenAI: "id", Gemini: "name" (format: "models/gemini-2.0-flash")
                             let raw_id = m.get("id")
@@ -359,7 +322,7 @@ impl ModelProxy {
                                 .map(|c| c * 1_000_000.0)
                                 .unwrap_or(0.0);
 
-                            cache.cache(crate::models::cache::CachedModel {
+                            cache.cache(CachedModel {
                                 id: model_id,
                                 provider: p.name.clone(),
                                 name: raw_id.to_string(),
@@ -385,11 +348,11 @@ impl ModelProxy {
                     }
                     // Timeout/error — seed a default so the provider still appears
                     let mut cache = self.cache.write().await;
-                    cache.cache(crate::models::cache::CachedModel {
+                    cache.cache(CachedModel {
                         id: format!("{}/default", p.name),
                         provider: p.name.clone(),
                         name: format!("{} (via {})", p.name, p.key_env),
-                        context_window: crate::models::utils::max_context_window(),
+                        context_window: std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000),
                         max_tokens: 32768,
                         input_cost_per_million: 0.0,
                         output_cost_per_million: 0.0,
@@ -603,7 +566,289 @@ impl ModelProxy {
         })
     }
 
-    /// Handle chat completions (OpenAI-compatible /v1/chat/completions endpoint)
+    /// Handle streaming chat completions with SSE passthrough
+    /// When stream=true, forwards SSE chunks directly from upstream to client
+    pub async fn chat_completions_streaming(
+        &self,
+        mut request: Value,
+    ) -> Result<StreamingChatResponse, ProxyError> {
+        // Tool loop circuit breaker: detect "alligator roll" token-burn loops
+        if let Some(messages_arr) = request.get("messages").and_then(|m| m.as_array()) {
+            if let Some(looping_tool) = detect_tool_loop(messages_arr) {
+                let error_body = serde_json::json!({
+                    "error": {
+                        "type": "tool_loop_detected",
+                        "message": format!(
+                            "Tool loop detected: '{}' is being called repeatedly. \
+                             The model appears to be stuck. Please start a new conversation.",
+                            looping_tool
+                        ),
+                        "looping_tool": looping_tool,
+                    }
+                });
+                return Err(ProxyError::Other(serde_json::to_string(&error_body).unwrap()));
+            }
+        }
+
+        let _primary_model = self.prepare_request_model(&mut request).await?;
+
+        // For streaming, we directly forward the upstream SSE stream
+        match self.send_streaming_request(request.clone()).await {
+            Ok(stream_response) => Ok(stream_response),
+            Err(primary_error) => {
+                // Try fallback models if primary fails
+                if let Some(fallback_model) = self.current_fallback_model().await {
+                    warn!(
+                        "{}; attempting streaming fallback to model {}",
+                        primary_error, fallback_model
+                    );
+                    let mut fallback_request = request.clone();
+                    fallback_request["model"] = json!(fallback_model);
+                    let _ = self.prepare_request_model(&mut fallback_request).await?;
+                    match self.send_streaming_request(fallback_request).await {
+                        Ok(stream_response) => return Ok(stream_response),
+                        Err(fallback_error) => {
+                            warn!("Streaming fallback failed: {}", fallback_error);
+                            return Err(fallback_error);
+                        }
+                    }
+                }
+                Err(primary_error)
+            }
+        }
+    }
+
+    /// Send a streaming request to the upstream provider and return the SSE stream
+    async fn send_streaming_request(
+        &self,
+        mut request: Value,
+    ) -> Result<StreamingChatResponse, ProxyError> {
+        let model_raw = request
+            .get("model")
+            .and_then(|m| m.as_str())
+            .ok_or_else(|| ProxyError::BadRequest("Missing model parameter".to_string()))?
+            .to_string();
+
+        let model = model_raw.trim_end_matches(":latest");
+
+        // Handle special ollama/openrouter-free passthrough model
+        if model == "ollama/openrouter-free" {
+            return self.try_openrouter_streaming_fallback(&request, "ollama streaming passthru").await;
+        }
+
+        let route_opt = crate::keymux::dsel::route(model);
+        let (provider_name, base_url, key_env) = if let Some(r) = route_opt {
+            r
+        } else {
+            match self.metacache.read().await.get(model) {
+                Ok(Some(meta)) => {
+                    let provider = meta.provider.clone();
+                    let base = format!("https://api.{}.com/v1", provider);
+                    let key_env = format!("{}_API_KEY", provider.to_uppercase());
+                    (provider, base, key_env)
+                }
+                Ok(None) | Err(_) => {
+                    return Err(ProxyError::NotFound(format!("No provider for model: {}", model)));
+                }
+            }
+        };
+
+        let upstream_model = model
+            .strip_prefix(&format!("{}/", provider_name))
+            .unwrap_or(model);
+
+        info!(
+            "Streaming: '{}' → provider '{}', upstream model '{}', url '{}'",
+            model, provider_name, upstream_model, base_url
+        );
+
+        let api_key = std::env::var(&key_env)
+            .map_err(|_| ProxyError::Unauthorized(format!("Missing API key: {}", key_env)))?;
+
+        request["model"] = json!(upstream_model);
+        request["stream"] = json!(true);
+
+        // Build request based on provider type
+        let (url, body, req_builder) = if provider_name == "anthropic" {
+            let url = format!("{}/messages", base_url);
+            let body = self.transform_for_anthropic_streaming(upstream_model, &request);
+            let rb = self.http_client
+                .post(&url)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream");
+            (url, body, rb)
+        } else {
+            // OpenAI-compatible streaming
+            let url = format!("{}/chat/completions", base_url);
+            let body = request.clone();
+            let rb = if api_key.is_empty() {
+                self.http_client.post(&url)
+            } else {
+                self.http_client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+            }
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream");
+            (url, body, rb)
+        };
+
+        let response = req_builder
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(120))
+            .send()
+            .await
+            .map_err(|e| ProxyError::UpstreamError(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(ProxyError::UpstreamError(format!(
+                "Provider {} streaming error {}: {}",
+                provider_name,
+                status,
+                &error_text[..error_text.len().min(500)]
+            )));
+        }
+
+        // Extract the byte stream from the response and wrap with tracking
+        let byte_stream = response.bytes_stream();
+        let tracked_stream = create_tracked_sse_stream(Box::pin(byte_stream), provider_name.to_string());
+
+        Ok(StreamingChatResponse {
+            stream: tracked_stream,
+        })
+    }
+
+    /// Transform OpenAI request to Anthropic format for streaming
+    fn transform_for_anthropic_streaming(&self, model: &str, request: &Value) -> Value {
+        let empty_msgs = vec![];
+        let messages = request.get("messages").and_then(|m| m.as_array()).unwrap_or(&empty_msgs);
+        let mut system_prompt = None;
+        let mut anthropic_messages = Vec::new();
+
+        for msg in messages {
+            let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+            let content = msg.get("content").cloned().unwrap_or(json!(""));
+
+            if role == "system" {
+                system_prompt = Some(content);
+            } else {
+                anthropic_messages.push(json!({
+                    "role": if role == "assistant" { "assistant" } else { "user" },
+                    "content": content
+                }));
+            }
+        }
+
+        let mut body = json!({
+            "model": model.replace("anthropic/", ""),
+            "messages": anthropic_messages,
+            "max_tokens": request.get("max_tokens").and_then(|v| v.as_u64()).unwrap_or(4096),
+            "stream": true,
+        });
+
+        if let Some(system) = system_prompt {
+            body["system"] = system;
+        }
+
+        if let Some(temp) = request.get("temperature") {
+            body["temperature"] = temp.clone();
+        }
+
+        body
+    }
+
+    /// Try OpenRouter streaming fallback
+    async fn try_openrouter_streaming_fallback(
+        &self,
+        request_template: &Value,
+        context: &str,
+    ) -> Result<StreamingChatResponse, ProxyError> {
+        let passthru_flag = std::env::var("MODELMUX_ENABLE_OLLAMA_OPENROUTER")
+            .map(|v| {
+                let v = v.to_ascii_lowercase();
+                v == "1" || v == "true" || v == "yes" || v == "on"
+            })
+            .unwrap_or(false);
+
+        if !passthru_flag {
+            return Err(ProxyError::UpstreamError(context.to_string()));
+        }
+
+        let or_key = std::env::var("OPENROUTER_API_KEY")
+            .map_err(|_| ProxyError::UpstreamError(format!("{} ; OpenRouter API key missing", context)))?;
+
+        if !crate::keymux::dsel::is_real_key_pub(&or_key) {
+            return Err(ProxyError::UpstreamError(format!(
+                "{} ; OpenRouter API key is placeholder/invalid",
+                context
+            )));
+        }
+
+        let mut candidates: Vec<String> = Vec::new();
+        if let Ok(model) = std::env::var("OPENROUTER_FREE_MODEL") {
+            if !model.trim().is_empty() {
+                candidates.push(model);
+            }
+        }
+        for m in [
+            "qwen/qwen3-4b:free",
+            "meta-llama/llama-3.2-3b-instruct:free",
+            "google/gemma-3-4b-it:free",
+            "z-ai/glm-4.5-air:free",
+        ] {
+            if !candidates.iter().any(|c| c == m) {
+                candidates.push(m.to_string());
+            }
+        }
+
+        let mut last_error = String::new();
+        for candidate in candidates {
+            let mut req_body = request_template.clone();
+            req_body["stream"] = json!(true);
+            req_body["model"] = json!(candidate.clone());
+
+            let response = self.http_client
+                .post("https://openrouter.ai/api/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", or_key))
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream")
+                .json(&req_body)
+                .timeout(std::time::Duration::from_secs(120))
+                .send()
+                .await;
+
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    info!("Streaming fallback succeeded with OpenRouter model {}", candidate);
+                    let byte_stream = resp.bytes_stream();
+                    let tracked_stream = create_tracked_sse_stream(Box::pin(byte_stream), "openrouter".to_string());
+                    return Ok(StreamingChatResponse {
+                        stream: tracked_stream,
+                    });
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    last_error = format!("{} => HTTP {}: {}", candidate, status, &text[..text.len().min(300)]);
+                }
+                Err(e) => {
+                    last_error = format!("{} => request error: {}", candidate, e);
+                }
+            }
+        }
+
+        Err(ProxyError::UpstreamError(format!(
+            "{} ; all OpenRouter streaming fallbacks failed: {}",
+            context,
+            last_error
+        )))
+    }
+
+/// Handle chat completions (OpenAI-compatible /v1/chat/completions endpoint)
     /// Routes via DSEL provider discovery — not the static registry.
     pub async fn chat_completions(&self, mut request: Value) -> Result<Value, ProxyError> {
         // Tool loop circuit breaker: detect "alligator roll" token-burn loops
@@ -766,6 +1011,35 @@ impl ModelProxy {
         });
 
         Ok(format!("{}\n{}\n", frame1, frame2))
+    }
+
+    /// Handle Ollama native streaming via SSE passthrough
+    /// Converts Ollama format to OpenAI format, then streams the response
+    pub async fn ollama_chat_streaming(&self, request: Value) -> Result<StreamingChatResponse, ProxyError> {
+        let model_raw = request
+            .get("model")
+            .and_then(|m| m.as_str())
+            .ok_or_else(|| ProxyError::BadRequest("Missing model parameter".to_string()))?
+            .to_string();
+
+        // Strip ":latest" tag
+        let model = model_raw.trim_end_matches(":latest");
+
+        // Build OpenAI-format request with streaming enabled
+        let mut openai_request = json!({
+            "model": model,
+            "messages": request.get("messages").cloned().unwrap_or(json!([])),
+            "stream": true,
+            "temperature": request.get("options").and_then(|o| o.get("temperature")).cloned(),
+        });
+
+        // Forward tools if present in Ollama request
+        if let Some(tools) = request.get("tools") {
+            openai_request["tools"] = tools.clone();
+        }
+
+        // Route through streaming chat completions
+        self.chat_completions_streaming(openai_request).await
     }
 
     /// Select provider using DSEL quota management
@@ -1014,7 +1288,16 @@ impl ModelProxy {
 
     pub async fn toolbar_state(&self) -> ToolbarState {
         let gateway = self.control_state().await;
-        derive_toolbar_state(&gateway)
+        let models_json = self.get_models().await;
+        let mut models = Vec::new();
+        if let Some(data) = models_json.get("data").and_then(|d| d.as_array()) {
+            for m in data {
+                if let Some(id) = m.get("id").and_then(|i| i.as_str()) {
+                    models.push(id.to_string());
+                }
+            }
+        }
+        derive_toolbar_state(&gateway, models)
     }
 
     pub async fn apply_toolbar_action(
@@ -1163,6 +1446,7 @@ impl ModelProxy {
                 http_client: http_client.clone(),
                 metacache: Arc::clone(&metacache),
                 card_store: Arc::clone(&self.card_store),
+                streaming_pool: StreamingConnectionPool::new(),
             };
             let proxy = Arc::new(connection_proxy);
 
@@ -1213,21 +1497,50 @@ impl ModelProxy {
 
                 // Route request
                 let response = proxy.handle_request(&method, &path, &headers, &body).await;
-                info!("<<< {} {} → {}", method, path, response.status);
+                info!("<<< {} {} → {}", method, path, response.status());
 
-                // Write response
-                let mut response_bytes = format!(
-                    "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    response.status,
-                    response.status_text,
-                    response.content_type,
-                    response.body.len()
-                )
-                .into_bytes();
-                response_bytes.extend_from_slice(&response.body);
+                // Handle streaming vs standard responses
+                match response {
+                    HttpResponse::Standard { status, status_text, content_type, body } => {
+                        // Standard response with known content length
+                        let mut response_bytes = format!(
+                            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            status, status_text, content_type, body.len()
+                        )
+                        .into_bytes();
+                        response_bytes.extend_from_slice(&body);
+                        let _ = write_half.write_all(&response_bytes).await;
+                        let _ = write_half.flush().await;
+                    }
+                    HttpResponse::Streaming { status, status_text, content_type, mut body_stream } => {
+                        // Streaming SSE response - write headers with chunked transfer or connection close
+                        let headers = format!(
+                            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+                            status, status_text, content_type
+                        );
+                        let _ = write_half.write_all(headers.as_bytes()).await;
+                        let _ = write_half.flush().await;
 
-                let _ = write_half.write_all(&response_bytes).await;
-                let _ = write_half.flush().await;
+                        // Stream chunks from upstream to client
+                        use futures::stream::StreamExt;
+                        while let Some(chunk_result) = body_stream.next().await {
+                            match chunk_result {
+                                Ok(bytes) => {
+                                    if write_half.write_all(&bytes).await.is_err() {
+                                        break;
+                                    }
+                                    if write_half.flush().await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Streaming error: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             });
         }
     }
@@ -1242,6 +1555,7 @@ impl ModelProxy {
             http_client: self.http_client.clone(),
             metacache: Arc::clone(&self.metacache),
             card_store: Arc::clone(&self.card_store),
+            streaming_pool: StreamingConnectionPool::new(),
         }
     }
 
@@ -1326,16 +1640,33 @@ impl ModelProxy {
         let api_key = std::env::var(&key_env)
             .map_err(|_| ProxyError::Unauthorized(format!("Missing API key: {}", key_env)))?;
 
-        request["stream"] = json!(false);
         request["model"] = json!(upstream_model);
 
-        let url = format!("{}/chat/completions", base_url);
-        let response = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&request)
+        // Anthropic uses /v1/messages with x-api-key, not /chat/completions with Bearer
+        let (url, body, mut req_builder) = if provider_name == "anthropic" {
+            let url = format!("{}/messages", base_url);
+            let body = self.transform_for_anthropic(upstream_model, &request);
+            let rb = self.http_client
+                .post(&url)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("Content-Type", "application/json");
+            (url, body, rb)
+        } else {
+            request["stream"] = json!(false);
+            let url = format!("{}/chat/completions", base_url);
+            let body = request.clone();
+            let auth = if api_key.is_empty() {
+                self.http_client.post(&url)
+            } else {
+                self.http_client.post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+            };
+            (url, body, auth.header("Content-Type", "application/json"))
+        };
+
+        let response = req_builder
+            .json(&body)
             .timeout(std::time::Duration::from_secs(120))
             .send()
             .await;
@@ -1360,6 +1691,13 @@ impl ModelProxy {
             }
         };
 
+        // Normalize Anthropic response to OpenAI format
+        let resp_json = if provider_name == "anthropic" {
+            self.transform_from_anthropic(&resp_json)
+        } else {
+            resp_json
+        };
+
         if let Some(usage) = resp_json.get("usage") {
             let total = usage.get("total_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
             let _ = crate::keymux::dsel::track_tokens(&provider_name, total);
@@ -1377,7 +1715,10 @@ impl ModelProxy {
     ) -> HttpResponse {
         info!(">>> {} {}", method, path);
 
-        match (method, path) {
+        // Strip query string for route matching (e.g. /v1/messages?beta=true → /v1/messages)
+        let route_path = path.split('?').next().unwrap_or(path);
+
+        match (method, route_path) {
             ("GET", "/") => HttpResponse::ok("\"Ollama is running\"".to_string()),
             ("GET", "/api/version") => HttpResponse::ok(r#"{"version":"0.6.4"}"#.to_string()),
             ("GET", "/api/tags") => {
@@ -1468,6 +1809,117 @@ impl ModelProxy {
                     Err(e) => HttpResponse::from_error(e),
                 }
             }
+            ("POST", "/v1/messages") | ("POST", "/messages") => {
+                // Anthropic Messages API inbound — translate to OpenAI, proxy, translate back
+                let anthropic_req: Value = match serde_json::from_slice(body) {
+                    Ok(v) => v,
+                    Err(e) => return HttpResponse::bad_request(format!("Invalid JSON: {}", e)),
+                };
+                info!(">>> POST /v1/messages model={}", anthropic_req.get("model").and_then(|m| m.as_str()).unwrap_or("?"));
+
+                // Convert Anthropic messages format → OpenAI chat/completions format
+                let mut openai_messages: Vec<Value> = Vec::new();
+                if let Some(system) = anthropic_req.get("system") {
+                    if let Some(s) = system.as_str() {
+                        openai_messages.push(json!({"role": "system", "content": s}));
+                    } else if let Some(arr) = system.as_array() {
+                        // system can be array of {type:"text", text:"..."}
+                        let text: String = arr.iter()
+                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>().join("\n");
+                        if !text.is_empty() {
+                            openai_messages.push(json!({"role": "system", "content": text}));
+                        }
+                    }
+                }
+                if let Some(msgs) = anthropic_req.get("messages").and_then(|m| m.as_array()) {
+                    for msg in msgs {
+                        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+                        // content can be string or array of content blocks
+                        let content = if let Some(s) = msg.get("content").and_then(|c| c.as_str()) {
+                            json!(s)
+                        } else if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
+                            let text: String = blocks.iter()
+                                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>().join("");
+                            json!(text)
+                        } else {
+                            json!("")
+                        };
+                        openai_messages.push(json!({"role": role, "content": content}));
+                    }
+                }
+
+                let model = anthropic_req.get("model").and_then(|m| m.as_str()).unwrap_or("claude-sonnet-4-5").to_string();
+                let max_tokens = anthropic_req.get("max_tokens").and_then(|v| v.as_u64()).unwrap_or(4096);
+                let mut openai_req = json!({
+                    "model": model,
+                    "messages": openai_messages,
+                    "max_tokens": max_tokens,
+                });
+                if let Some(temp) = anthropic_req.get("temperature") {
+                    openai_req["temperature"] = temp.clone();
+                }
+                if let Some(top_p) = anthropic_req.get("top_p") {
+                    openai_req["top_p"] = top_p.clone();
+                }
+                if let Some(tools) = anthropic_req.get("tools") {
+                    openai_req["tools"] = tools.clone();
+                }
+                if let Some(thinking) = anthropic_req.get("thinking") {
+                    openai_req["thinking"] = thinking.clone();
+                }
+                let wants_stream = anthropic_req.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+                openai_req["stream"] = json!(false);
+
+                match self.chat_completions(openai_req).await {
+                    Ok(openai_resp) => {
+                        // Convert OpenAI response → Anthropic messages response
+                        let choice = openai_resp.get("choices")
+                            .and_then(|c| c.as_array())
+                            .and_then(|c| c.first());
+                        let text = choice
+                            .and_then(|c| c.get("message"))
+                            .and_then(|m| m.get("content"))
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("");
+                        let finish = choice
+                            .and_then(|c| c.get("finish_reason"))
+                            .and_then(|f| f.as_str())
+                            .unwrap_or("end_turn");
+                        let stop_reason = match finish {
+                            "stop" => "end_turn",
+                            "length" => "max_tokens",
+                            "tool_calls" => "tool_use",
+                            other => other,
+                        };
+                        let usage = openai_resp.get("usage");
+                        let input_tokens = usage.and_then(|u| u.get("prompt_tokens")).and_then(|v| v.as_u64()).unwrap_or(0);
+                        let output_tokens = usage.and_then(|u| u.get("completion_tokens")).and_then(|v| v.as_u64()).unwrap_or(0);
+                        let resp_model = openai_resp.get("model").and_then(|m| m.as_str()).unwrap_or(&model);
+
+                        let anthropic_resp = json!({
+                            "id": format!("msg_{}", openai_resp.get("id").and_then(|i| i.as_str()).unwrap_or("0")),
+                            "type": "message",
+                            "role": "assistant",
+                            "model": resp_model,
+                            "content": [{"type": "text", "text": text}],
+                            "stop_reason": stop_reason,
+                            "stop_sequence": null,
+                            "usage": {
+                                "input_tokens": input_tokens,
+                                "output_tokens": output_tokens,
+                            }
+                        });
+                        info!("<<< POST /v1/messages → 200 ({}+{} tokens)", input_tokens, output_tokens);
+                        HttpResponse::ok(serde_json::to_string(&anthropic_resp).unwrap())
+                    }
+                    Err(e) => {
+                        warn!("<<< POST /v1/messages → error: {}", e);
+                        HttpResponse::from_error(e)
+                    }
+                }
+            }
             ("POST", "/v1/chat/completions") | ("POST", "/chat/completions") => {
                 let request: Value = match serde_json::from_slice(body) {
                     Ok(v) => v,
@@ -1475,21 +1927,33 @@ impl ModelProxy {
                 };
 
                 let wants_stream = request.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+                let streaming_enabled = self.control.read().await.streaming_enabled;
 
-                match self.chat_completions(request).await {
-                    Ok(response) => {
-                        if wants_stream {
-                            // Convert non-streaming response to SSE format for clients expecting stream
-                            let chunk = Self::completion_to_stream_chunk(&response);
-                            let mut sse_body = String::new();
-                            sse_body.push_str(&format!("data: {}\n\n", serde_json::to_string(&chunk).unwrap()));
-                            sse_body.push_str("data: [DONE]\n\n");
-                            HttpResponse::sse(sse_body)
-                        } else {
-                            HttpResponse::ok(serde_json::to_string(&response).unwrap())
+                if wants_stream && streaming_enabled {
+                    // Use true SSE passthrough from upstream
+                    match self.chat_completions_streaming(request).await {
+                        Ok(stream_response) => {
+                            HttpResponse::streaming_sse(stream_response.stream)
                         }
+                        Err(e) => HttpResponse::from_error(e),
                     }
-                    Err(e) => HttpResponse::from_error(e),
+                } else {
+                    // Non-streaming: get full response and optionally convert to SSE format
+                    match self.chat_completions(request).await {
+                        Ok(response) => {
+                            if wants_stream {
+                                // Convert non-streaming response to SSE format for clients expecting stream
+                                let chunk = Self::completion_to_stream_chunk(&response);
+                                let mut sse_body = String::new();
+                                sse_body.push_str(&format!("data: {}\n\n", serde_json::to_string(&chunk).unwrap()));
+                                sse_body.push_str("data: [DONE]\n\n");
+                                HttpResponse::sse(sse_body)
+                            } else {
+                                HttpResponse::ok(serde_json::to_string(&response).unwrap())
+                            }
+                        }
+                        Err(e) => HttpResponse::from_error(e),
+                    }
                 }
             }
             ("POST", "/api/chat") => {
@@ -1502,9 +1966,26 @@ impl ModelProxy {
                 let streaming_enabled = self.control.read().await.streaming_enabled;
 
                 if wants_stream && streaming_enabled {
-                    match self.ollama_chat_stream_body(request).await {
-                        Ok(ndjson_body) => HttpResponse::ndjson(ndjson_body),
-                        Err(e) => HttpResponse::from_error(e),
+                    // Check if we should use true streaming passthrough or the old emulation
+                    let use_true_streaming = std::env::var("MODELMUX_OLLAMA_TRUE_STREAMING")
+                        .map(|v| {
+                            let v = v.to_ascii_lowercase();
+                            v == "1" || v == "true" || v == "yes" || v == "on"
+                        })
+                        .unwrap_or(true); // Default to true streaming
+
+                    if use_true_streaming {
+                        // Convert Ollama format to OpenAI format and stream
+                        match self.ollama_chat_streaming(request).await {
+                            Ok(stream_response) => HttpResponse::streaming_sse(stream_response.stream),
+                            Err(e) => HttpResponse::from_error(e),
+                        }
+                    } else {
+                        // Use legacy emulation mode
+                        match self.ollama_chat_stream_body(request).await {
+                            Ok(ndjson_body) => HttpResponse::ndjson(ndjson_body),
+                            Err(e) => HttpResponse::from_error(e),
+                        }
                     }
                 } else {
                     match self.ollama_chat(request).await {
@@ -1526,7 +2007,7 @@ impl ModelProxy {
                 let (ctx, max_out, param_size) = if let Some(cached) = cache.find(model_id) {
                     (cached.context_window as i64, cached.max_tokens as i64, Self::estimate_param_size(&cached.name))
                 } else {
-                    let default_ctx = crate::models::utils::max_context_window() as i64;
+                    let default_ctx = std::env::var("MODELMUX_MAX_CONTEXT_WINDOW").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(128_000) as i64;
                     (default_ctx, 32768i64, "unknown".to_string())
                 };
                 drop(cache);
@@ -1576,16 +2057,24 @@ impl ModelProxy {
 }
 
 /// HTTP response helper
-struct HttpResponse {
-    status: u16,
-    status_text: &'static str,
-    content_type: &'static str,
-    body: Vec<u8>,
+enum HttpResponse {
+    Standard {
+        status: u16,
+        status_text: &'static str,
+        content_type: &'static str,
+        body: Vec<u8>,
+    },
+    Streaming {
+        status: u16,
+        status_text: &'static str,
+        content_type: &'static str,
+        body_stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    },
 }
 
 impl HttpResponse {
     fn ok(body: String) -> Self {
-        Self {
+        Self::Standard {
             status: 200,
             status_text: "OK",
             content_type: "application/json",
@@ -1594,7 +2083,7 @@ impl HttpResponse {
     }
 
     fn ndjson(body: String) -> Self {
-        Self {
+        Self::Standard {
             status: 200,
             status_text: "OK",
             content_type: "application/x-ndjson",
@@ -1603,7 +2092,7 @@ impl HttpResponse {
     }
 
     fn sse(body: String) -> Self {
-        Self {
+        Self::Standard {
             status: 200,
             status_text: "OK",
             content_type: "text/event-stream",
@@ -1611,8 +2100,17 @@ impl HttpResponse {
         }
     }
 
+    fn streaming_sse(stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>) -> Self {
+        Self::Streaming {
+            status: 200,
+            status_text: "OK",
+            content_type: "text/event-stream",
+            body_stream: stream,
+        }
+    }
+
     fn not_found() -> Self {
-        Self {
+        Self::Standard {
             status: 404,
             status_text: "Not Found",
             content_type: "application/json",
@@ -1621,7 +2119,7 @@ impl HttpResponse {
     }
 
     fn bad_request(msg: String) -> Self {
-        Self {
+        Self::Standard {
             status: 400,
             status_text: "Bad Request",
             content_type: "application/json",
@@ -1632,30 +2130,55 @@ impl HttpResponse {
     fn from_error(e: ProxyError) -> Self {
         match e {
             ProxyError::BadRequest(msg) => HttpResponse::bad_request(msg),
-            ProxyError::Unauthorized(msg) => Self {
+            ProxyError::Unauthorized(msg) => Self::Standard {
                 status: 401,
                 status_text: "Unauthorized",
                 content_type: "application/json",
                 body: serde_json::to_string(&json!({"error": msg})).unwrap().into_bytes(),
             },
-            ProxyError::NotFound(msg) => Self {
+            ProxyError::NotFound(msg) => Self::Standard {
                 status: 404,
                 status_text: "Not Found",
                 content_type: "application/json",
                 body: serde_json::to_string(&json!({"error": msg})).unwrap().into_bytes(),
             },
-            ProxyError::UpstreamError(msg) => Self {
+            ProxyError::UpstreamError(msg) => Self::Standard {
                 status: 502,
                 status_text: "Bad Gateway",
                 content_type: "application/json",
                 body: serde_json::to_string(&json!({"error": msg})).unwrap().into_bytes(),
             },
-            _ => Self {
+            _ => Self::Standard {
                 status: 500,
                 status_text: "Internal Server Error",
                 content_type: "application/json",
                 body: serde_json::to_string(&json!({"error": "internal_error"})).unwrap().into_bytes(),
             },
+        }
+    }
+
+    fn is_streaming(&self) -> bool {
+        matches!(self, Self::Streaming { .. })
+    }
+
+    fn status(&self) -> u16 {
+        match self {
+            Self::Standard { status, .. } => *status,
+            Self::Streaming { status, .. } => *status,
+        }
+    }
+
+    fn status_text(&self) -> &'static str {
+        match self {
+            Self::Standard { status_text, .. } => *status_text,
+            Self::Streaming { status_text, .. } => *status_text,
+        }
+    }
+
+    fn content_type(&self) -> &'static str {
+        match self {
+            Self::Standard { content_type, .. } => *content_type,
+            Self::Streaming { content_type, .. } => *content_type,
         }
     }
 }

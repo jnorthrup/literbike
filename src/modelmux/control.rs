@@ -284,7 +284,7 @@ impl GatewayRuntimeControl {
                     name: provider.name,
                     base_url: provider.base_url,
                     key_env: provider.key_env,
-                    priority: provider.priority,
+                    priority: 50,
                     active: true,
                     tokens_used_today: used,
                     estimated_remaining_quota: remaining,

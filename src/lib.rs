@@ -1,22 +1,44 @@
+//! Literbike - Unified Protocol River with CCEK SDK
+//!
+//! Architecture: Protocol tributaries flow through CCEK channels into ENDGAME.
+//!
+//! ## CCEK SDK Structure
+//!
+//! ```text
+//! Protocol Tributaries (compile-time bound)
+//!        │
+//!        ▼
+//! ┌─────────────────────────────────────┐
+//! │     CCEK Context (CcekContext)     │
+//! │  Compile-time service bindings       │
+//! │                                     │
+//! │  [HtxVerifier] → HTX tributary      │
+//! │  [QuicEngine] → QUIC tributary      │
+//! │  [NioReactor] → NIO tributary      │
+//! └─────────────────────────────────────┘
+//!        │
+//!        ▼
+//! ┌─────────────────────────────────────┐
+//! │         ENDGAME Densification         │
+//! │    (io_uring / syscall bypass)       │
+//! └─────────────────────────────────────┘
+//! ```
+
+// HTXKE - Kotlin kotlinx-coroutines translation (legacy)
+pub mod htxke;
+
+// Stubs for missing modules
+pub mod core_types;
+pub mod indexed;
+
+// Protocol implementations
 #[cfg(feature = "quic")]
 pub mod quic;
 
-#[cfg(feature = "couchdb")]
-pub mod couchdb;
+#[cfg(feature = "htx")]
+pub mod htx;
 
-#[cfg(feature = "gates")]
-pub mod gates;
-
-#[cfg(feature = "request-factory")]
-pub mod request_factory;
-
-#[cfg(feature = "ipfs")]
-pub mod ipfs_integration;
-
-#[cfg(feature = "curl-h2")]
-pub mod curl_h2;
-
-// Core modules always available
+// Unified modules
 pub mod adapters;
 pub mod cas_gateway;
 pub mod cas_storage;
@@ -26,34 +48,42 @@ pub mod dht;
 pub mod reactor;
 pub mod api_translation;
 pub mod rbcursive;
-pub use rbcursive::precompile::{PRECOMPILED_PATTERNS, PrecompiledPatterns};
 pub mod model_mux;
-
-// Keymux - unified model facade
 pub mod keymux;
-
-// ModelMux - model caching and selection
 pub mod modelmux;
-
-pub mod syscall_net;
-
-// Structured concurrency (Kotlin coroutines pattern)
-pub mod concurrency;
-
-// I/O Substrate - userspace kernel emulation
+pub mod protocol;
+pub mod rbcurse;
+pub mod uring;
+pub mod simd;
+pub mod config;
+pub mod types;
+pub mod model_serving_taxonomy;
+pub mod provider_facade_models;
+pub mod env_facade_parity;
+pub mod http;
 pub mod io_substrate;
 
-// legacy patterns module removed during betanet cleanup
-// pub mod betanet_patterns;  // intentionally disabled
+// Userspace kernel emulation (inlined)
+#[cfg(feature = "userspace-nio")]
+pub mod userspace_nio_module;
+
+#[cfg(feature = "userspace-kernel")]
+pub mod userspace_kernel;
+
+#[cfg(feature = "userspace-network")]
+pub mod userspace_network;
+
+// Concurrency (CCEK-based, no tokio)
+pub mod concurrency;
 
 #[cfg(feature = "git2")]
 pub mod git_sync;
 
-#[cfg(feature = "warp")]
-pub mod tethering_bypass;
+#[cfg(feature = "pijul-session")]
+pub mod session;
 
 #[cfg(feature = "warp")]
-pub mod knox_proxy;
+pub mod tethering_bypass;
 
 #[cfg(feature = "quic")]
 pub mod posix_sockets;
@@ -66,14 +96,6 @@ pub mod tcp_fingerprint;
 
 #[cfg(feature = "quic")]
 pub mod upnp_aggressive;
-
-pub mod config;
-pub mod types;
-pub mod model_serving_taxonomy;
-pub mod provider_facade_models;
-pub mod env_facade_parity;
-
-pub mod http;
 
 #[cfg(feature = "quic")]
 pub mod radios;
@@ -99,21 +121,26 @@ pub mod protocol_registry;
 #[cfg(feature = "quic")]
 pub mod traffic_mirror;
 
-// WAM engine requires tensor feature
 #[cfg(all(feature = "quic", feature = "tensor"))]
 pub mod wam_engine;
 
-// SCTP protocol support (KMPngSCTP integration)
 #[cfg(feature = "sctp")]
 pub mod sctp;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn smoke() {
+    fn htxke_smoke() {
+        use crate::htxke::*;
+        
+        let ctx = CcekContext::new();
+        #[cfg(feature = "htx")]
+        let ctx = htx_verifier(ctx);
         #[cfg(feature = "quic")]
-        let _ = quic::QuicServer::bind;
+        let ctx = quic_engine(ctx);
+        #[cfg(feature = "userspace-nio")]
+        let ctx = nio_reactor(ctx);
+        
+        let _ = ctx;
     }
 }

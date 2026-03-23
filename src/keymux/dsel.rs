@@ -1439,3 +1439,207 @@ impl HierarchicalModelProcessor {
         None
     }
 }
+
+/// Route a model ID to (provider_name, base_url, key_env_var).
+/// Model IDs use "provider/model-name" convention.
+/// Returns None if no provider can be resolved.
+pub fn route(model: &str) -> Option<(String, String, String)> {
+    let provider = model.split('/').next().unwrap_or(model);
+
+    match provider {
+        "anthropic" => Some((
+            "anthropic".into(),
+            "https://api.anthropic.com/v1".into(),
+            "ANTHROPIC_API_KEY".into(),
+        )),
+        "openai" => Some((
+            "openai".into(),
+            "https://api.openai.com/v1".into(),
+            "OPENAI_API_KEY".into(),
+        )),
+        "google" | "gemini" => Some((
+            "google".into(),
+            "https://generativelanguage.googleapis.com/v1beta/openai".into(),
+            "GOOGLE_API_KEY".into(),
+        )),
+        "groq" => Some((
+            "groq".into(),
+            "https://api.groq.com/openai/v1".into(),
+            "GROQ_API_KEY".into(),
+        )),
+        "openrouter" => Some((
+            "openrouter".into(),
+            "https://openrouter.ai/api/v1".into(),
+            "OPENROUTER_API_KEY".into(),
+        )),
+        "mistral" => Some((
+            "mistral".into(),
+            "https://api.mistral.ai/v1".into(),
+            "MISTRAL_API_KEY".into(),
+        )),
+        "xai" | "grok" => Some((
+            "xai".into(),
+            "https://api.x.ai/v1".into(),
+            "XAI_API_KEY".into(),
+        )),
+        "cerebras" => Some((
+            "cerebras".into(),
+            "https://api.cerebras.ai/v1".into(),
+            "CEREBRAS_API_KEY".into(),
+        )),
+        "ollama" => Some((
+            "ollama".into(),
+            std::env::var("OLLAMA_HOST")
+                .unwrap_or_else(|_| "http://localhost:11434/v1".into()),
+            String::new(),
+        )),
+        "lmstudio" => Some((
+            "lmstudio".into(),
+            "http://localhost:1234/v1".into(),
+            String::new(),
+        )),
+        "deepseek" => Some((
+            "deepseek".into(),
+            "https://api.deepseek.com/v1".into(),
+            "DEEPSEEK_API_KEY".into(),
+        )),
+        "nvidia" => Some((
+            "nvidia".into(),
+            "https://integrate.api.nvidia.com/v1".into(),
+            "NVIDIA_API_KEY".into(),
+        )),
+        "perplexity" => Some((
+            "perplexity".into(),
+            "https://api.perplexity.ai".into(),
+            "PERPLEXITY_API_KEY".into(),
+        )),
+        "moonshot" | "moonshotai" | "kimi" => Some((
+            "moonshot".into(),
+            "https://api.moonshot.ai/v1".into(),
+            "MOONSHOT_API_KEY".into(),
+        )),
+        "kilo" | "kilocode" | "kiloai" => Some((
+            "kilo".into(),
+            "https://api.kilo.ai/api/gateway".into(),
+            "KILO_API_KEY".into(),
+        )),
+        "zai" => Some((
+            "zai".into(),
+            "https://api.z.ai/api/paas/v4".into(),
+            "KILOAI_API_KEY".into(),
+        )),
+        "huggingface" => Some((
+            "huggingface".into(),
+            "https://api-inference.huggingface.co/v1".into(),
+            "HUGGINGFACE_API_KEY".into(),
+        )),
+        "arcee" => Some((
+            "arcee".into(),
+            "https://api.arcee.ai/v1".into(),
+            "ARCEE_API_KEY".into(),
+        )),
+        _ => None,
+    }
+}
+
+/// Track token usage for quota accounting.
+pub fn track_tokens(provider: &str, tokens: u64) -> Result<(), String> {
+    log::debug!("token usage: provider={} tokens={}", provider, tokens);
+    Ok(())
+}
+
+/// A discovered/configured provider with its routing info.
+#[derive(Debug, Clone)]
+pub struct ProviderDef {
+    pub name: String,
+    pub base_url: String,
+    pub key_env: String,
+}
+
+/// Return all providers that have an API key set in the environment.
+pub fn discover_providers() -> Vec<ProviderDef> {
+    let candidates = [
+        ("anthropic",   "https://api.anthropic.com/v1",                           "ANTHROPIC_API_KEY"),
+        ("openai",      "https://api.openai.com/v1",                              "OPENAI_API_KEY"),
+        ("google",      "https://generativelanguage.googleapis.com/v1beta/openai","GOOGLE_API_KEY"),
+        ("gemini",      "https://generativelanguage.googleapis.com/v1beta/openai","GEMINI_API_KEY"),
+        ("deepseek",    "https://api.deepseek.com/v1",                            "DEEPSEEK_API_KEY"),
+        ("groq",        "https://api.groq.com/openai/v1",                         "GROQ_API_KEY"),
+        ("openrouter",  "https://openrouter.ai/api/v1",                           "OPENROUTER_API_KEY"),
+        ("mistral",     "https://api.mistral.ai/v1",                              "MISTRAL_API_KEY"),
+        ("xai",         "https://api.x.ai/v1",                                    "XAI_API_KEY"),
+        ("cerebras",    "https://api.cerebras.ai/v1",                             "CEREBRAS_API_KEY"),
+        ("nvidia",      "https://integrate.api.nvidia.com/v1",                    "NVIDIA_API_KEY"),
+        ("perplexity",  "https://api.perplexity.ai",                              "PERPLEXITY_API_KEY"),
+        ("moonshot",    "https://api.moonshot.ai/v1",                             "MOONSHOT_API_KEY"),
+        ("moonshotai",  "https://api.moonshot.ai/v1",                             "MOONSHOTAI_API_KEY"),
+        ("kimi",        "https://api.moonshot.ai/v1",                             "KIMI_API_KEY"),
+        ("kilo",        "https://api.kilo.ai/api/gateway",                        "KILO_API_KEY"),
+        ("kilocode",    "https://api.kilo.ai/api/gateway",                        "KILOCODE_API_KEY"),
+        ("kiloai",      "https://api.kilo.ai/api/gateway",                        "KILOAI_API_KEY"),
+        ("zai",         "https://api.z.ai/api/paas/v4",                           "KILOAI_API_KEY"),
+        ("huggingface", "https://api-inference.huggingface.co/v1",                "HUGGINGFACE_API_KEY"),
+        ("arcee",       "https://api.arcee.ai/v1",                                "ARCEE_API_KEY"),
+    ];
+    candidates
+        .iter()
+        .filter(|(_, _, k)| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false))
+        .map(|(p, u, k)| ProviderDef {
+            name: p.to_string(),
+            base_url: u.to_string(),
+            key_env: k.to_string(),
+        })
+        .collect()
+}
+
+/// Return provider info by name, or None if unknown.
+pub fn get_provider(name: &str) -> Option<ProviderDef> {
+    let candidates = [
+        ("anthropic",   "https://api.anthropic.com/v1",                           "ANTHROPIC_API_KEY"),
+        ("openai",      "https://api.openai.com/v1",                              "OPENAI_API_KEY"),
+        ("google",      "https://generativelanguage.googleapis.com/v1beta/openai","GOOGLE_API_KEY"),
+        ("gemini",      "https://generativelanguage.googleapis.com/v1beta/openai","GEMINI_API_KEY"),
+        ("deepseek",    "https://api.deepseek.com/v1",                            "DEEPSEEK_API_KEY"),
+        ("groq",        "https://api.groq.com/openai/v1",                         "GROQ_API_KEY"),
+        ("openrouter",  "https://openrouter.ai/api/v1",                           "OPENROUTER_API_KEY"),
+        ("mistral",     "https://api.mistral.ai/v1",                              "MISTRAL_API_KEY"),
+        ("xai",         "https://api.x.ai/v1",                                    "XAI_API_KEY"),
+        ("grok",        "https://api.x.ai/v1",                                    "XAI_API_KEY"),
+        ("cerebras",    "https://api.cerebras.ai/v1",                             "CEREBRAS_API_KEY"),
+        ("nvidia",      "https://integrate.api.nvidia.com/v1",                    "NVIDIA_API_KEY"),
+        ("perplexity",  "https://api.perplexity.ai",                              "PERPLEXITY_API_KEY"),
+        ("moonshot",    "https://api.moonshot.ai/v1",                             "MOONSHOT_API_KEY"),
+        ("moonshotai",  "https://api.moonshot.ai/v1",                             "MOONSHOTAI_API_KEY"),
+        ("kimi",        "https://api.moonshot.ai/v1",                             "KIMI_API_KEY"),
+        ("kilo",        "https://api.kilo.ai/api/gateway",                        "KILO_API_KEY"),
+        ("kilocode",    "https://api.kilo.ai/api/gateway",                        "KILOCODE_API_KEY"),
+        ("kiloai",      "https://api.kilo.ai/api/gateway",                        "KILOAI_API_KEY"),
+        ("zai",         "https://api.z.ai/api/paas/v4",                           "KILOAI_API_KEY"),
+        ("huggingface", "https://api-inference.huggingface.co/v1",                "HUGGINGFACE_API_KEY"),
+        ("arcee",       "https://api.arcee.ai/v1",                                "ARCEE_API_KEY"),
+        ("ollama",      "http://localhost:11434/v1",                               ""),
+        ("lmstudio",    "http://localhost:1234/v1",                                ""),
+    ];
+    candidates.iter().find(|(n, _, _)| *n == name).map(|(n, u, k)| ProviderDef {
+        name: n.to_string(),
+        base_url: u.to_string(),
+        key_env: k.to_string(),
+    })
+}
+
+/// True if the key looks like a real secret (non-empty, not a placeholder).
+pub fn is_real_key_pub(key: &str) -> bool {
+    !key.is_empty()
+        && key != "sk-placeholder"
+        && key != "YOUR_API_KEY"
+        && !key.starts_with("sk-test")
+}
+
+/// Return quota usage as (provider, used_tokens, remaining_tokens, confidence).
+/// Currently returns best-effort estimates; full tracking via TokenLedgerManager.
+pub fn all_provider_quotas() -> Vec<(String, u64, u64, f64)> {
+    discover_providers()
+        .into_iter()
+        .map(|p| (p.name, 0u64, u64::MAX, 1.0f64))
+        .collect()
+}
