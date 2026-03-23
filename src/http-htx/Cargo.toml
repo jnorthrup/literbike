@@ -38,10 +38,14 @@ timer = ["reactor"]
 # Layer 4: Protocol Handlers (depends on reactor)
 handler = ["reactor"]
 
+# CCEK integration - Key/Element pattern
+ccek = ["dep:ccek-core"]
+
 # Full assembly
-full = ["http1-parser", "http2-parser", "http3-parser", "htx-normalize", "matcher", "listener", "reactor", "timer", "handler"]
+full = ["http1-parser", "http2-parser", "http3-parser", "htx-normalize", "matcher", "listener", "reactor", "timer", "handler", "ccek"]
 
 [dependencies]
-# No external dependencies - pure stdlib only
+# CCEK integration (optional for Key/Element pattern)
+ccek-core = { path = "../ccek/core", optional = true }
 
 [dev-dependencies]

@@ -332,23 +332,143 @@ impl HtxKey {
     pub const FACTORY: fn() -> HtxElement = HtxElement::new;
 }
 
-/// HtxElement - HTTP-HTX state
-#[derive(Debug, Clone)]
+/// HtxElement - HTTP-HTX operational state
+/// 
+/// Tracks HTTP parsing metrics across all versions (HTTP/1, HTTP/2, HTTP/3)
 pub struct HtxElement {
     pub version: u32,
-    pub messages_parsed: u64,
+    http1_count: std::sync::atomic::AtomicU64,
+    http2_count: std::sync::atomic::AtomicU64,
+    http3_count: std::sync::atomic::AtomicU64,
+    bytes_parsed: std::sync::atomic::AtomicU64,
+    errors_count: std::sync::atomic::AtomicU64,
+    active_requests: std::sync::atomic::AtomicU32,
 }
 
 impl HtxElement {
     pub fn new() -> Self {
         Self {
             version: 1,
-            messages_parsed: 0,
+            http1_count: std::sync::atomic::AtomicU64::new(0),
+            http2_count: std::sync::atomic::AtomicU64::new(0),
+            http3_count: std::sync::atomic::AtomicU64::new(0),
+            bytes_parsed: std::sync::atomic::AtomicU64::new(0),
+            errors_count: std::sync::atomic::AtomicU64::new(0),
+            active_requests: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
-    pub fn increment_parsed(&mut self) {
-        self.messages_parsed += 1;
+    /// Record HTTP/1.x message parsed
+    pub fn record_http1(&self, bytes: u64) {
+        self.http1_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.bytes_parsed.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Record HTTP/2 message parsed
+    pub fn record_http2(&self, bytes: u64) {
+        self.http2_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.bytes_parsed.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Record HTTP/3 message parsed
+    pub fn record_http3(&self, bytes: u64) {
+        self.http3_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.bytes_parsed.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Record parse error
+    pub fn record_error(&self) {
+        self.errors_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Increment active requests
+    pub fn request_start(&self) {
+        self.active_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Decrement active requests
+    pub fn request_end(&self) {
+        self.active_requests.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Get HTTP/1.x count
+    pub fn http1_count(&self) -> u64 {
+        self.http1_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get HTTP/2 count
+    pub fn http2_count(&self) -> u64 {
+        self.http2_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get HTTP/3 count
+    pub fn http3_count(&self) -> u64 {
+        self.http3_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get total bytes parsed
+    pub fn bytes_parsed(&self) -> u64 {
+        self.bytes_parsed.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get error count
+    pub fn errors(&self) -> u64 {
+        self.errors_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get active request count
+    pub fn active_requests(&self) -> u32 {
+        self.active_requests.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Get total messages parsed
+    pub fn total_messages(&self) -> u64 {
+        self.http1_count() + self.http2_count() + self.http3_count()
+    }
+}
+
+impl std::fmt::Debug for HtxElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HtxElement")
+            .field("version", &self.version)
+            .field("http1", &self.http1_count())
+            .field("http2", &self.http2_count())
+            .field("http3", &self.http3_count())
+            .field("bytes_parsed", &self.bytes_parsed())
+            .field("errors", &self.errors())
+            .field("active_requests", &self.active_requests())
+            .finish()
+    }
+}
+
+impl Clone for HtxElement {
+    fn clone(&self) -> Self {
+        Self {
+            version: self.version,
+            http1_count: std::sync::atomic::AtomicU64::new(self.http1_count()),
+            http2_count: std::sync::atomic::AtomicU64::new(self.http2_count()),
+            http3_count: std::sync::atomic::AtomicU64::new(self.http3_count()),
+            bytes_parsed: std::sync::atomic::AtomicU64::new(self.bytes_parsed()),
+            errors_count: std::sync::atomic::AtomicU64::new(self.errors()),
+            active_requests: std::sync::atomic::AtomicU32::new(self.active_requests()),
+        }
+    }
+}
+
+// CCEK integration - implement Key/Element traits when ccek feature is enabled
+#[cfg(feature = "ccek")]
+impl ccek_core::Key for HtxKey {
+    type Element = HtxElement;
+    const FACTORY: fn() -> Self::Element = HtxElement::new;
+}
+
+#[cfg(feature = "ccek")]
+impl ccek_core::Element for HtxElement {
+    fn key_type(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<HtxKey>()
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
