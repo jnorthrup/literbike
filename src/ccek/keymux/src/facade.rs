@@ -1,8 +1,8 @@
 //! Universal Model Facade implementation
 
 use crate::cards::ModelCardStore;
-use crate::types::{ModelId, ModelInfo};
 use crate::dsel::{DSELBuilder, RuleEngine};
+use crate::types::{ModelId, ModelInfo};
 use chrono::Utc;
 use std::sync::Arc;
 
@@ -23,10 +23,10 @@ impl ModelFacade {
             .with_free_provider("kilo_code", 1_000_000, 3, 100_000, 3_000_000, 0)
             .build_with_rule_engine()
             .unwrap_or_else(|_| RuleEngine::new());
-            
-        Self { 
+
+        Self {
             model_cards,
-            rule_engine
+            rule_engine,
         }
     }
 
@@ -55,11 +55,7 @@ impl ModelFacade {
         // If we have no eligible providers or tags are ignored, include all models
         if eligible_providers.is_empty() || ignore_tags {
             for m_id in all_known_models {
-                let provider = m_id
-                    .split('/')
-                    .next()
-                    .unwrap_or("unknown")
-                    .to_string();
+                let provider = m_id.split('/').next().unwrap_or("unknown").to_string();
                 let metadata = self.model_cards.get_card(&m_id);
                 models.push(ModelInfo {
                     id: m_id.clone(),
@@ -73,11 +69,11 @@ impl ModelFacade {
         }
 
         // 2. DSEL-Driven Discovery
-        // Instead of hardcoded match blocks, we dynamically discover models 
+        // Instead of hardcoded match blocks, we dynamically discover models
         // that start with the provider prefix from our ModelCardStore registry.
         for provider in eligible_providers {
             let prefix = format!("{}/", provider);
-            
+
             let provider_models: Vec<String> = all_known_models
                 .iter()
                 .filter(|m| m.starts_with(&prefix))

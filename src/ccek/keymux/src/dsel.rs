@@ -556,10 +556,22 @@ impl DSELBuilder {
 
         // Also add common transformation rules for known bad agent concatenations
         // These handle patterns like /litellm/litellm/litellm/ -> /litellm/
-        hierarchical_selector.add_transformation_rule("/litellm/litellm/litellm/", "/litellm/", 100);
-        hierarchical_selector.add_transformation_rule("/ccswitch/ccswitch/ccswitch/", "/ccswitch/", 90);
+        hierarchical_selector.add_transformation_rule(
+            "/litellm/litellm/litellm/",
+            "/litellm/",
+            100,
+        );
+        hierarchical_selector.add_transformation_rule(
+            "/ccswitch/ccswitch/ccswitch/",
+            "/ccswitch/",
+            90,
+        );
         hierarchical_selector.add_transformation_rule("/openai/openai/openai/", "/openai/", 80);
-        hierarchical_selector.add_transformation_rule("/anthropic/anthropic/anthropic/", "/anthropic/", 85);
+        hierarchical_selector.add_transformation_rule(
+            "/anthropic/anthropic/anthropic/",
+            "/anthropic/",
+            85,
+        );
 
         // Create and configure rule engine
         let mut rule_engine = RuleEngine::new();
@@ -584,7 +596,9 @@ impl DSELBuilder {
 
     /// Build a QuotaContainer with prefix transformation support
     /// Returns both the container and the hierarchical selector for direct use
-    pub fn build_with_hierarchical_selector(mut self) -> Result<(QuotaContainer, HierarchicalModelSelector), String> {
+    pub fn build_with_hierarchical_selector(
+        mut self,
+    ) -> Result<(QuotaContainer, HierarchicalModelSelector), String> {
         if self.container.providers.is_empty() {
             return Err("No providers defined".to_string());
         }
@@ -600,10 +614,22 @@ impl DSELBuilder {
         }
 
         // Add common transformation rules
-        hierarchical_selector.add_transformation_rule("/litellm/litellm/litellm/", "/litellm/", 100);
-        hierarchical_selector.add_transformation_rule("/ccswitch/ccswitch/ccswitch/", "/ccswitch/", 90);
+        hierarchical_selector.add_transformation_rule(
+            "/litellm/litellm/litellm/",
+            "/litellm/",
+            100,
+        );
+        hierarchical_selector.add_transformation_rule(
+            "/ccswitch/ccswitch/ccswitch/",
+            "/ccswitch/",
+            90,
+        );
         hierarchical_selector.add_transformation_rule("/openai/openai/openai/", "/openai/", 80);
-        hierarchical_selector.add_transformation_rule("/anthropic/anthropic/anthropic/", "/anthropic/", 85);
+        hierarchical_selector.add_transformation_rule(
+            "/anthropic/anthropic/anthropic/",
+            "/anthropic/",
+            85,
+        );
 
         Ok((self.container, hierarchical_selector))
     }
@@ -957,7 +983,8 @@ impl DSELMetrics {
 
     /// Record token tracking
     pub fn record_token_usage(&self, tokens: u64) {
-        self.total_tokens_tracked.fetch_add(tokens, Ordering::Relaxed);
+        self.total_tokens_tracked
+            .fetch_add(tokens, Ordering::Relaxed);
     }
 
     /// Record rate limit hit
@@ -979,7 +1006,11 @@ impl DSELMetrics {
 
     /// Get top providers by usage
     pub fn get_top_providers(&self, limit: usize) -> Vec<(String, u64)> {
-        let providers: Vec<(String, u64)> = self.selections_by_provider.lock().unwrap().iter()
+        let providers: Vec<(String, u64)> = self
+            .selections_by_provider
+            .lock()
+            .unwrap()
+            .iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         let mut sorted = providers;
@@ -1041,7 +1072,16 @@ impl RuleEngine {
         log::info!("DSEL: Token ledger enabled");
 
         // Initialize quota tracking for specific providers
-        let providers = vec!["kilo_code", "opencode", "openrouter", "nvidia", "moonshot", "groq", "xai", "cerebras"];
+        let providers = vec![
+            "kilo_code",
+            "opencode",
+            "openrouter",
+            "nvidia",
+            "moonshot",
+            "groq",
+            "xai",
+            "cerebras",
+        ];
         let provider_count = providers.len();
         for provider in &providers {
             self.quota_tracking.insert(
@@ -1056,8 +1096,8 @@ impl RuleEngine {
                         "openrouter" => 2_000_000,
                         "nvidia" => 3_000_000,
                         "moonshot" => 1_500_000, // Moonshot/Kimi typical quota
-                        "groq" => 2_000_000,    // Groq typical quota
-                        "xai" => 1_500_000,     // xAI/Grok typical quota
+                        "groq" => 2_000_000,     // Groq typical quota
+                        "xai" => 1_500_000,      // xAI/Grok typical quota
                         "cerebras" => 2_000_000, // Cerebras typical quota
                         _ => 0,
                     },
@@ -1066,7 +1106,10 @@ impl RuleEngine {
                 },
             );
         }
-        log::info!("DSEL: Initialized quota tracking for {} providers", provider_count);
+        log::info!(
+            "DSEL: Initialized quota tracking for {} providers",
+            provider_count
+        );
     }
 
     pub fn add_rule(&mut self, rule: ProviderSelectionRule) {
@@ -1120,7 +1163,7 @@ impl RuleEngine {
         }
 
         tracking.last_quota_update = Self::current_timestamp();
-        
+
         // Record metrics
         self.metrics.record_token_usage(tokens);
         log::debug!("DSEL: Tracked {} tokens for provider {}", tokens, provider);
@@ -1203,11 +1246,14 @@ impl RuleEngine {
         if let (Some(model_id), Some(selector)) = (model_id, &self.hierarchical_selector) {
             // Record hierarchical transformation attempt
             self.metrics.record_hierarchical_transform();
-            
+
             // Handle complex hierarchical transformations
             let transformations = selector.handle_complex_transformations(model_id);
-            log::debug!("DSEL: Transforming hierarchical model ID: {} -> {} transformations", 
-                       model_id, transformations.len());
+            log::debug!(
+                "DSEL: Transforming hierarchical model ID: {} -> {} transformations",
+                model_id,
+                transformations.len()
+            );
 
             // Try each transformation to find a matching provider
             for transformed in transformations {
@@ -1221,7 +1267,10 @@ impl RuleEngine {
                             if self.token_ledger_enabled
                                 && !self.has_sufficient_quota(&provider.name, tokens as u64)
                             {
-                                log::debug!("DSEL: Provider {} has insufficient quota", provider.name);
+                                log::debug!(
+                                    "DSEL: Provider {} has insufficient quota",
+                                    provider.name
+                                );
                                 continue; // Skip providers with insufficient quota
                             }
 
@@ -1229,8 +1278,11 @@ impl RuleEngine {
                             if self.rules.is_empty()
                                 || self.rules.iter().any(|rule| rule.matches(provider, tokens))
                             {
-                                log::info!("DSEL: Selected provider {} for transformed model {}", 
-                                          provider.name, transformed);
+                                log::info!(
+                                    "DSEL: Selected provider {} for transformed model {}",
+                                    provider.name,
+                                    transformed
+                                );
                                 return Some(provider);
                             }
                         }
@@ -1242,7 +1294,10 @@ impl RuleEngine {
         // Fallback to standard rule-based selection with quota consideration
         let result = self.select_provider_by_rules_with_quota(providers, tokens);
         if let Some(provider) = result {
-            log::debug!("DSEL: Selected provider {} via standard selection", provider.name);
+            log::debug!(
+                "DSEL: Selected provider {} via standard selection",
+                provider.name
+            );
         } else {
             log::warn!("DSEL: No provider found for {} tokens", tokens);
             self.metrics.record_quota_violation();
@@ -1489,8 +1544,7 @@ pub fn route(model: &str) -> Option<(String, String, String)> {
         )),
         "ollama" => Some((
             "ollama".into(),
-            std::env::var("OLLAMA_HOST")
-                .unwrap_or_else(|_| "http://localhost:11434/v1".into()),
+            std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434/v1".into()),
             String::new(),
         )),
         "lmstudio" => Some((
@@ -1559,27 +1613,71 @@ pub struct ProviderDef {
 /// Return all providers that have an API key set in the environment.
 pub fn discover_providers() -> Vec<ProviderDef> {
     let candidates = [
-        ("anthropic",   "https://api.anthropic.com/v1",                           "ANTHROPIC_API_KEY"),
-        ("openai",      "https://api.openai.com/v1",                              "OPENAI_API_KEY"),
-        ("google",      "https://generativelanguage.googleapis.com/v1beta/openai","GOOGLE_API_KEY"),
-        ("gemini",      "https://generativelanguage.googleapis.com/v1beta/openai","GEMINI_API_KEY"),
-        ("deepseek",    "https://api.deepseek.com/v1",                            "DEEPSEEK_API_KEY"),
-        ("groq",        "https://api.groq.com/openai/v1",                         "GROQ_API_KEY"),
-        ("openrouter",  "https://openrouter.ai/api/v1",                           "OPENROUTER_API_KEY"),
-        ("mistral",     "https://api.mistral.ai/v1",                              "MISTRAL_API_KEY"),
-        ("xai",         "https://api.x.ai/v1",                                    "XAI_API_KEY"),
-        ("cerebras",    "https://api.cerebras.ai/v1",                             "CEREBRAS_API_KEY"),
-        ("nvidia",      "https://integrate.api.nvidia.com/v1",                    "NVIDIA_API_KEY"),
-        ("perplexity",  "https://api.perplexity.ai",                              "PERPLEXITY_API_KEY"),
-        ("moonshot",    "https://api.moonshot.ai/v1",                             "MOONSHOT_API_KEY"),
-        ("moonshotai",  "https://api.moonshot.ai/v1",                             "MOONSHOTAI_API_KEY"),
-        ("kimi",        "https://api.moonshot.ai/v1",                             "KIMI_API_KEY"),
-        ("kilo",        "https://api.kilo.ai/api/gateway",                        "KILO_API_KEY"),
-        ("kilocode",    "https://api.kilo.ai/api/gateway",                        "KILOCODE_API_KEY"),
-        ("kiloai",      "https://api.kilo.ai/api/gateway",                        "KILOAI_API_KEY"),
-        ("zai",         "https://api.z.ai/api/paas/v4",                           "KILOAI_API_KEY"),
-        ("huggingface", "https://api-inference.huggingface.co/v1",                "HUGGINGFACE_API_KEY"),
-        ("arcee",       "https://api.arcee.ai/v1",                                "ARCEE_API_KEY"),
+        (
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "ANTHROPIC_API_KEY",
+        ),
+        ("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
+        (
+            "google",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "GOOGLE_API_KEY",
+        ),
+        (
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "GEMINI_API_KEY",
+        ),
+        (
+            "deepseek",
+            "https://api.deepseek.com/v1",
+            "DEEPSEEK_API_KEY",
+        ),
+        ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+        (
+            "openrouter",
+            "https://openrouter.ai/api/v1",
+            "OPENROUTER_API_KEY",
+        ),
+        ("mistral", "https://api.mistral.ai/v1", "MISTRAL_API_KEY"),
+        ("xai", "https://api.x.ai/v1", "XAI_API_KEY"),
+        ("cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
+        (
+            "nvidia",
+            "https://integrate.api.nvidia.com/v1",
+            "NVIDIA_API_KEY",
+        ),
+        (
+            "perplexity",
+            "https://api.perplexity.ai",
+            "PERPLEXITY_API_KEY",
+        ),
+        ("moonshot", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
+        (
+            "moonshotai",
+            "https://api.moonshot.ai/v1",
+            "MOONSHOTAI_API_KEY",
+        ),
+        ("kimi", "https://api.moonshot.ai/v1", "KIMI_API_KEY"),
+        ("kilo", "https://api.kilo.ai/api/gateway", "KILO_API_KEY"),
+        (
+            "kilocode",
+            "https://api.kilo.ai/api/gateway",
+            "KILOCODE_API_KEY",
+        ),
+        (
+            "kiloai",
+            "https://api.kilo.ai/api/gateway",
+            "KILOAI_API_KEY",
+        ),
+        ("zai", "https://api.z.ai/api/paas/v4", "KILOAI_API_KEY"),
+        (
+            "huggingface",
+            "https://api-inference.huggingface.co/v1",
+            "HUGGINGFACE_API_KEY",
+        ),
+        ("arcee", "https://api.arcee.ai/v1", "ARCEE_API_KEY"),
     ];
     candidates
         .iter()
@@ -1595,36 +1693,83 @@ pub fn discover_providers() -> Vec<ProviderDef> {
 /// Return provider info by name, or None if unknown.
 pub fn get_provider(name: &str) -> Option<ProviderDef> {
     let candidates = [
-        ("anthropic",   "https://api.anthropic.com/v1",                           "ANTHROPIC_API_KEY"),
-        ("openai",      "https://api.openai.com/v1",                              "OPENAI_API_KEY"),
-        ("google",      "https://generativelanguage.googleapis.com/v1beta/openai","GOOGLE_API_KEY"),
-        ("gemini",      "https://generativelanguage.googleapis.com/v1beta/openai","GEMINI_API_KEY"),
-        ("deepseek",    "https://api.deepseek.com/v1",                            "DEEPSEEK_API_KEY"),
-        ("groq",        "https://api.groq.com/openai/v1",                         "GROQ_API_KEY"),
-        ("openrouter",  "https://openrouter.ai/api/v1",                           "OPENROUTER_API_KEY"),
-        ("mistral",     "https://api.mistral.ai/v1",                              "MISTRAL_API_KEY"),
-        ("xai",         "https://api.x.ai/v1",                                    "XAI_API_KEY"),
-        ("grok",        "https://api.x.ai/v1",                                    "XAI_API_KEY"),
-        ("cerebras",    "https://api.cerebras.ai/v1",                             "CEREBRAS_API_KEY"),
-        ("nvidia",      "https://integrate.api.nvidia.com/v1",                    "NVIDIA_API_KEY"),
-        ("perplexity",  "https://api.perplexity.ai",                              "PERPLEXITY_API_KEY"),
-        ("moonshot",    "https://api.moonshot.ai/v1",                             "MOONSHOT_API_KEY"),
-        ("moonshotai",  "https://api.moonshot.ai/v1",                             "MOONSHOTAI_API_KEY"),
-        ("kimi",        "https://api.moonshot.ai/v1",                             "KIMI_API_KEY"),
-        ("kilo",        "https://api.kilo.ai/api/gateway",                        "KILO_API_KEY"),
-        ("kilocode",    "https://api.kilo.ai/api/gateway",                        "KILOCODE_API_KEY"),
-        ("kiloai",      "https://api.kilo.ai/api/gateway",                        "KILOAI_API_KEY"),
-        ("zai",         "https://api.z.ai/api/paas/v4",                           "KILOAI_API_KEY"),
-        ("huggingface", "https://api-inference.huggingface.co/v1",                "HUGGINGFACE_API_KEY"),
-        ("arcee",       "https://api.arcee.ai/v1",                                "ARCEE_API_KEY"),
-        ("ollama",      "http://localhost:11434/v1",                               ""),
-        ("lmstudio",    "http://localhost:1234/v1",                                ""),
+        (
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            "ANTHROPIC_API_KEY",
+        ),
+        ("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
+        (
+            "google",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "GOOGLE_API_KEY",
+        ),
+        (
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "GEMINI_API_KEY",
+        ),
+        (
+            "deepseek",
+            "https://api.deepseek.com/v1",
+            "DEEPSEEK_API_KEY",
+        ),
+        ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+        (
+            "openrouter",
+            "https://openrouter.ai/api/v1",
+            "OPENROUTER_API_KEY",
+        ),
+        ("mistral", "https://api.mistral.ai/v1", "MISTRAL_API_KEY"),
+        ("xai", "https://api.x.ai/v1", "XAI_API_KEY"),
+        ("grok", "https://api.x.ai/v1", "XAI_API_KEY"),
+        ("cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
+        (
+            "nvidia",
+            "https://integrate.api.nvidia.com/v1",
+            "NVIDIA_API_KEY",
+        ),
+        (
+            "perplexity",
+            "https://api.perplexity.ai",
+            "PERPLEXITY_API_KEY",
+        ),
+        ("moonshot", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
+        (
+            "moonshotai",
+            "https://api.moonshot.ai/v1",
+            "MOONSHOTAI_API_KEY",
+        ),
+        ("kimi", "https://api.moonshot.ai/v1", "KIMI_API_KEY"),
+        ("kilo", "https://api.kilo.ai/api/gateway", "KILO_API_KEY"),
+        (
+            "kilocode",
+            "https://api.kilo.ai/api/gateway",
+            "KILOCODE_API_KEY",
+        ),
+        (
+            "kiloai",
+            "https://api.kilo.ai/api/gateway",
+            "KILOAI_API_KEY",
+        ),
+        ("zai", "https://api.z.ai/api/paas/v4", "KILOAI_API_KEY"),
+        (
+            "huggingface",
+            "https://api-inference.huggingface.co/v1",
+            "HUGGINGFACE_API_KEY",
+        ),
+        ("arcee", "https://api.arcee.ai/v1", "ARCEE_API_KEY"),
+        ("ollama", "http://localhost:11434/v1", ""),
+        ("lmstudio", "http://localhost:1234/v1", ""),
     ];
-    candidates.iter().find(|(n, _, _)| *n == name).map(|(n, u, k)| ProviderDef {
-        name: n.to_string(),
-        base_url: u.to_string(),
-        key_env: k.to_string(),
-    })
+    candidates
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(n, u, k)| ProviderDef {
+            name: n.to_string(),
+            base_url: u.to_string(),
+            key_env: k.to_string(),
+        })
 }
 
 /// True if the key looks like a real secret (non-empty, not a placeholder).
@@ -1643,3 +1788,5 @@ pub fn all_provider_quotas() -> Vec<(String, u64, u64, f64)> {
         .map(|p| (p.name, 0u64, u64::MAX, 1.0f64))
         .collect()
 }
+
+// ============================================================================

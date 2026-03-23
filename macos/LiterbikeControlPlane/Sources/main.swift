@@ -254,24 +254,90 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit(_ sender: Any?) { NSApp.terminate(nil) }
 
     private func loadTemplateStatusIcon() -> NSImage? {
+        // Try to load from app bundle Resources first, then fallback to cwd
+        let possiblePaths: [String]
+        
+        if let bundlePath = Bundle.main.resourcePath {
+            possiblePaths = [
+                bundlePath + "/literbike-vrod-icon.svg",
+                bundlePath + "/Resources/literbike-vrod-icon.svg",
+            ]
+        } else {
+            possiblePaths = []
+        }
+        
+        // Also check current directory for development
         let cwd = FileManager.default.currentDirectoryPath
-        let iconPath = cwd + "/literbike-vrod-icon.svg"
-        print("DEBUG: Attempting to load icon from: \(iconPath)")
-
-        if !FileManager.default.fileExists(atPath: iconPath) {
-            print("DEBUG: Icon file does not exist at path: \(iconPath)")
-            return NSImage(named: "NSActionTemplate")
+        let allPaths = possiblePaths + [
+            cwd + "/literbike-vrod-icon.svg",
+            cwd + "/../literbike-vrod-icon.svg",
+            cwd + "/../../literbike-vrod-icon.svg",
+        ]
+        
+        for iconPath in allPaths {
+            print("DEBUG: Attempting to load icon from: \(iconPath)")
+            if FileManager.default.fileExists(atPath: iconPath) {
+                if let image = NSImage(contentsOfFile: iconPath) {
+                    image.isTemplate = true
+                    image.size = NSSize(width: 18, height: 18)
+                    print("DEBUG: Successfully loaded icon from: \(iconPath)")
+                    return image
+                }
+            }
         }
-
-        guard let image = NSImage(contentsOfFile: iconPath) else {
-            print("DEBUG: Failed to initialize NSImage from path: \(iconPath)")
-            return NSImage(named: "NSActionTemplate")
+        
+        print("DEBUG: Could not load vrod icon, falling back to default")
+        // Return a programmatically drawn motorcycle icon as last resort
+        return createFallbackMotorcycleIcon()
+    }
+    
+    private func createFallbackMotorcycleIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        return NSImage(size: size, flipped: false) { rect in
+            let ctx = NSGraphicsContext.current?.cgContext
+            ctx?.setFillColor(NSColor.labelColor.cgColor)
+            ctx?.setStrokeColor(NSColor.labelColor.cgColor)
+            
+            // Draw simple motorcycle shape (V-rod style)
+            let w = rect.width
+            let h = rect.height
+            
+            // Headlight (circle)
+            let headlight = NSBezierPath(ovalIn: NSRect(x: w*0.35, y: h*0.55, width: w*0.3, height: h*0.25))
+            headlight.fill()
+            
+            // Handlebars (V shape)
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: w*0.2, y: h*0.7))
+            path.line(to: NSPoint(x: w*0.5, y: h*0.6))
+            path.line(to: NSPoint(x: w*0.8, y: h*0.7))
+            path.lineWidth = 2
+            path.stroke()
+            
+            // Forks
+            let leftFork = NSBezierPath()
+            leftFork.move(to: NSPoint(x: w*0.35, y: h*0.6))
+            leftFork.line(to: NSPoint(x: w*0.3, y: h*0.2))
+            leftFork.lineWidth = 2
+            leftFork.stroke()
+            
+            let rightFork = NSBezierPath()
+            rightFork.move(to: NSPoint(x: w*0.65, y: h*0.6))
+            rightFork.line(to: NSPoint(x: w*0.7, y: h*0.2))
+            rightFork.lineWidth = 2
+            rightFork.stroke()
+            
+            // Tire (arc)
+            let tire = NSBezierPath()
+            tire.move(to: NSPoint(x: w*0.25, y: h*0.25))
+            tire.curve(to: NSPoint(x: w*0.75, y: h*0.25),
+                      controlPoint1: NSPoint(x: w*0.3, y: h*0.05),
+                      controlPoint2: NSPoint(x: w*0.7, y: h*0.05))
+            tire.lineWidth = 2.5
+            tire.stroke()
+            
+            return true
         }
-
-        image.isTemplate = true
-        image.size = NSSize(width: 18, height: 18)
-        print("DEBUG: Successfully loaded and configured icon.")
-        return image
     }
 }
 
