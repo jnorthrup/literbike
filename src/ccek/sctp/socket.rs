@@ -4,14 +4,23 @@
 //! Supports multi-homing, stream multiplexing, and the 4-way handshake.
 
 use std::io::{self, Read, Write};
-use std::net::{SocketAddr, Ipv4Addr};
-use std::os::unix::io::{RawFd, AsRawFd, FromRawFd};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 #[cfg(target_os = "linux")]
 use std::os::fd::BorrowedFd;
 
-use crate::reactor::channel::SelectableChannel;
-use crate::sctp::chunk::{Chunk, ChunkType, DataChunk};
+use crate::chunks::{Chunk, ChunkFlags, ChunkType, DataChunk};
+
+pub trait SelectableChannel: Send + Sync {
+    fn as_raw_fd(&self) -> RawFd;
+    fn raw_fd(&self) -> RawFd;
+    fn is_open(&self) -> bool;
+    fn close(&mut self) -> io::Result<()>;
+    fn bind(&mut self, addr: SocketAddr) -> io::Result<()>;
+    fn listen(&mut self) -> io::Result<()>;
+    fn accept(&mut self) -> io::Result<(std::net::TcpStream, SocketAddr)>;
+}
 
 /// SCTP protocol constants
 pub const IPPROTO_SCTP: u8 = 132;
@@ -221,9 +230,7 @@ impl SctpSocket {
         }
 
         let chunk = DataChunk {
-            flags: crate::sctp::chunk::DataFlags(
-                crate::sctp::chunk::DataFlags::BEGIN | crate::sctp::chunk::DataFlags::END,
-            ),
+            flags: ChunkFlags::EMPTY.with_beginning().with_end(),
             stream_id,
             stream_seq_num: 0,
             payload_protocol_id: 0,
@@ -270,12 +277,7 @@ impl SctpSocket {
     /// Receive a raw SCTP packet
     fn recv_packet(&self, buf: &mut [u8]) -> io::Result<usize> {
         unsafe {
-            let n = libc::recv(
-                self.fd,
-                buf.as_mut_ptr() as *mut libc::c_void,
-                buf.len(),
-                0,
-            );
+            let n = libc::recv(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len(), 0);
             if n < 0 {
                 Err(io::Error::last_os_error())
             } else {

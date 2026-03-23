@@ -16,5 +16,8 @@ full = ["sctp-core", "association", "stream", "chunk"]
 
 [dependencies]
 ccek-core = { path = "../core" }
+parking_lot = "0.12"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["time"] }
 
 [dev-dependencies]

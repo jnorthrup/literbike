@@ -2,19 +2,25 @@
 //!
 //! Implements EventHandler trait for dispatching SCTP events through the reactor.
 
+use super::socket::SctpSocket;
+use crate::chunks::Chunk;
+use parking_lot::Mutex;
 use std::io;
 use std::os::unix::io::RawFd;
 use std::sync::Arc;
-use parking_lot::Mutex;
-use crate::reactor::handler::EventHandler;
-use crate::sctp::socket::SctpSocket;
-use crate::sctp::chunk::Chunk;
 
 /// Callback for received SCTP data
 pub type SctpDataCallback = Arc<Mutex<dyn FnMut(u16, Vec<u8>) + Send>>;
 
 /// Callback for association state changes
-pub type SctpStateCallback = Arc<Mutex<dyn FnMut(crate::sctp::socket::AssociationState) + Send>>;
+pub type SctpStateCallback = Arc<Mutex<dyn FnMut(super::socket::AssociationState) + Send>>;
+
+/// EventHandler stub for SCTP
+pub trait EventHandler: Send + Sync {
+    fn on_readable(&mut self, fd: RawFd);
+    fn on_writable(&mut self, fd: RawFd);
+    fn on_error(&mut self, fd: RawFd, error: io::Error);
+}
 
 /// SCTP handler for reactor integration
 pub struct SctpHandler {
@@ -85,7 +91,7 @@ impl EventHandler for SctpHandler {
         eprintln!("SCTP socket error: {}", error);
         if let Some(ref cb) = self.on_state_change {
             if let Some(mut callback) = cb.try_lock() {
-                callback(crate::sctp::socket::AssociationState::Closed);
+                callback(super::socket::AssociationState::Closed);
             }
         }
     }
