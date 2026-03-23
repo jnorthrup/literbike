@@ -141,4 +141,9 @@ members = [
     "tools/selfhosted",
     "tools/config_tester",
     "conductor-cli",
+    "src/ccek/core",
+    "src/ccek/agent8888",
+    "src/ccek/quic",
+    "src/ccek/sctp",
+    "src/ccek/htx",
 ]

@@ -1,7 +1,9 @@
-//! CCEK SDK - Exact Kotlin kotlinx-coroutines translation
+//! HTXKE - Exact Kotlin kotlinx-coroutines translation (LEGACY)
+//!
+//! This is the original CCEK concept. The new implementation is in src/ccek/
 
 pub mod channels;
-pub mod context;
+// pub mod context; // TODO: stub out missing modules
 pub mod elements;
 pub mod kotlin_mirror;
 pub mod scope;
