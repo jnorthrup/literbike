@@ -146,4 +146,5 @@ members = [
     "src/ccek/quic",
     "src/ccek/sctp",
     "src/ccek/htxke",
+    "src/http-htx",
 ]
