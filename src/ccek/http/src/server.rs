@@ -5,7 +5,6 @@
 
 use super::header_parser::{headers, mime, HttpStatus};
 use super::session::{HttpSession, SessionState};
-use crate::reactor::handler::EventHandler;
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -13,6 +12,12 @@ use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::sync::Arc;
+
+pub trait EventHandler: Send + Sync {
+    fn on_readable(&mut self, fd: RawFd);
+    fn on_writable(&mut self, fd: RawFd);
+    fn on_error(&mut self, fd: RawFd, error: std::io::Error);
+}
 
 /// HTTP request handler trait
 pub trait HttpHandler: Send + Sync {
