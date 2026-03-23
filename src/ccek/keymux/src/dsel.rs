@@ -1498,6 +1498,29 @@ pub fn route(model: &str) -> Option<(String, String, String)> {
             "http://localhost:1234/v1".into(),
             String::new(),
         )),
+        // opencode-go has model-specific endpoints per format
+        "opencode-go" => {
+            let model_name = model.split('/').nth(1).unwrap_or("");
+            match model_name {
+                // OpenAI-compatible format
+                "glm-5" | "kimi-k2.5" => Some((
+                    "opencode-go".into(),
+                    "https://opencode.ai/zen/go/v1/chat/completions".into(),
+                    "OPENCODE_API_KEY".into(),
+                )),
+                // Anthropic format (/messages)
+                "minimax-m2.7" | "minimax-m2.5" => Some((
+                    "opencode-go".into(),
+                    "https://opencode.ai/zen/go/v1/messages".into(),
+                    "OPENCODE_API_KEY".into(),
+                )),
+                _ => Some((
+                    "opencode-go".into(),
+                    "https://opencode.ai/zen/go/v1".into(),
+                    "OPENCODE_API_KEY".into(),
+                )),
+            }
+        }
         _ => None,
     }
 }

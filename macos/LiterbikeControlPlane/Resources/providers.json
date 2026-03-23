@@ -1,0 +1,87 @@
+{
+  "providers": {
+    "anthropic": {
+      "base_url": "https://api.anthropic.com/v1",
+      "key_env": "ANTHROPIC_API_KEY",
+      "format": "anthropic"
+    },
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "key_env": "OPENAI_API_KEY",
+      "format": "openai"
+    },
+    "google": {
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "key_env": "GOOGLE_API_KEY",
+      "format": "openai"
+    },
+    "gemini": {
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "key_env": "GOOGLE_API_KEY",
+      "format": "openai"
+    },
+    "groq": {
+      "base_url": "https://api.groq.com/openai/v1",
+      "key_env": "GROQ_API_KEY",
+      "format": "openai"
+    },
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "key_env": "OPENROUTER_API_KEY",
+      "format": "openai"
+    },
+    "mistral": {
+      "base_url": "https://api.mistral.ai/v1",
+      "key_env": "MISTRAL_API_KEY",
+      "format": "openai"
+    },
+    "xai": {
+      "base_url": "https://api.x.ai/v1",
+      "key_env": "XAI_API_KEY",
+      "format": "openai"
+    },
+    "grok": {
+      "base_url": "https://api.x.ai/v1",
+      "key_env": "XAI_API_KEY",
+      "format": "openai"
+    },
+    "cerebras": {
+      "base_url": "https://api.cerebras.ai/v1",
+      "key_env": "CEREBRAS_API_KEY",
+      "format": "openai"
+    },
+    "opencode-go": {
+      "base_url": "https://opencode.ai/zen/go/v1",
+      "key_env": "OPENCODE_API_KEY",
+      "format": "dynamic",
+      "models": {
+        "glm-5": {
+          "endpoint": "/chat/completions",
+          "format": "openai"
+        },
+        "kimi-k2.5": {
+          "endpoint": "/chat/completions",
+          "format": "openai"
+        },
+        "minimax-m2.7": {
+          "endpoint": "/messages",
+          "format": "anthropic"
+        },
+        "minimax-m2.5": {
+          "endpoint": "/messages",
+          "format": "anthropic"
+        }
+      }
+    },
+    "ollama": {
+      "base_url": "http://localhost:11434/v1",
+      "key_env": "",
+      "format": "openai"
+    },
+    "lmstudio": {
+      "base_url": "http://localhost:1234/v1",
+      "key_env": "",
+      "format": "openai"
+    }
+  }
+}

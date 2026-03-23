@@ -1,7 +1,25 @@
 import AppKit
 import Foundation
 
-// MARK: - Server Response (ACTUAL format from localhost:8888)
+// MARK: - Provider Config from JSON
+
+private struct ProviderConfig: Decodable {
+    let base_url: String
+    let key_env: String
+    let format: String
+    let models: [String: ModelConfig]?
+}
+
+private struct ModelConfig: Decodable {
+    let endpoint: String
+    let format: String
+}
+
+private struct ProvidersRoot: Decodable {
+    let providers: [String: ProviderConfig]
+}
+
+// MARK: - Server Response
 
 private struct ServerRoute: Decodable {
     let provider: String?
@@ -9,51 +27,44 @@ private struct ServerRoute: Decodable {
     let family: String
 }
 
-private struct ServerEnv: Decodable {
-    let recognized_keys: Int
-    let unknown_keys: Int
-    let confidence: String
-}
-
 private struct ToolbarState: Decodable {
     let route: ServerRoute
-    let env: ServerEnv
 }
-
-// MARK: - Provider Config (from DSEL - ONLY these are hardcoded)
-
-private let providerHosts: [(String, String, String)] = [
-    ("anthropic",  "https://api.anthropic.com/v1",                           "ANTHROPIC_API_KEY"),
-    ("openai",     "https://api.openai.com/v1",                              "OPENAI_API_KEY"),
-    ("google",     "https://generativelanguage.googleapis.com/v1beta/openai", "GOOGLE_API_KEY"),
-    ("gemini",     "https://generativelanguage.googleapis.com/v1beta/openai", "GOOGLE_API_KEY"),
-    ("groq",       "https://api.groq.com/openai/v1",                         "GROQ_API_KEY"),
-    ("openrouter", "https://openrouter.ai/api/v1",                           "OPENROUTER_API_KEY"),
-    ("mistral",    "https://api.mistral.ai/v1",                              "MISTRAL_API_KEY"),
-    ("xai",        "https://api.x.ai/v1",                                    "XAI_API_KEY"),
-    ("cerebras",   "https://api.cerebras.ai/v1",                             "CEREBRAS_API_KEY"),
-    ("kilocode",   "https://api.kilocode.ai",                                "KILOCODE_API_KEY"),
-    ("opencode",   "https://api.opencode.ai",                                "OPENCODE_API_KEY"),
-    ("zai",        "https://api.z.ai/v1",                                    "ZAI_API_KEY"),
-    ("nvidia",     "https://api.nvidia.com/v1",                              "NVIDIA_API_KEY"),
-    ("moonshot",   "https://api.moonshot.cn/v1",                             "MOONSHOT_API_KEY"),
-    ("ollama",     "http://localhost:11434/v1",                              ""),
-    ("lmstudio",   "http://localhost:1234/v1",                               ""),
-]
 
 // MARK: - App
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
+    private var providers: [String: ProviderConfig] = [:]
     private var currentProvider: String = ""
     private var currentModel: String = ""
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        loadProviders()
         setupStatusItem()
         fetchStatus()
         Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.fetchStatus()
         }
+    }
+    
+    // MARK: - Load Providers from JSON
+    
+    private func loadProviders() {
+        let paths = [
+            Bundle.main.resourcePath.flatMap { $0 + "/providers.json" },
+            Bundle.main.resourcePath.flatMap { $0 + "/Resources/providers.json" },
+            FileManager.default.currentDirectoryPath + "/macos/LiterbikeControlPlane/Resources/providers.json",
+        ].compactMap { $0 }
+        
+        for path in paths {
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+               let root = try? JSONDecoder().decode(ProvidersRoot.self, from: data) {
+                providers = root.providers
+                return
+            }
+        }
+        print("Failed to load providers.json")
     }
     
     // MARK: - Grandfather's Icon
@@ -62,7 +73,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let paths = [
             Bundle.main.resourcePath.flatMap { $0 + "/literbike-vrod-icon.svg" },
             Bundle.main.resourcePath.flatMap { $0 + "/Resources/literbike-vrod-icon.svg" },
-            FileManager.default.currentDirectoryPath + "/literbike-vrod-icon.svg",
             FileManager.default.currentDirectoryPath + "/macos/LiterbikeControlPlane/Resources/literbike-vrod-icon.svg",
         ].compactMap { $0 }
         
@@ -126,24 +136,53 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
         }
         
-        // Provider tree: host mappings from DSEL
+        // Provider tree from JSON
         menu.addItem(NSMenuItem(title: "PROVIDERS", action: nil, keyEquivalent: ""))
         
-        for (name, host, keyEnv) in providerHosts {
-            let hasKey = !keyEnv.isEmpty && env[keyEnv] != nil && !env[keyEnv]!.isEmpty
+        for (name, config) in providers.sorted(by: { $0.key < $1.key }) {
+            let hasKey = !config.key_env.isEmpty && env[config.key_env] != nil && !env[config.key_env]!.isEmpty
             let indicator = hasKey ? "✓" : "○"
-            let item = NSMenuItem(title: "\(indicator) \(name)", action: nil, keyEquivalent: "")
             
-            // Submenu with host
+            // Build display name with format indicator
+            var displayName = "\(indicator) \(name)"
+            if config.format == "dynamic", let models = config.models, !models.isEmpty {
+                displayName += " [\(models.count) models]"
+            }
+            
+            let item = NSMenuItem(title: displayName, action: nil, keyEquivalent: "")
+            
+            // Submenu
             let sub = NSMenu()
-            let hostItem = NSMenuItem(title: host, action: nil, keyEquivalent: "")
-            hostItem.isEnabled = false
-            sub.addItem(hostItem)
             
-            if hasKey {
-                let keyItem = NSMenuItem(title: "Key: \(keyEnv)", action: nil, keyEquivalent: "")
+            // Base URL
+            let urlItem = NSMenuItem(title: config.base_url, action: nil, keyEquivalent: "")
+            urlItem.isEnabled = false
+            sub.addItem(urlItem)
+            
+            // Format
+            let formatItem = NSMenuItem(title: "format: \(config.format)", action: nil, keyEquivalent: "")
+            formatItem.isEnabled = false
+            sub.addItem(formatItem)
+            
+            // Key
+            if !config.key_env.isEmpty {
+                let keyItem = NSMenuItem(title: "key: \(config.key_env)", action: nil, keyEquivalent: "")
                 keyItem.isEnabled = false
                 sub.addItem(keyItem)
+            }
+            
+            // Model-specific endpoints for dynamic providers
+            if let models = config.models {
+                sub.addItem(.separator())
+                for (modelName, modelConfig) in models.sorted(by: { $0.key < $1.key }) {
+                    let modelItem = NSMenuItem(
+                        title: "\(modelName) → \(modelConfig.endpoint) [\(modelConfig.format)]",
+                        action: nil,
+                        keyEquivalent: ""
+                    )
+                    modelItem.isEnabled = false
+                    sub.addItem(modelItem)
+                }
             }
             
             item.submenu = sub
@@ -158,6 +197,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func refresh(_ sender: NSMenuItem) {
+        loadProviders()
         fetchStatus()
     }
     
