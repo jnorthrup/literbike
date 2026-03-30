@@ -1,13 +1,21 @@
 # GNU Affero General Public License v3.0
 
-This file contains information about the AGPL-3.0 license that applies to LiteBike Proxy.
+Copyright (C) Glamdring Incorporated Enterprises.
 
-For the complete AGPL-3.0 license text, see:
-https://www.gnu.org/licenses/agpl-3.0.html
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 ## AGPL-3.0 Requirements
-
-The AGPL-3.0 license requires that:
 
 1. **Source Code Availability**: If you run this software as a network service, you must provide source code to users
 2. **License Compatibility**: Your entire application must be AGPL-3.0 compatible
@@ -17,20 +25,8 @@ The AGPL-3.0 license requires that:
 
 ## Key Difference from GPL-3.0
 
-**AGPL-3.0 closes the "SaaS loophole"**:
-- GPL-3.0: Only requires source code when you distribute software
-- AGPL-3.0: **Also** requires source code when you provide network services
-
-This means hosting LiteBike as a service requires making your entire application open source.
-
-## Alternative: Commercial License
-
-To avoid AGPL-3.0 requirements and use LiteBike Proxy in proprietary applications:
-- Purchase a commercial license from the copyright holder
-- Contact via GitHub issues with "Commercial License" tag
-- Maintain full proprietary rights to your own code
-- No requirement to open source your application
+AGPL-3.0 closes the "SaaS loophole" — hosting this software as a service requires making your entire application open source.
 
 ---
 
-**Note**: Personal, educational, and research use is free under AGPL-3.0.
+See LICENSE for the full license text.
